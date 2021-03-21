@@ -112,6 +112,15 @@ extern bool taseditorEnableAcceleratorKeys;
  #define __COMPILER__STRING__ "unknown"
 #endif
 
+// 64-bit build requires manifest to use common controls 6 (style adapts to windows version)
+#pragma comment(linker, \
+    "\"/manifestdependency:type='win32' "\
+    "name='Microsoft.Windows.Common-Controls' "\
+    "version='6.0.0.0' "\
+    "processorArchitecture='*' "\
+    "publicKeyToken='6595b64144ccf1df' "\
+    "language='*'\"")
+
 // External functions
 extern std::string cfgFile;		//Contains the filename of the config file used.
 extern bool turbo;				//Is game in turbo mode?
@@ -161,8 +170,10 @@ int PauseAfterLoad;
 unsigned int skippy = 0;  //Frame skip
 int frameSkipCounter = 0; //Counter for managing frame skip
 // Contains the names of the overridden standard directories
-// in the order roms, nonvol, states, fdsrom, snaps, cheats, movies, memwatch, macro, input presets, lua scripts, base
-char *directory_names[14] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// in the order roms, nonvol, states, fdsrom, snaps, cheats, movies, memwatch, basic bot, macro, input presets, lua scripts, avi, base
+char *directory_names[14] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+int edit_id[14] = { EDIT_ROM, EDIT_BATTERY, EDIT_STATE, EDIT_FDSBIOS, EDIT_SCREENSHOT, EDIT_CHEAT, EDIT_MOVIE, EDIT_MEMWATCH, EDIT_BOT, EDIT_MACRO, EDIT_PRESET, EDIT_LUA, EDIT_AVI, EDIT_ROOT };
+int browse_btn_id[14] = {BUTTON_ROM, BUTTON_BATTERY, BUTTON_STATE, BUTTON_FDSBIOS, BUTTON_SCREENSHOT, BUTTON_CHEAT, BUTTON_MOVIE, BUTTON_MEMWATCH, BUTTON_BOT, BUTTON_MACRO, BUTTON_PRESET, BUTTON_LUA, BUTTON_AVI, BUTTON_ROOT };
 std::string cfgFile = "fceux.cfg";
 //Handle of the main window.
 HWND hAppWnd = 0;
@@ -275,7 +286,7 @@ void DefaultDirectoryWalker(void (*callback)(const char*))
 			sprintf(
 				TempArray,
 				"%s\\%s",
-				directory_names[NUMBER_OF_DEFAULT_DIRECTORIES] ? directory_names[NUMBER_OF_DEFAULT_DIRECTORIES] : BaseDirectory.c_str(),
+				directory_names[NUMBER_OF_DEFAULT_DIRECTORIES - 1] ? directory_names[NUMBER_OF_DEFAULT_DIRECTORIES - 1] : BaseDirectory.c_str(),
 				default_directory_names[curr_dir]
 			);
 
@@ -519,7 +530,11 @@ void DoFCEUExit()
 			}
 		}
 
+		exiting = 1;
+
 		KillDebugger(); //mbg merge 7/19/06 added
+		ResetWatches();
+		KillMemView(); 
 
 		FCEUI_StopMovie();
 		FCEUD_AviStop();
@@ -527,7 +542,6 @@ void DoFCEUExit()
 		FCEU_LuaStop(); // kill lua script before the gui dies
 #endif
 
-		exiting = 1;
 		closeGame = true;//mbg 6/30/06 - for housekeeping purposes we need to exit after the emulation cycle finishes
 		// remember the ROM name
 		extern char LoadedRomFName[2048];
@@ -1154,7 +1168,7 @@ void FCEUD_ToggleStatusIcon(void)
 	UpdateCheckedMenuItems();
 }
 
-char *GetRomName(bool force)
+std::string GetRomName(bool force)
 {
 	//The purpose of this function is to format the ROM name stored in LoadedRomFName
 	//And return a char array with just the name with path or extension
@@ -1162,20 +1176,18 @@ char *GetRomName(bool force)
 	extern char LoadedRomFName[2048];	//Contains full path of ROM
 	std::string Rom;					//Will contain the formatted path
 	if(GameInfo || force)						//If ROM is loaded
-		{
+	{
 		char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
 		splitpath(LoadedRomFName,drv,dir,name,ext);	//Extract components of the ROM path
 		Rom = name;						//Pull out the Name only
-		}
+	}
 	else
 		Rom = "";
-	char*mystring = (char*)malloc(2048*sizeof(char));
-	strcpy(mystring, Rom.c_str());		//Convert string to char*
 
-	return mystring;
+	return Rom;
 }
 
-char *GetRomPath(bool force)
+std::string GetRomPath(bool force)
 {
 	//The purpose of this function is to format the ROM name stored in LoadedRomFName
 	//And return a char array with just the name with path or extension
@@ -1183,16 +1195,13 @@ char *GetRomPath(bool force)
 	extern char LoadedRomFName[2048];	//Contains full path of ROM
 	std::string Rom;					//Will contain the formatted path
 	if(GameInfo || force)						//If ROM is loaded
-		{
+	{
 		char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
 		splitpath(LoadedRomFName,drv,dir,name,ext);	//Extract components of the ROM path
 		Rom = drv;						//Pull out the Path only
 		Rom.append(dir);
-		}
+	}
 	else
 		Rom = "";
-	char*mystring = (char*)malloc(2048*sizeof(char));
-	strcpy(mystring, Rom.c_str());		//Convert string to char*
-
-	return mystring;
+	return Rom;
 }

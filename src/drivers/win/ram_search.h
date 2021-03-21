@@ -21,8 +21,6 @@ extern int curr_ram_size;
 extern bool noMisalign;
 
 void ResetResults();
-void CloseRamWindows(); //Close the Ram Search & Watch windows when rom closes
-void ReopenRamWindows(); //Reopen them when a new Rom is loaded
 void Update_RAM_Search(); //keeps RAM values up to date in the search and watch windows
 
 void SetSearchType(int SearchType); //Set the search type
@@ -36,5 +34,11 @@ extern POINT CalcSubWindowPos(HWND hDlg, POINT* conf);
 // by sorting in ram list doesn't help too much in usually use, so I gave it up. 
 // static int CALLBACK RamSearchItemSortFunc(LPARAM lp1, LPARAM lp2, LPARAM lpSort);
 // extern void UpdateSortColumnIcon(HWND hwndListView, int sortColumn, bool sortAsc);
+
+#define CHEAT_1BYTE_BG RGB(216, 203, 253)
+#define CHEAT_2BYTE_BG RGB(195, 186, 253)
+#define CHEAT_3BYTE_BG RGB(176, 139, 252)
+#define CHEAT_4BYTE_BG RGB(175, 94, 253)
+#define CHEAT_4BYTE_TEXT RGB(255, 255, 255)
 
 #endif

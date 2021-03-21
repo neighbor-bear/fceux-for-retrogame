@@ -23,7 +23,7 @@ ArchiveScanRecord FCEUD_ScanArchive(std::string fname);
 const char *FCEUD_GetCompilerString();
 
 //This makes me feel dirty for some reason.
-void FCEU_printf(char *format, ...);
+void FCEU_printf(const char *format, ...);
 #define FCEUI_printf FCEU_printf
 
 //Video interface
@@ -125,6 +125,7 @@ void FCEUI_SetVidSystem(int a);
 //Set variables for NTSC(0) / PAL(1) / Dendy(2)
 //Dendy has PAL framerate and resolution, but ~NTSC timings, and has 50 dummy scanlines to force 50 fps
 void FCEUI_SetRegion(int region, int notify = 1);
+int  FCEUI_GetRegion(void);
 
 //Convenience function; returns currently emulated video system(0=NTSC, 1=PAL).
 int FCEUI_GetCurrentVidSystem(int *slstart, int *slend);
@@ -142,7 +143,9 @@ void FCEUI_SetRenderedLines(int ntscf, int ntscl, int palf, int pall);
 
 //Sets the base directory(save states, snapshots, etc. are saved in directories below this directory.
 void FCEUI_SetBaseDirectory(std::string const & dir);
+const char *FCEUI_GetBaseDirectory(void);
 
+bool FCEUI_GetUserPaletteAvail(void);
 void FCEUI_SetUserPalette(uint8 *pal, int nEntries);
 
 //Sets up sound code to render sound at the specified rate, in samples
@@ -183,7 +186,7 @@ void FCEUD_LuaRunFrom(void);
 int32 FCEUI_GetDesiredFPS(void);
 void FCEUI_SaveSnapshot(void);
 void FCEUI_SaveSnapshotAs(void);
-void FCEU_DispMessage(char *format, int disppos, ...);
+void FCEU_DispMessage(const char *format, int disppos, ...);
 #define FCEUI_DispMessage FCEU_DispMessage
 
 int FCEUI_DecodePAR(const char *code, int *a, int *v, int *c, int *type);
@@ -250,7 +253,7 @@ void FCEUI_FDSInsert(void); //mbg merge 7/17/06 changed to void fn(void) to make
 //int FCEUI_FDSEject(void);
 void FCEUI_FDSSelect(void);
 
-int FCEUI_DatachSet(const uint8 *rcode);
+int FCEUI_DatachSet(uint8 *rcode);
 
 ///returns a flag indicating whether emulation is paused
 int FCEUI_EmulationPaused();
@@ -340,7 +343,7 @@ enum EFCEUI
 	FCEUI_STOPMOVIE, FCEUI_RECORDMOVIE, FCEUI_PLAYMOVIE,
 	FCEUI_OPENGAME, FCEUI_CLOSEGAME,
 	FCEUI_TASEDITOR,
-	FCEUI_RESET, FCEUI_POWER, FCEUI_PLAYFROMBEGINNING, FCEUI_EJECT_DISK, FCEUI_SWITCH_DISK, FCEUI_INSERT_COIN,
+	FCEUI_RESET, FCEUI_POWER, FCEUI_PLAYFROMBEGINNING, FCEUI_EJECT_DISK, FCEUI_SWITCH_DISK, FCEUI_INSERT_COIN, FCEUI_INPUT_BARCODE,
 	FCEUI_TOGGLERECORDINGMOVIE, FCEUI_TRUNCATEMOVIE, FCEUI_INSERT1FRAME, FCEUI_DELETE1FRAME
 };
 

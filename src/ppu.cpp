@@ -1669,7 +1669,12 @@ static void CopySprites(uint8 *target) {
 	if (!rendersprites) return;	//User asked to not display sprites.
 
 	if(!SpriteON) return;
-	for(int i=0;i<256;i++)
+	
+	int start=8;
+	if(PPU[1] & 0x04)
+		start = 0;
+
+	for(int i=start;i<256;i++)
 	{
 		uint8 t = sprlinebuf[i];
 		if(!(t&0x80))
@@ -1846,8 +1851,10 @@ int FCEUPPU_Loop(int skip) {
 
 			for (scanline = 0; scanline < totalscanlines; ) {	//scanline is incremented in  DoLine.  Evil. :/
 				deempcnt[deemp]++;
+
 				if (scanline < 240)
 					DEBUG(FCEUD_UpdatePPUView(scanline, 1));
+
 				DoLine();
 
 				if (scanline < normalscanlines || scanline == totalscanlines)
@@ -2128,7 +2135,8 @@ int FCEUX_PPU_Loop(int skip) {
 		//int xscroll = ppur.fh;
 		//render 241/291 scanlines (1 dummy at beginning, dendy's 50 at the end)
 		//ignore overclocking!
-		for (int sl = 0; sl < normalscanlines; sl++) {
+		for (int sl = 0; sl < normalscanlines; sl++) 
+		{
 			spr_read.start_scanline();
 
 			g_rasterpos = 0;
@@ -2139,7 +2147,8 @@ int FCEUX_PPU_Loop(int skip) {
 			const int yp = sl - 1;
 			ppuphase = PPUPHASE_BG;
 
-			if (sl != 0 && sl < 241) { // ignore the invisible
+			if (sl != 0 && sl < 241)  // ignore the invisible
+			{
 				DEBUG(FCEUD_UpdatePPUView(scanline = yp, 1));
 				DEBUG(FCEUD_UpdateNTView(scanline = yp, 1));
 			}

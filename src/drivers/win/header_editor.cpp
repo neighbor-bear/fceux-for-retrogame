@@ -117,6 +117,8 @@ char* inputDevList[] = {
 	0
 };
 
+static HFONT hFont, hNewFont;
+
 char** dropDownList[] = {
 	vsSysList, vsPPUList, extConsoleList, inputDevList, 0
 };
@@ -159,11 +161,11 @@ bool LoadHeader(HWND parent, iNES_HEADER* header)
 			error = errors::UNIF_HEADER;
 		else if (!memcmp(header, "NESM", 4))
 			error = errors::NSF_HEADER;
-/*		else if (!memcmp(header, "NSFE", 4))
-			error = errors::NSFE_HEADER;
-		else if (!memcmp(header, "NESM\2", 4))
-			error = errors::NSF2_HEADER;
-*/		else
+		/*		else if (!memcmp(header, "NSFE", 4))
+					error = errors::NSFE_HEADER;
+				else if (!memcmp(header, "NESM\2", 4))
+					error = errors::NSF2_HEADER;
+		*/		else
 			error = errors::INVALID_HEADER;
 		FCEU_fclose(fp);
 	}
@@ -174,27 +176,27 @@ bool LoadHeader(HWND parent, iNES_HEADER* header)
 	{
 		switch (error)
 		{
-			case errors::OPEN_FAILED:
-			{
-				char buf[1024];
-				sprintf(buf, "Error opening %s!", LoadedRomFName);
-				MessageBox(parent, buf, "iNES Header Editor", MB_OK | MB_ICONERROR);
-				break;
-			}
-			case errors::INVALID_HEADER:
-				MessageBox(parent, "Invalid iNES header.", "iNES Header Editor", MB_OK | MB_ICONERROR);
-				break;
-			case errors::FDS_HEADER:
-				MessageBox(parent, "Editing header of an FDS file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
-				break;
-			case errors::UNIF_HEADER:
-				MessageBox(parent, "Editing header of a UNIF file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
-				break;
-			case errors::NSF_HEADER:
-//			case errors::NSF2_HEADER:
-//			case errors::NSFE_HEADER:
-				MessageBox(parent, "Editing header of an NSF file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
-				break;
+		case errors::OPEN_FAILED:
+		{
+			char buf[1024];
+			sprintf(buf, "Error opening %s!", LoadedRomFName);
+			MessageBox(parent, buf, "iNES Header Editor", MB_OK | MB_ICONERROR);
+			break;
+		}
+		case errors::INVALID_HEADER:
+			MessageBox(parent, "Invalid iNES header.", "iNES Header Editor", MB_OK | MB_ICONERROR);
+			break;
+		case errors::FDS_HEADER:
+			MessageBox(parent, "Editing header of an FDS file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
+			break;
+		case errors::UNIF_HEADER:
+			MessageBox(parent, "Editing header of a UNIF file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
+			break;
+		case errors::NSF_HEADER:
+			//			case errors::NSF2_HEADER:
+			//			case errors::NSFE_HEADER:
+			MessageBox(parent, "Editing header of an NSF file is not supported.", "iNES Header Editor", MB_OK | MB_ICONERROR);
+			break;
 		}
 		return false;
 	}
@@ -316,7 +318,7 @@ HWND InitHeaderEditDialog(HWND hwnd, iNES_HEADER* header)
 		for (int j = 0; dropDownList[i][j]; ++j)
 		{
 			sprintf(buf, dropDownList[i] == inputDevList ? "$%02X %s" : "$%X %s", j, dropDownList[i][j]);
-			SendDlgItemMessage(hwnd, IDC_MAPPER_COMBO, CB_SETITEMDATA, SendDlgItemMessage(hwnd, dropDownIdList[i], CB_ADDSTRING, 0, (LPARAM)buf), j);
+			SendDlgItemMessage(hwnd, dropDownIdList[i], CB_SETITEMDATA, SendDlgItemMessage(hwnd, dropDownIdList[i], CB_ADDSTRING, 0, (LPARAM)buf), j);
 		}
 
 	// Mapper#
@@ -353,7 +355,7 @@ HWND InitHeaderEditDialog(HWND hwnd, iNES_HEADER* header)
 				SendDlgItemMessage(hwnd, IDC_PRGROM_COMBO, CB_SETITEMDATA, SendDlgItemMessage(hwnd, IDC_PRGROM_COMBO, CB_ADDSTRING, 0, (LPARAM)buf), size);
 			}
 		}
-		
+
 		if (size >= 1024)
 			sprintf(buf, "%dKB", size / 1024);
 		else
@@ -502,85 +504,148 @@ INT_PTR CALLBACK HeaderEditorProc(HWND hDlg, UINT uMsg, WPARAM wP, LPARAM lP)
 	static iNES_HEADER* header;
 
 	switch (uMsg) {
-		case WM_INITDIALOG:
+	case WM_INITDIALOG:
+	{
+		header = (iNES_HEADER*)lP;
+		if (!header)
+			goto wm_close;
+		else
+			InitHeaderEditDialog(hDlg, header);
+
+		// Put the window aside the main window when in game.
+		if (GameInfo)
+			CalcSubWindowPos(hDlg, NULL);
+
+		SetDlgItemText(hDlg, IDC_ROM_FILE_EDIT, LoadedRomFName);
+
+		char textHeader[16 * 3];
+		sprintf(textHeader, "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X", header->ID[0], header->ID[1], header->ID[2], header->ID[3], header->ROM_size, header->VROM_size, header->ROM_size, header->ROM_type2, header->ROM_type3, header->Upper_ROM_VROM_size, header->RAM_size, header->VRAM_size, header->TV_system, header->VS_hardware, header->reserved[0], header->reserved[1]);
+		SetDlgItemText(hDlg, IDC_HEX_HEADER_EDIT, textHeader);
+
+		hFont = (HFONT)SendMessage(hDlg, WM_GETFONT, 0, 0);
+		LOGFONT lf;
+		GetObject(hFont, sizeof(LOGFONT), &lf);
+		strcpy(lf.lfFaceName, "Courier New");
+		hNewFont = CreateFontIndirect(&lf);
+		SendDlgItemMessage(hDlg, IDC_HEX_HEADER_EDIT, WM_SETFONT, (WPARAM)hNewFont, FALSE);
+	}
+	break;
+	case WM_COMMAND:
+		switch (HIWORD(wP))
 		{
-			header = (iNES_HEADER*)lP;
-			if (!header)
-				goto wm_close;
-			else
-				InitHeaderEditDialog(hDlg, header);
-
-			// Put the window aside the main window when in game.
-			if (GameInfo)
-				CalcSubWindowPos(hDlg, NULL);
-
+			case EN_UPDATE:
+				switch (LOWORD(wP))
+				{
+					case IDC_SUBMAPPER_EDIT:
+					case IDC_MISCELLANEOUS_ROMS_EDIT:
+						WriteHeaderData(hDlg);
+				}
+				break;
+			case CBN_EDITUPDATE:
+			case CBN_SELCHANGE:
+				switch (LOWORD(wP))
+				{
+					case IDC_MAPPER_COMBO:
+					case IDC_PRGROM_COMBO:
+					case IDC_PRGRAM_COMBO:
+					case IDC_PRGNVRAM_COMBO:
+					case IDC_CHRROM_COMBO:
+					case IDC_CHRRAM_COMBO:
+					case IDC_CHRNVRAM_COMBO:
+					case IDC_VS_SYSTEM_COMBO:
+					case IDC_VS_PPU_COMBO:
+					case IDC_SYSTEM_EXTEND_COMBO:
+					case IDC_INPUT_DEVICE_COMBO:
+						WriteHeaderData(hDlg);
+				}
+				break;
+			case BN_CLICKED:
+			{
+				switch (LOWORD(wP))
+				{
+					case IDC_RADIO_VERSION_STANDARD:
+						ToggleINES20(hDlg, false);
+						WriteHeaderData(hDlg);
+						break;
+					case IDC_RADIO_VERSION_INES20:
+						ToggleINES20(hDlg, true);
+						WriteHeaderData(hDlg);
+						break;
+					case IDC_RADIO_SYSTEM_NORMAL:
+					case IDC_RADIO_SYSTEM_PLAYCHOICE10:
+					case IDC_RADIO_SYSTEM_EXTEND:
+						ToggleExtendSystemList(hDlg, IsDlgButtonChecked(hDlg, IDC_RADIO_SYSTEM_EXTEND) == BST_CHECKED);
+						WriteHeaderData(hDlg);
+					case IDC_RADIO_SYSTEM_VS:
+						// Both ines 1.0 and 2.0 can trigger VS System, but only 2.0 enables the extra detailed properties
+						ToggleVSSystemGroup(hDlg, IsDlgButtonChecked(hDlg, IDC_RADIO_VERSION_INES20) == BST_CHECKED && IsDlgButtonChecked(hDlg, IDC_RADIO_SYSTEM_VS) == BST_CHECKED);
+						WriteHeaderData(hDlg);
+						break;
+					case IDC_CHECK_UNOFFICIAL:
+						ToggleUnofficialPropertiesEnabled(hDlg, false, IsDlgButtonChecked(hDlg, IDC_CHECK_UNOFFICIAL) == BST_CHECKED);
+						WriteHeaderData(hDlg);
+						break;
+					case IDC_CHECK_UNOFFICIAL_PRGRAM:
+						ToggleUnofficialPrgRamPresent(hDlg, false, true, IsDlgButtonChecked(hDlg, IDC_CHECK_UNOFFICIAL_PRGRAM) == BST_CHECKED);
+						WriteHeaderData(hDlg);
+						break;
+					case IDC_CHECK_UNOFFICIAL_EXTRA_REGION:
+						ToggleUnofficialExtraRegionCode(hDlg, false, true, IsDlgButtonChecked(hDlg, IDC_CHECK_UNOFFICIAL_EXTRA_REGION) == BST_CHECKED);
+						WriteHeaderData(hDlg);
+						break;
+					case IDC_RESTORE_BUTTON:
+						SetHeaderData(hDlg, header);
+						char textHeader[16 * 3];
+						sprintf(textHeader, "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X", header->ID[0], header->ID[1], header->ID[2], header->ID[3], header->ROM_size, header->VROM_size, header->ROM_size, header->ROM_type2, header->ROM_type3, header->Upper_ROM_VROM_size, header->RAM_size, header->VRAM_size, header->TV_system, header->VS_hardware, header->reserved[0], header->reserved[1]);
+						SetDlgItemText(hDlg, IDC_HEX_HEADER_EDIT, textHeader);
+						break;
+					case IDSAVE:
+					{
+						iNES_HEADER newHeader;
+						if (WriteHeaderData(hDlg, &newHeader))
+						{
+							char path[4096] = { 0 };
+							if (ShowINESFileBox(hDlg, path, &newHeader))
+								SaveINESFile(hDlg, path, &newHeader);
+						}
+					}
+					break;
+					case IDC_CHECK_BATTERYNVRAM:
+					case IDC_RADIO_MIRR_HORIZONTAL:
+					case IDC_RADIO_MIRR_VERTICAL:
+					case IDC_RADIO_MIRR_4SCREEN:
+					case IDC_RADIO_REGION_NTSC:
+					case IDC_RADIO_REGION_PAL:
+					case IDC_RADIO_REGION_DENDY:
+					case IDC_RADIO_REGION_DUAL:
+					case IDC_CHECK_TRAINER:
+					case IDC_CHECK_UNOFFICIAL_BUS_CONFLICT:
+						WriteHeaderData(hDlg);
+						break;
+					case IDCLOSE:
+						goto wm_close;
+					}
+			}
 		}
 		break;
-		case WM_COMMAND:
-			switch (HIWORD(wP))
-			{
-				case BN_CLICKED:
-				{
-					int id = LOWORD(wP);
-					switch (id)
-					{
-						case IDC_RADIO_VERSION_STANDARD:
-							ToggleINES20(hDlg, false);
-							break;
-						case IDC_RADIO_VERSION_INES20:
-							ToggleINES20(hDlg, true);
-							break;
-						case IDC_RADIO_SYSTEM_NORMAL:
-						case IDC_RADIO_SYSTEM_PLAYCHOICE10:
-						case IDC_RADIO_SYSTEM_EXTEND:
-							ToggleExtendSystemList(hDlg, IsDlgButtonChecked(hDlg, IDC_RADIO_SYSTEM_EXTEND) == BST_CHECKED);
-						case IDC_RADIO_SYSTEM_VS:
-							// Both ines 1.0 and 2.0 can trigger VS System, but only 2.0 enables the extra detailed properties
-							ToggleVSSystemGroup(hDlg, IsDlgButtonChecked(hDlg, IDC_RADIO_VERSION_INES20) == BST_CHECKED && IsDlgButtonChecked(hDlg, IDC_RADIO_SYSTEM_VS) == BST_CHECKED);
-							break;
-						case IDC_CHECK_UNOFFICIAL:
-							ToggleUnofficialPropertiesEnabled(hDlg, false, IsDlgButtonChecked(hDlg, IDC_CHECK_UNOFFICIAL) == BST_CHECKED);
-							break;
-						case IDC_CHECK_UNOFFICIAL_PRGRAM:
-							ToggleUnofficialPrgRamPresent(hDlg, false, true, IsDlgButtonChecked(hDlg, IDC_CHECK_UNOFFICIAL_PRGRAM) == BST_CHECKED);
-							break;
-						case IDC_CHECK_UNOFFICIAL_EXTRA_REGION:
-							ToggleUnofficialExtraRegionCode(hDlg, false, true, IsDlgButtonChecked(hDlg, IDC_CHECK_UNOFFICIAL_EXTRA_REGION) == BST_CHECKED);
-							break;
-						case IDC_RESTORE_BUTTON:
-							SetHeaderData(hDlg, header);
-							break;
-						case IDSAVE:
-						{
-							iNES_HEADER newHeader;
-							if (WriteHeaderData(hDlg, &newHeader))
-							{
-								char path[4096] = { 0 };
-								if (ShowINESFileBox(hDlg, path, true))
-									SaveINESFile(hDlg, path, &newHeader);
-							}
-						}
-						break;
-						case IDCLOSE:
-							goto wm_close;
-					}
-				}
-			}
+	case WM_CLOSE:
+	case WM_QUIT:
+	wm_close:
+		if (GameInfo)
+			DestroyWindow(hDlg);
+		else
+		{
+			EndDialog(hDlg, 0);
+			LoadedRomFName[0] = 0;
+		}
+		DeleteObject(hFont);
+		DeleteObject(hNewFont);
+		hFont = NULL;
+		hNewFont = NULL;
 		break;
-		case WM_CLOSE:
-		case WM_QUIT:
-wm_close:
-			if (GameInfo)
-				DestroyWindow(hDlg);
-			else
-			{
-				EndDialog(hDlg, 0);
-				LoadedRomFName[0] = 0;
-			}
-			break;
-		case WM_DESTROY:
-			hHeadEditor = NULL;
-			free(header);
+	case WM_DESTROY:
+		hHeadEditor = NULL;
+		free(header);
 		break;
 	}
 	return false;
@@ -628,7 +693,7 @@ void SetHeaderData(HWND hwnd, iNES_HEADER* header) {
 	// Mapper#
 	int mapper = header->ROM_type >> 4 | header->ROM_type2 & 0xF0;
 	if (ines20)
-		mapper |= (header->ROM_type3 & 0xF0) << 4;
+		mapper |= (header->ROM_type3 & 0x0F) << 8;
 	sprintf(buf, "%d ", mapper);
 	if (SendDlgItemMessage(hwnd, IDC_MAPPER_COMBO, CB_SELECTSTRING, 0, (LPARAM)buf) == CB_ERR)
 		SetDlgItemText(hwnd, IDC_MAPPER_COMBO, buf);
@@ -672,7 +737,8 @@ void SetHeaderData(HWND hwnd, iNES_HEADER* header) {
 			else sprintf(buf, "%dB", prg_ram);
 		}
 
-	} else
+	}
+	else
 	{
 		if (!(header->RAM_size & 0x10) && header->ROM_type3)
 			sprintf(buf, "%dKB", header->ROM_type3 ? 1 : header->ROM_type3 * 8);
@@ -692,7 +758,8 @@ void SetHeaderData(HWND hwnd, iNES_HEADER* header) {
 				sprintf(buf, "%dKB", prg_nvram / 1024);
 			else sprintf(buf, "%dB", prg_nvram);
 		}
-	} else
+	}
+	else
 		CheckDlgButton(hwnd, IDC_CHECK_BATTERYNVRAM, header->ROM_type & 0x2 ? BST_CHECKED : BST_UNCHECKED);
 
 	if (SendDlgItemMessage(hwnd, IDC_PRGNVRAM_COMBO, CB_SELECTSTRING, 0, (LPARAM)buf) == CB_ERR)
@@ -763,21 +830,21 @@ void SetHeaderData(HWND hwnd, iNES_HEADER* header) {
 	{
 		int region = header->TV_system & 3;
 		switch (region) {
-			case 0:
-				// NTSC
-				CheckRadioButton(hwnd, IDC_RADIO_REGION_NTSC, IDC_RADIO_REGION_DENDY, IDC_RADIO_REGION_NTSC);
-				break;
-			case 1:
-				// PAL
-				CheckRadioButton(hwnd, IDC_RADIO_REGION_NTSC, IDC_RADIO_REGION_DENDY, IDC_RADIO_REGION_PAL);
-				break;
-			case 2:
-				// Dual
-				CheckRadioButton(hwnd, IDC_RADIO_REGION_NTSC, IDC_RADIO_REGION_DENDY, IDC_RADIO_REGION_DUAL);
-				break;
-			case 3:
-				// Dendy
-				CheckRadioButton(hwnd, IDC_RADIO_REGION_NTSC, IDC_RADIO_REGION_DENDY, IDC_RADIO_REGION_DENDY);
+		case 0:
+			// NTSC
+			CheckRadioButton(hwnd, IDC_RADIO_REGION_NTSC, IDC_RADIO_REGION_DENDY, IDC_RADIO_REGION_NTSC);
+			break;
+		case 1:
+			// PAL
+			CheckRadioButton(hwnd, IDC_RADIO_REGION_NTSC, IDC_RADIO_REGION_DENDY, IDC_RADIO_REGION_PAL);
+			break;
+		case 2:
+			// Dual
+			CheckRadioButton(hwnd, IDC_RADIO_REGION_NTSC, IDC_RADIO_REGION_DENDY, IDC_RADIO_REGION_DUAL);
+			break;
+		case 3:
+			// Dendy
+			CheckRadioButton(hwnd, IDC_RADIO_REGION_NTSC, IDC_RADIO_REGION_DENDY, IDC_RADIO_REGION_DENDY);
 		}
 	}
 	else {
@@ -798,7 +865,7 @@ void SetHeaderData(HWND hwnd, iNES_HEADER* header) {
 	int system = header->ROM_type2 & 3;
 	switch (system)
 	{
-		default:
+	default:
 		// Normal
 		case 0:
 			CheckRadioButton(hwnd, IDC_RADIO_SYSTEM_NORMAL, IDC_RADIO_SYSTEM_EXTEND, IDC_RADIO_SYSTEM_NORMAL);
@@ -810,9 +877,9 @@ void SetHeaderData(HWND hwnd, iNES_HEADER* header) {
 		// PlayChoice-10
 		case 2:
 			CheckRadioButton(hwnd, IDC_RADIO_SYSTEM_NORMAL, IDC_RADIO_SYSTEM_EXTEND, IDC_RADIO_SYSTEM_PLAYCHOICE10);
-			// PlayChoice-10 is an unofficial setting for ines 1.0
-			unofficial = !ines20;
-			break;
+		// PlayChoice-10 is an unofficial setting for ines 1.0
+		unofficial = !ines20;
+		break;
 		// Extend
 		case 3:
 			// The 7th byte is different between ines 1.0 and 2.0, so we need to check it
@@ -882,37 +949,51 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 
 	// Mapper
 	int mapper;
-	if (!GetComboBoxListItemData(hwnd, IDC_MAPPER_COMBO, &mapper, buf))
+	if (!GetComboBoxListItemData(hwnd, IDC_MAPPER_COMBO, &mapper, buf, header))
 	{
-		MessageBox(hwnd, "The mapper# you have entered is invalid. Please enter a decimal number or select an item from the dropdown list.", "Error", MB_OK | MB_ICONERROR);
-		SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
+		if (header) {
+			MessageBox(hwnd, "The mapper# you have entered is invalid. Please enter a decimal number or select an item from the dropdown list.", "Error", MB_OK | MB_ICONERROR);
+			SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
+			SendDlgItemMessage(hwnd, IDC_MAPPER_COMBO, EM_SETSEL, 0, -1);
+		}
+		else
+			SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
 		return false;
 	}
-	printf("mapper: %d\n", mapper);
 
 	if (mapper < 4096)
 	{
-		if (mapper < 256)
-		{
-			_header.ROM_type |= (mapper & 0xF) << 4;
-			_header.ROM_type2 |= (mapper & 0xF0);
-		} else
+		_header.ROM_type |= (mapper & 0xF) << 4;
+		_header.ROM_type2 |= (mapper & 0xF0);
+		if (mapper >= 256)
 		{
 			if (ines20)
 				_header.ROM_type3 |= mapper >> 8;
 			else
 			{
-				sprintf(buf, "Mapper# should be less than %d in iNES %d.0 format.", 256, 1);
-				MessageBox(hwnd, buf, "Error", MB_OK | MB_ICONERROR);
-				SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
+				if (header) {
+					sprintf(buf, "Mapper# should be less than %d in iNES %d.0 format.", 256, 1);
+					MessageBox(hwnd, buf, "Error", MB_OK | MB_ICONERROR);
+					SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
+					SendDlgItemMessage(hwnd, IDC_MAPPER_COMBO, EM_SETSEL, 0, -1);
+				}
+				else
+					SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 				return false;
 			}
-		}	
+		}
 	}
 	else {
-		sprintf(buf, "Mapper# should be less than %d in iNES %d.0 format.", 4096, 2);
-		MessageBox(hwnd, buf, "Error", MB_OK | MB_ICONERROR);
-		SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
+		if (header) {
+			sprintf(buf, "Mapper# should be less than %d in iNES %d.0 format.", 4096, 2);
+			MessageBox(hwnd, buf, "Error", MB_OK | MB_ICONERROR);
+			SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
+			SendDlgItemMessage(hwnd, IDC_MAPPER_COMBO, EM_SETSEL, 0, -1);
+		}
+		else
+			SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 		return false;
 	}
 
@@ -926,21 +1007,34 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 				_header.ROM_type3 |= submapper << 4;
 			else
 			{
-				MessageBox(hwnd, "The sub mapper# should less than 16 in iNES 2.0 format.", "Error", MB_OK | MB_ICONERROR);
-				SetFocus(GetDlgItem(hwnd, IDC_SUBMAPPER_EDIT));
+				if (header) {
+					MessageBox(hwnd, "The sub mapper# should less than 16 in iNES 2.0 format.", "Error", MB_OK | MB_ICONERROR);
+					SetFocus(GetDlgItem(hwnd, IDC_SUBMAPPER_EDIT));
+					SendDlgItemMessage(hwnd, IDC_SUBMAPPER_EDIT, EM_SETSEL, 0, -1);
+				}
+				else
+					SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 				return false;
 			}
-		} else
+		}
+		else
 		{
-			MessageBox(hwnd, "The sub mapper# you have entered is invalid. Please enter a decimal number.", "Error", MB_OK | MB_ICONERROR);
-			SetFocus(GetDlgItem(hwnd, IDC_SUBMAPPER_EDIT));
+			if (header) {
+				MessageBox(hwnd, "The sub mapper# you have entered is invalid. Please enter a decimal number.", "Error", MB_OK | MB_ICONERROR);
+				SetFocus(GetDlgItem(hwnd, IDC_SUBMAPPER_EDIT));
+				SendDlgItemMessage(hwnd, IDC_SUBMAPPER_EDIT, EM_SETSEL, 0, -1);
+			}
+			else
+				SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 			return false;
 		}
 	}
 
 	// PRG ROM
 	int prg_rom;
-	if (GetComboBoxByteSize(hwnd, IDC_PRGROM_COMBO, &prg_rom) == 0)
+	if (GetComboBoxByteSize(hwnd, IDC_PRGROM_COMBO, &prg_rom, header) == 0)
 	{
 		// max value which a iNES 2.0 header can hold
 		if (prg_rom < 16 * 1024 * 0xEFF)
@@ -974,25 +1068,39 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 
 					if (!fit)
 					{
-						int result10 = (prg_rom / 16 / 1024 + 1) * 16 * 1024;
-						if (result10 < result)
-							result = result10;
-						char buf2[64];
-						if (result % 1024 != 0)
-							sprintf(buf2, "%dB", result);
+						if (header) {
+							int result10 = (prg_rom / 16 / 1024 + 1) * 16 * 1024;
+							if (result10 < result)
+								result = result10;
+							char buf2[64];
+							if (result % 1024 != 0)
+								sprintf(buf2, "%dB", result);
+							else
+								sprintf(buf2, "%dKB", result / 1024);
+							sprintf(buf, "PRG ROM size you entered is invalid in iNES 2.0, do you want to set to its nearest value %s?", buf2);
+							if (MessageBox(hwnd, buf, "Error", MB_YESNO | MB_ICONERROR) == IDYES)
+								SetDlgItemText(hwnd, IDC_PRGROM_COMBO, buf2);
+							else
+							{
+								SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+								SendDlgItemMessage(hwnd, IDC_PRGROM_COMBO, EM_SETSEL, 0, -1);
+							}
+						}
 						else
-							sprintf(buf2, "%dKB", result / 1024);
-						sprintf(buf, "PRG ROM size you entered is invalid in iNES 2.0, do you want to set to its nearest value %s?", buf2);
-						if (MessageBox(hwnd, buf, "Error", MB_YESNO | MB_ICONERROR) == IDYES)
-							SetDlgItemText(hwnd, IDC_PRGROM_COMBO, buf2);
-						SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+							SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 						return false;
 					}
 				}
 				else {
+					if (header) {
+						MessageBox(hwnd, "PRG ROM size must be multiple of 16KB in iNES 1.0", "Error", MB_OK | MB_ICONERROR);
+						SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+						SendDlgItemMessage(hwnd, IDC_PRGROM_COMBO, EM_SETSEL, 0, -1);
+					}
+					else
+						SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
 					// ines 1.0 can't handle this kind of value
-					MessageBox(hwnd, "PRG ROM size must be multiple of 16KB in iNES 1.0", "Error", MB_OK | MB_ICONERROR);
-					SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
 					return false;
 				}
 			}
@@ -1006,8 +1114,14 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 					if (ines20)
 						_header.Upper_ROM_VROM_size |= prg_rom / 16 / 1024 >> 8 & 0xF;
 					else {
-						MessageBox(hwnd, "PRG ROM size exceeded the limit of iNES 1.0 (4080KB).", "Error", MB_OK | MB_ICONERROR);
-						SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+						if (header)
+						{
+							MessageBox(hwnd, "PRG ROM size exceeded the limit of iNES 1.0 (4080KB).", "Error", MB_OK | MB_ICONERROR);
+							SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+							SendDlgItemMessage(hwnd, IDC_PRGROM_COMBO, EM_SETSEL, 0, -1);
+						}
+						else
+							SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
 						return false;
 					}
 				}
@@ -1015,18 +1129,25 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 		}
 		// A too large size
 		else {
-			MessageBox(hwnd, "PRG ROM size you entered is too large to fit into a cartridge, by the way this is an NES emulator, not for XBOX360 or PlayStation2.", "Error", MB_OK | MB_ICONERROR);
-			SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+			if (header)
+			{
+				MessageBox(hwnd, "PRG ROM size you entered is too large to fit into a cartridge, by the way this is an NES emulator, not for XBOX360 or PlayStation2.", "Error", MB_OK | MB_ICONERROR);
+				SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+				SendDlgItemMessage(hwnd, IDC_PRGROM_COMBO, EM_SETSEL, 0, -1);
+			}
+			else
+				SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
 			return false;
 		}
-	} else
+	}
+	else
 		return false;
 
 	// PRG RAM
 	if (ines20 || IsDlgButtonChecked(hwnd, IDC_CHECK_UNOFFICIAL) == BST_UNCHECKED || IsDlgButtonChecked(hwnd, IDC_CHECK_UNOFFICIAL_PRGRAM) == BST_CHECKED)
 	{
 		int prg_ram;
-		if (GetComboBoxByteSize(hwnd, IDC_PRGRAM_COMBO, &prg_ram) == 0)
+		if (GetComboBoxByteSize(hwnd, IDC_PRGRAM_COMBO, &prg_ram, header) == 0)
 		{
 			if (ines20)
 			{
@@ -1036,14 +1157,28 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 						_header.RAM_size |= (int)log2(prg_ram / 64);
 					else
 					{
-						MessageBox(hwnd, "Invalid PRG RAM size", "Error", MB_OK | MB_ICONERROR);
-						SetFocus(GetDlgItem(hwnd, IDC_PRGRAM_COMBO));
+						if (header)
+						{
+							MessageBox(hwnd, "Invalid PRG RAM size", "Error", MB_OK | MB_ICONERROR);
+							SetFocus(GetDlgItem(hwnd, IDC_PRGRAM_COMBO));
+							SendDlgItemMessage(hwnd, IDC_PRGRAM_COMBO, EM_SETSEL, 0, -1);
+						}
+						else
+							SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 						return false;
 					}
 				}
 				else {
-					MessageBox(hwnd, "PRG RAM size exceeded the limit (4096KB)", "Error", MB_OK | MB_ICONERROR);
-					SetFocus(GetDlgItem(hwnd, IDC_PRGRAM_COMBO));
+					if (header)
+					{
+						MessageBox(hwnd, "PRG RAM size exceeded the limit (4096KB)", "Error", MB_OK | MB_ICONERROR);
+						SetFocus(GetDlgItem(hwnd, IDC_PRGRAM_COMBO));
+						SendDlgItemMessage(hwnd, IDC_PRGRAM_COMBO, EM_SETSEL, 0, -1);
+					}
+					else
+						SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 					return false;
 				}
 			}
@@ -1053,14 +1188,28 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 					if (prg_ram % (8 * 1024) == 0)
 						_header.ROM_type3 |= prg_ram / 8 / 1024;
 					else {
-						MessageBox(hwnd, "PRG RAM size must be multiple of 8KB in iNES 1.0", "Error", MB_OK | MB_ICONERROR);
-						SetFocus(GetDlgItem(hwnd, IDC_PRGRAM_COMBO));
+						if (header)
+						{
+							MessageBox(hwnd, "PRG RAM size must be multiple of 8KB in iNES 1.0", "Error", MB_OK | MB_ICONERROR);
+							SetFocus(GetDlgItem(hwnd, IDC_PRGRAM_COMBO));
+							SendDlgItemMessage(hwnd, IDC_PRGRAM_COMBO, EM_SETSEL, 0, -1);
+						}
+						else
+							SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 						return false;
 					}
 				}
 				else {
-					MessageBox(hwnd, "PRG RAM size exceeded the limit (2040KB)", "Error", MB_OK | MB_ICONERROR);
-					SetFocus(GetDlgItem(hwnd, IDC_PRGRAM_COMBO));
+					if (header)
+					{
+						MessageBox(hwnd, "PRG RAM size exceeded the limit (2040KB)", "Error", MB_OK | MB_ICONERROR);
+						SetFocus(GetDlgItem(hwnd, IDC_PRGRAM_COMBO));
+						SendDlgItemMessage(hwnd, IDC_PRGRAM_COMBO, EM_SETSEL, 0, -1);
+					}
+					else
+						SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 					return false;
 				}
 			}
@@ -1075,7 +1224,7 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 	{
 		// only iNES 2.0 has value for PRG VMRAM
 		int prg_nvram;
-		if (GetComboBoxByteSize(hwnd, IDC_PRGNVRAM_COMBO, &prg_nvram) == 0)
+		if (GetComboBoxByteSize(hwnd, IDC_PRGNVRAM_COMBO, &prg_nvram, header) == 0)
 		{
 			if (prg_nvram < 64 << 0xF)
 			{
@@ -1083,14 +1232,29 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 					_header.RAM_size |= (int)log2(prg_nvram / 64) << 4;
 				else
 				{
-					MessageBox(hwnd, "Invalid PRG NVRAM size", "Error", MB_OK | MB_ICONERROR);
-					SetFocus(GetDlgItem(hwnd, IDC_PRGNVRAM_COMBO));
+					if (header)
+					{
+						MessageBox(hwnd, "Invalid PRG NVRAM size", "Error", MB_OK | MB_ICONERROR);
+						SetFocus(GetDlgItem(hwnd, IDC_PRGNVRAM_COMBO));
+						SendDlgItemMessage(hwnd, IDC_PRGNVRAM_COMBO, EM_SETSEL, 0, -1);
+					}
+					else
+						SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 					return false;
 				}
 			}
-			else {
-				MessageBox(hwnd, "PRG NVRAM size exceeded the limit (4096KB)", "Error", MB_OK | MB_ICONERROR);
-				SetFocus(GetDlgItem(hwnd, IDC_PRGNVRAM_COMBO));
+			else
+			{
+				if (header)
+				{
+					MessageBox(hwnd, "PRG NVRAM size exceeded the limit (4096KB)", "Error", MB_OK | MB_ICONERROR);
+					SetFocus(GetDlgItem(hwnd, IDC_PRGNVRAM_COMBO));
+					SendDlgItemMessage(hwnd, IDC_PRGNVRAM_COMBO, EM_SETSEL, 0, -1);
+				}
+				else
+					SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 				return false;
 			}
 
@@ -1109,7 +1273,7 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 
 	// CHR ROM
 	int chr_rom;
-	if (GetComboBoxByteSize(hwnd, IDC_CHRROM_COMBO, &chr_rom) == 0)
+	if (GetComboBoxByteSize(hwnd, IDC_CHRROM_COMBO, &chr_rom, header) == 0)
 	{
 		// max value which a iNES 2.0 header can hold
 		if (chr_rom < 8 * 1024 * 0xEFF)
@@ -1143,25 +1307,42 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 
 					if (!fit)
 					{
-						int result10 = (chr_rom / 1024 / 8 + 1) * 8 * 1024;
-						if (result10 < result)
-							result = result10;
-						char buf2[64];
-						if (result % 1024 != 0)
-							sprintf(buf2, "%dB", result);
+						if (header)
+						{
+							int result10 = (chr_rom / 1024 / 8 + 1) * 8 * 1024;
+							if (result10 < result)
+								result = result10;
+							char buf2[64];
+							if (result % 1024 != 0)
+								sprintf(buf2, "%dB", result);
+							else
+								sprintf(buf2, "%dKB", result / 1024);
+							sprintf(buf, "CHR ROM size you entered is invalid in iNES 2.0, do you want to set to its nearest value %s?", buf2);
+							if (MessageBox(hwnd, buf, "Error", MB_YESNO | MB_ICONERROR) == IDYES)
+								SetDlgItemText(hwnd, IDC_CHRROM_COMBO, buf2);
+							else
+							{
+								SetFocus(GetDlgItem(hwnd, IDC_CHRROM_COMBO));
+								SendDlgItemMessage(hwnd, IDC_CHRROM_COMBO, EM_SETSEL, 0, -1);
+							}
+						}
 						else
-							sprintf(buf2, "%dKB", result / 1024);
-						sprintf(buf, "CHR ROM size you entered is invalid in iNES 2.0, do you want to set to its nearest value %s?", buf2);
-						if (MessageBox(hwnd, buf, "Error", MB_YESNO | MB_ICONERROR) == IDYES)
-							SetDlgItemText(hwnd, IDC_CHRROM_COMBO, buf2);
-						SetFocus(GetDlgItem(hwnd, IDC_CHRROM_COMBO));
+							SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 						return false;
 					}
 				}
 				else {
 					// ines 1.0 can't handle this kind of value
-					MessageBox(hwnd, "CHR ROM size must be multiple of 8KB in iNES 1.0", "Error", MB_OK | MB_ICONERROR);
-					SetFocus(GetDlgItem(hwnd, IDC_CHRROM_COMBO));
+					if (header)
+					{
+						MessageBox(hwnd, "CHR ROM size must be multiple of 8KB in iNES 1.0", "Error", MB_OK | MB_ICONERROR);
+						SetFocus(GetDlgItem(hwnd, IDC_CHRROM_COMBO));
+						SendDlgItemMessage(hwnd, IDC_CHRROM_COMBO, EM_SETSEL, 0, -1);
+					}
+					else
+						SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 					return false;
 				}
 			}
@@ -1176,8 +1357,15 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 						_header.Upper_ROM_VROM_size |= chr_rom / 8 / 1024 >> 4 & 0xF0;
 					else
 					{
-						MessageBox(hwnd, "CHR ROM size exceeded the limit of iNES 1.0 (2040KB).", "Error", MB_OK | MB_ICONERROR);
-						SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+						if (header)
+						{
+							MessageBox(hwnd, "CHR ROM size exceeded the limit of iNES 1.0 (2040KB).", "Error", MB_OK | MB_ICONERROR);
+							SetFocus(GetDlgItem(hwnd, IDC_PRGROM_COMBO));
+							SendDlgItemMessage(hwnd, IDC_PRGROM_COMBO, EM_SETSEL, 0, -1);
+						}
+						else
+							SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 						return false;
 					}
 				}
@@ -1185,8 +1373,15 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 		}
 		// A too large size
 		else {
-			MessageBox(hwnd, "CHR ROM size you entered cannot be fitted in iNES 2.0.", "Error", MB_OK | MB_ICONERROR);
-			SetFocus(GetDlgItem(hwnd, IDC_CHRROM_COMBO));
+			if (header)
+			{
+				MessageBox(hwnd, "CHR ROM size you entered cannot be fitted in iNES 2.0.", "Error", MB_OK | MB_ICONERROR);
+				SetFocus(GetDlgItem(hwnd, IDC_CHRROM_COMBO));
+				SendDlgItemMessage(hwnd, IDC_CHRROM_COMBO, EM_SETSEL, 0, -1);
+			}
+			else
+				SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 			return false;
 		}
 	}
@@ -1198,7 +1393,7 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 	{
 		// only iNES 2.0 has value for CHR RAM
 		int chr_ram;
-		if (GetComboBoxByteSize(hwnd, IDC_CHRRAM_COMBO, &chr_ram) == 0)
+		if (GetComboBoxByteSize(hwnd, IDC_CHRRAM_COMBO, &chr_ram, header) == 0)
 		{
 			if (chr_ram < 64 << 0xF)
 			{
@@ -1206,14 +1401,28 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 					_header.VRAM_size |= (int)log2(chr_ram / 64);
 				else
 				{
-					MessageBox(hwnd, "Invalid CHR RAM size", "Error", MB_OK | MB_ICONERROR);
-					SetFocus(GetDlgItem(hwnd, IDC_CHRRAM_COMBO));
+					if (header)
+					{
+						MessageBox(hwnd, "Invalid CHR RAM size", "Error", MB_OK | MB_ICONERROR);
+						SetFocus(GetDlgItem(hwnd, IDC_CHRRAM_COMBO));
+						SendDlgItemMessage(hwnd, IDC_CHRRAM_COMBO, EM_SETSEL, 0, -1);
+					}
+					else
+						SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 					return false;
 				}
 			}
 			else {
-				MessageBox(hwnd, "CHR RAM size exceeded the limit (4096KB)", "Error", MB_OK | MB_ICONERROR);
-				SetFocus(GetDlgItem(hwnd, IDC_CHRRAM_COMBO));
+				if (header)
+				{
+					MessageBox(hwnd, "CHR RAM size exceeded the limit (4096KB)", "Error", MB_OK | MB_ICONERROR);
+					SetFocus(GetDlgItem(hwnd, IDC_CHRRAM_COMBO));
+					SendDlgItemMessage(hwnd, IDC_CHRRAM_COMBO, EM_SETSEL, 0, -1);
+				}
+				else
+					SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 				return false;
 			}
 		}
@@ -1226,21 +1435,35 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 	{
 		// only iNES 2.0 has value for CHR NVRAM
 		int chr_nvram;
-		if (GetComboBoxByteSize(hwnd, IDC_CHRNVRAM_COMBO, &chr_nvram) == 0)
+		if (GetComboBoxByteSize(hwnd, IDC_CHRNVRAM_COMBO, &chr_nvram, header) == 0)
 		{
 			if (chr_nvram < 64 << 0xF)
 			{
 				if (chr_nvram % 64 == 0)
 					_header.VRAM_size |= (int)log2(chr_nvram / 64) << 4;
 				else {
-					MessageBox(hwnd, "Invalid CHR NVRAM size", "Error", MB_OK | MB_ICONERROR);
-					SetFocus(GetDlgItem(hwnd, IDC_CHRNVRAM_COMBO));
+					if (header)
+					{
+						MessageBox(hwnd, "Invalid CHR NVRAM size", "Error", MB_OK | MB_ICONERROR);
+						SetFocus(GetDlgItem(hwnd, IDC_CHRNVRAM_COMBO));
+						SendDlgItemMessage(hwnd, IDC_CHRNVRAM_COMBO, EM_SETSEL, 0, -1);
+					}
+					else
+						SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 					return false;
 				}
 			}
 			else {
-				MessageBox(hwnd, "CHR NVRAM size exceeded the limit (4096KB)", "Error", MB_OK | MB_ICONERROR);
-				SetFocus(GetDlgItem(hwnd, IDC_CHRNVRAM_COMBO));
+				if (header)
+				{
+					MessageBox(hwnd, "CHR NVRAM size exceeded the limit (4096KB)", "Error", MB_OK | MB_ICONERROR);
+					SetFocus(GetDlgItem(hwnd, IDC_CHRNVRAM_COMBO));
+					SendDlgItemMessage(hwnd, IDC_CHRNVRAM_COMBO, EM_SETSEL, 0, -1);
+				}
+				else
+					SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 				return false;
 			}
 
@@ -1286,22 +1509,36 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 		if (ines20) {
 			// VS System type
 			int system;
-			if (GetComboBoxListItemData(hwnd, IDC_VS_SYSTEM_COMBO, &system, buf) && system <= 0xF)
+			if (GetComboBoxListItemData(hwnd, IDC_VS_SYSTEM_COMBO, &system, buf, header) && system <= 0xF)
 				_header.VS_hardware |= (system & 0xF) << 4;
 			else
 			{
-				MessageBox(hwnd, "Invalid VS System hardware type.", "Error", MB_OK | MB_ICONERROR);
-				SetFocus(GetDlgItem(hwnd, IDC_VS_SYSTEM_COMBO));
+				if (header)
+				{
+					MessageBox(hwnd, "Invalid VS System hardware type.", "Error", MB_OK | MB_ICONERROR);
+					SetFocus(GetDlgItem(hwnd, IDC_VS_SYSTEM_COMBO));
+					SendDlgItemMessage(hwnd, IDC_VS_SYSTEM_COMBO, EM_SETSEL, 0, -1);
+				}
+				else
+					SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 				return false;
 			}
 			// VS PPU type
 			int ppu;
-			if (GetComboBoxListItemData(hwnd, IDC_VS_PPU_COMBO, &ppu, buf) && system <= 0xF)
+			if (GetComboBoxListItemData(hwnd, IDC_VS_PPU_COMBO, &ppu, buf, header) && system <= 0xF)
 				_header.VS_hardware |= ppu & 0xF;
 			else
 			{
-				MessageBox(hwnd, "Invalid VS System PPU type.", "Error", MB_OK | MB_ICONERROR);
-				SetFocus(GetDlgItem(hwnd, IDC_VS_PPU_COMBO));
+				if (header)
+				{
+					MessageBox(hwnd, "Invalid VS System PPU type.", "Error", MB_OK | MB_ICONERROR);
+					SetFocus(GetDlgItem(hwnd, IDC_VS_PPU_COMBO));
+					SendDlgItemMessage(hwnd, IDC_VS_PPU_COMBO, EM_SETSEL, 0, -1);
+				}
+				else
+					SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 				return false;
 			}
 		}
@@ -1313,26 +1550,40 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 		// Extend System
 		_header.ROM_type2 |= 3;
 		int extend;
-		if (GetComboBoxListItemData(hwnd, IDC_SYSTEM_EXTEND_COMBO, &extend, buf) && extend <= 0x3F)
+		if (GetComboBoxListItemData(hwnd, IDC_SYSTEM_EXTEND_COMBO, &extend, buf, header) && extend <= 0x3F)
 			_header.VS_hardware |= extend & 0x3F;
 		else
 		{
-			MessageBox(hwnd, "Invalid extend system type", "Error", MB_OK | MB_ICONERROR);
-			SetFocus(GetDlgItem(hwnd, IDC_SYSTEM_EXTEND_COMBO));
+			if (header)
+			{
+				MessageBox(hwnd, "Invalid extend system type", "Error", MB_OK | MB_ICONERROR);
+				SetFocus(GetDlgItem(hwnd, IDC_SYSTEM_EXTEND_COMBO));
+				SendDlgItemMessage(hwnd, IDC_SYSTEM_EXTEND_COMBO, EM_SETSEL, 0, -1);
+			}
+			else
+				SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 			return false;
-		}			
+		}
 	}
 
 	// Input device
 	if (ines20)
 	{
 		int input;
-		if (GetComboBoxListItemData(hwnd, IDC_INPUT_DEVICE_COMBO, &input, buf, true) && input <= 0x3F)
+		if (GetComboBoxListItemData(hwnd, IDC_INPUT_DEVICE_COMBO, &input, buf, header) && input <= 0x3F)
 			_header.reserved[1] |= input & 0x3F;
 		else
 		{
-			MessageBox(hwnd, "Invalid input device.", "Error", MB_OK | MB_ICONERROR);
-			SetFocus(GetDlgItem(hwnd, IDC_INPUT_DEVICE_COMBO));
+			if (header)
+			{
+				MessageBox(hwnd, "Invalid input device.", "Error", MB_OK | MB_ICONERROR);
+				SetFocus(GetDlgItem(hwnd, IDC_INPUT_DEVICE_COMBO));
+				SendDlgItemMessage(hwnd, IDC_INPUT_DEVICE_COMBO, EM_SETSEL, 0, -1);
+			}
+			else
+				SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 			return false;
 		}
 	}
@@ -1344,14 +1595,28 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 		int misc_roms = 0;
 		if (sscanf(buf, "%d", &misc_roms) < 1)
 		{
-			MessageBox(hwnd, "Invalid miscellanous ROM(s) count. If you don't know what value should be, we recommend to set it to 0.", "ERROR", MB_OK | MB_ICONERROR);
-			SetFocus(GetDlgItem(hwnd, IDC_MISCELLANEOUS_ROMS_TEXT));
+			if (header)
+			{
+				MessageBox(hwnd, "Invalid miscellanous ROM(s) count. If you don't know what value should be, we recommend to set it to 0.", "Error", MB_OK | MB_ICONERROR);
+				SetFocus(GetDlgItem(hwnd, IDC_MISCELLANEOUS_ROMS_EDIT));
+				SendDlgItemMessage(hwnd, IDC_MISCELLANEOUS_ROMS_EDIT, EM_SETSEL, 0, -1);
+			}
+			else
+				SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 			return false;
 		}
 		if (misc_roms > 3)
 		{
-			MessageBox(hwnd, "Miscellanous ROM(s) count has exceeded the limit of iNES 2.0 (3)", "Error", MB_OK | MB_ICONERROR);
-			SetFocus(GetDlgItem(hwnd, IDC_MISCELLANEOUS_ROMS_TEXT));
+			if (header)
+			{
+				MessageBox(hwnd, "Miscellanous ROM(s) count has exceeded the limit of iNES 2.0 (3)", "Error", MB_OK | MB_ICONERROR);
+				SetFocus(GetDlgItem(hwnd, IDC_MISCELLANEOUS_ROMS_EDIT));
+				SendDlgItemMessage(hwnd, IDC_MISCELLANEOUS_ROMS_EDIT, EM_SETSEL, 0, -1);
+			}
+			else
+				SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
+
 			return false;
 		}
 		_header.reserved[0] |= misc_roms & 3;
@@ -1385,43 +1650,31 @@ bool WriteHeaderData(HWND hwnd, iNES_HEADER* header)
 
 	if (!fceux_support)
 	{
-		sprintf(buf, "FCEUX doesn't support iNES Mapper# %d, this is not a serious problem, but the ROM will not be run in FCEUX properly.\nDo you want to continue?", mapper);
-		if (MessageBox(hwnd, buf, "Error", MB_YESNO | MB_ICONWARNING) == IDNO)
+		if (header)
 		{
-			SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
-			return false;
+			sprintf(buf, "FCEUX doesn't support iNES Mapper# %d, this is not a serious problem, but the ROM will not be run in FCEUX properly.\nDo you want to continue?", mapper);
+			if (MessageBox(hwnd, buf, "Error", MB_YESNO | MB_ICONWARNING) == IDNO)
+			{
+				SetFocus(GetDlgItem(hwnd, IDC_MAPPER_COMBO));
+				SendDlgItemMessage(hwnd, IDC_MAPPER_COMBO, EM_SETSEL, 0, -1);
+				return false;
+			}
 		}
 	}
 
 	memcpy(_header.ID, "NES\x1A", 4);
-
 	if (header)
 		memcpy(header, &_header, sizeof(iNES_HEADER));
+	else
+	{
+		sprintf(buf, "%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X", _header.ID[0], _header.ID[1], _header.ID[2], _header.ID[3], _header.ROM_size, _header.VROM_size, _header.ROM_type, _header.ROM_type2, _header.ROM_type3, _header.Upper_ROM_VROM_size, _header.RAM_size, _header.VRAM_size, _header.TV_system, _header.VS_hardware, _header.reserved[0], _header.reserved[1]);
+		SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, buf);
+	}
 
-#ifdef _DEBUG
-	printf("header: ");
-	printf("%02X ", _header.ID[0]);
-	printf("%02X ", _header.ID[1]);
-	printf("%02X ", _header.ID[2]);
-	printf("%02X ", _header.ID[3]);
-	printf("%02X ", _header.ROM_size);
-	printf("%02X ", _header.VROM_size);
-	printf("%02X ", _header.ROM_type);
-	printf("%02X ", _header.ROM_type2);
-	printf("%02X ", _header.ROM_type3);
-	printf("%02X ", _header.Upper_ROM_VROM_size);
-	printf("%02X ", _header.RAM_size);
-	printf("%02X ", _header.VRAM_size);
-	printf("%02X ", _header.TV_system);
-	printf("%02X ", _header.VS_hardware);
-	printf("%02X ", _header.reserved[0]);
-	printf("%02X\n", _header.reserved[1]);
-#endif
-
-return true;
+	return true;
 }
 
-int GetComboBoxByteSize(HWND hwnd, UINT id, int* value)
+int GetComboBoxByteSize(HWND hwnd, UINT id, int* value, iNES_HEADER* header)
 {
 	char* name = "";
 	char buf[256];
@@ -1437,18 +1690,18 @@ int GetComboBoxByteSize(HWND hwnd, UINT id, int* value)
 
 	switch (id)
 	{
-	case IDC_PRGROM_COMBO: name = "PRG ROM"; break;
-	case IDC_PRGRAM_COMBO: name = "PRG RAM"; break;
-	case IDC_PRGNVRAM_COMBO: name = "PRG NVRAM"; break;
-	case IDC_CHRROM_COMBO: name = "CHR ROM"; break;
-	case IDC_CHRRAM_COMBO: name = "CHR RAM"; break;
-	case IDC_CHRNVRAM_COMBO: name = "CHR NVRAM"; break;
+		case IDC_PRGROM_COMBO: name = "PRG ROM"; break;
+		case IDC_PRGRAM_COMBO: name = "PRG RAM"; break;
+		case IDC_PRGNVRAM_COMBO: name = "PRG NVRAM"; break;
+		case IDC_CHRROM_COMBO: name = "CHR ROM"; break;
+		case IDC_CHRRAM_COMBO: name = "CHR RAM"; break;
+		case IDC_CHRNVRAM_COMBO: name = "CHR NVRAM"; break;
 	}
 
-	if (!GetComboBoxListItemData(hwnd, id, value, buf, true))
+	if (!GetComboBoxListItemData(hwnd, id, value, buf, header))
 	{
 		char buf2[4];
-		if (sscanf(buf, "%d%[KMB]", value, buf2) < 2 || !strcmp(buf2, ""))
+		if (sscanf(buf, "%d%3[KMB]", value, buf2) < 2 || !strcmp(buf2, ""))
 			err = errors::FORMAT_ERR;
 		else
 		{
@@ -1463,29 +1716,35 @@ int GetComboBoxByteSize(HWND hwnd, UINT id, int* value)
 		}
 	}
 
-	switch (err)
-	{
-	case errors::FORMAT_ERR:
-		sprintf(buf, "%s size you entered is invalid, it should be positive decimal integer followed with unit, e.g. 1024B, 128KB, 4MB", name);
-		break;
-	case errors::UNIT_ERR:
-		sprintf(buf, "The unit of %s size you entered is invalid, it must be B, KB or MB", name);
-		break;
-	case errors::MINUS_ERR:
-		sprintf(buf, "Negative value of %s is not supported by iNES header.", name);
-		break;
-	}
-
 	if (err)
 	{
-		MessageBox(hwnd, buf, "Error", MB_OK | MB_ICONERROR);
-		SetFocus(GetDlgItem(hwnd, id));
+		if (header)
+		{
+			switch (err)
+			{
+				case errors::FORMAT_ERR:
+					sprintf(buf, "%s size you entered is invalid, it should be positive decimal integer followed with unit, e.g. 1024B, 128KB, 4MB", name);
+					break;
+				case errors::UNIT_ERR:
+					sprintf(buf, "The unit of %s size you entered is invalid, it must be B, KB or MB", name);
+					break;
+				case errors::MINUS_ERR:
+					sprintf(buf, "Negative value of %s is not supported by iNES header.", name);
+					break;
+			}
+
+			MessageBox(hwnd, buf, "Error", MB_OK | MB_ICONERROR);
+			SetFocus(GetDlgItem(hwnd, id));
+			SendDlgItemMessage(hwnd, id, EM_SETSEL, 0, -1);
+		}
+		else
+			SetDlgItemText(hwnd, IDC_HEX_HEADER_EDIT, "");
 	}
 
 	return err;
 }
 
-bool GetComboBoxListItemData(HWND hwnd, UINT id, int* value, char* buf, bool exact)
+bool GetComboBoxListItemData(HWND hwnd, UINT id, int* value, char* buf, iNES_HEADER* header)
 {
 
 	bool success = true;
@@ -1495,10 +1754,10 @@ bool GetComboBoxListItemData(HWND hwnd, UINT id, int* value, char* buf, bool exa
 	else {
 		GetDlgItemText(hwnd, id, buf, 256);
 
-		if (exact)
-			*value = SendDlgItemMessage(hwnd, id, CB_FINDSTRINGEXACT, 0, (LPARAM)buf);
-		else
+		if (header)
 			*value = SendDlgItemMessage(hwnd, id, CB_SELECTSTRING, 0, (LPARAM)buf);
+		else
+			*value = SendDlgItemMessage(hwnd, id, CB_FINDSTRINGEXACT, 0, (LPARAM)buf);
 
 		if (*value != CB_ERR)
 			*value = SendDlgItemMessage(hwnd, id, CB_GETITEMDATA, *value, 0);
@@ -1508,34 +1767,35 @@ bool GetComboBoxListItemData(HWND hwnd, UINT id, int* value, char* buf, bool exa
 			{
 				default:
 					success = false;
-				break;
+					break;
 				case IDC_MAPPER_COMBO:
 					if (!(success = sscanf(buf, "%d", value) > 0))
-						success = SearchByString(hwnd, id, value, buf);
-					else
+						success = SearchByString(hwnd, id, value, buf, header);
+					else if (header)
 						SetDlgItemText(hwnd, id, buf);
-				break;
+					break;
 				case IDC_VS_SYSTEM_COMBO:
 				case IDC_VS_PPU_COMBO:
 				case IDC_SYSTEM_EXTEND_COMBO:
-					if (!(success = sscanf(buf, "$%X", value) > 0))
-						success = SearchByString(hwnd, id, value, buf);
-					else
+					if (!(success = sscanf(buf, "$%X", (unsigned int *)value) > 0))
+						success = SearchByString(hwnd, id, value, buf, header);
+					else if (header)
 						SetDlgItemText(hwnd, id, buf);
 					break;
 				case IDC_INPUT_DEVICE_COMBO:
-					if (success = sscanf(buf, "$%X", value) > 0)
+					if (success = sscanf(buf, "$%X", (unsigned int *)value) > 0)
 					{
-						char buf2[3];
+						char buf2[8];
 						sprintf(buf2, "$%02X", *value);
-						if (SendDlgItemMessage(hwnd, id, CB_SELECTSTRING, 0, (LPARAM)buf2) == CB_ERR)
+						if (header && SendDlgItemMessage(hwnd, id, CB_SELECTSTRING, 0, (LPARAM)buf2) == CB_ERR)
 							SetDlgItemText(hwnd, id, buf);
-					} else
-						success = SearchByString(hwnd, id, value, buf);
-				break;
+					}
+					else
+						success = SearchByString(hwnd, id, value, buf, header);
+					break;
 			}
 
-			if (!success)
+			if (header && !success)
 				SetDlgItemText(hwnd, id, buf);
 		}
 	}
@@ -1544,32 +1804,33 @@ bool GetComboBoxListItemData(HWND hwnd, UINT id, int* value, char* buf, bool exa
 }
 
 // Warning: when in save mode, the content of buf might be overwritten by the save filename which user changed.
-bool ShowINESFileBox(HWND parent, char* buf, bool save)
+bool ShowINESFileBox(HWND parent, char* buf, iNES_HEADER* header)
 {
-	char *filename = NULL, *path = NULL;
+	char filename[2048] = { 0 }, path[2048] = { 0 };
 	bool success = true;
 
-	if (save)
+	if (header)
 	{
 		// When open this dialog for saving prpose, the buf must be a separate buf.
 		if (buf && buf != LoadedRomFName)
 		{
-			extern char* GetRomName(bool force = false);
-			extern char* GetRomPath(bool force = false);
-			filename = GetRomName(true);
+			extern std::string GetRomName(bool force = false);
+			extern std::string GetRomPath(bool force = false);
+			strcpy(filename, GetRomName(true).c_str());
 			char* second = strchr(filename, '|');
 			if (second)
 			{
-				char* _filename = (char*)calloc(1, 2048);
+				char _filename[2048];
 				strcpy(_filename, second + 1);
 				char* third = strrchr(filename, '\\');
 				if (third)
 					strcpy(_filename, third + 1);
-				free(filename);
-				filename = _filename;
+				strcpy(filename, _filename);
 			}
-			strcat(filename, " [header modified].nes");
-			path = GetRomPath(true);
+			char header_str[32];
+			sprintf(header_str, " [%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X].nes", header->ROM_size, header->VROM_size, header->ROM_size, header->ROM_type2, header->ROM_type3, header->Upper_ROM_VROM_size, header->RAM_size, header->VRAM_size, header->TV_system, header->VS_hardware, header->reserved[0], header->reserved[1]);
+			strcat(filename, header_str);
+			strcpy(path, GetRomPath(true).c_str());
 		}
 		else
 			success = false;
@@ -1577,8 +1838,6 @@ bool ShowINESFileBox(HWND parent, char* buf, bool save)
 	else {
 		if (!buf)
 			buf = LoadedRomFName;
-		filename = (char*)calloc(1, 2048);
-		path = (char*)calloc(1, 2048);
 	}
 
 	if (success)
@@ -1586,7 +1845,7 @@ bool ShowINESFileBox(HWND parent, char* buf, bool save)
 		OPENFILENAME ofn;
 		memset(&ofn, 0, sizeof(OPENFILENAME));
 		ofn.lStructSize = sizeof(OPENFILENAME);
-		ofn.lpstrTitle = save ? "Save NES file" : "Open NES file";
+		ofn.lpstrTitle = header ? "Save NES file" : "Open NES file";
 		ofn.lpstrFilter = "NES ROM file (*.nes)\0*.nes\0All files (*.*)\0*.*\0\0";
 		ofn.hInstance = fceu_hInstance;
 		ofn.hwndOwner = parent;
@@ -1596,14 +1855,11 @@ bool ShowINESFileBox(HWND parent, char* buf, bool save)
 		ofn.lpstrInitialDir = path;
 		ofn.lpstrDefExt = "nes";
 
-		if (save ? GetSaveFileName(&ofn) : GetOpenFileName(&ofn))
+		if (header ? GetSaveFileName(&ofn) : GetOpenFileName(&ofn))
 			strcpy(buf, filename);
 		else
 			success = false;
 	}
-
-	if (filename) free(filename);
-	if (path) free(path);
 
 	return success;
 }
@@ -1628,6 +1884,7 @@ bool SaveINESFile(HWND hwnd, char* path, iNES_HEADER* header)
 	{
 		sprintf(buf, "Creating target file %s failed.", path);
 		MessageBox(hwnd, buf, "iNES Header Editor", MB_OK | MB_ICONERROR);
+		FCEU_fclose(source);
 		return false;
 	}
 
@@ -1648,7 +1905,7 @@ bool SaveINESFile(HWND hwnd, char* path, iNES_HEADER* header)
 
 }
 
-bool SearchByString(HWND hwnd, UINT id, int* value, char* buf)
+bool SearchByString(HWND hwnd, UINT id, int* value, char* buf, iNES_HEADER* header)
 {
 	if (buf[0] != ' ' && buf[0] != 0)
 	{
@@ -1659,7 +1916,8 @@ bool SearchByString(HWND hwnd, UINT id, int* value, char* buf)
 			{
 				if (!stricmp(buf, bmap[i].name))
 				{
-					SendDlgItemMessage(hwnd, id, CB_SETCURSEL, i, 0);
+					if (header)
+						SendDlgItemMessage(hwnd, id, CB_SETCURSEL, i, 0);
 					*value = SendDlgItemMessage(hwnd, id, CB_GETITEMDATA, i, 0);
 					return true;
 				}
@@ -1676,7 +1934,8 @@ bool SearchByString(HWND hwnd, UINT id, int* value, char* buf)
 					{
 						if (!stricmp(buf, checkList[j]))
 						{
-							SendDlgItemMessage(hwnd, id, CB_SETCURSEL, j, 0);
+							if (header)
+								SendDlgItemMessage(hwnd, id, CB_SETCURSEL, j, 0);
 							*value = SendDlgItemMessage(hwnd, id, CB_GETITEMDATA, j, 0);
 							return true;
 						}

@@ -211,6 +211,7 @@ static void SetInput(void) {
 		{0xb8b9aca3,	SI_UNSET,		SI_ZAPPER,		SIFC_NONE		},	// Wild Gunman
 		{0x5112dc21,	SI_UNSET,		SI_ZAPPER,		SIFC_NONE		},	// Wild Gunman
 		{0xaf4010ea,	SI_GAMEPAD,		SI_POWERPADB,	SIFC_UNSET		},	// World Class Track Meet
+		{0x67b126b9,	SI_GAMEPAD,		SI_GAMEPAD,		SIFC_FAMINETSYS },	// Famicom Network System
 		{0x00000000,	SI_UNSET,		SI_UNSET,		SIFC_UNSET		}
 	};
 	int x = 0;
@@ -232,7 +233,7 @@ static void SetInput(void) {
 
 struct BADINF {
 	uint64 md5partial;
-	char *name;
+	const char *name;
 	uint32 type;
 };
 
@@ -416,7 +417,7 @@ static void CheckHInfo(void) {
 		if (tofix & 1)
 			sprintf(gigastr + strlen(gigastr), "The mapper number should be set to %d.  ", MapperNo);
 		if (tofix & 2) {
-			char *mstr[3] = { "Horizontal", "Vertical", "Four-screen" };
+			const char *mstr[3] = { "Horizontal", "Vertical", "Four-screen" };
 			sprintf(gigastr + strlen(gigastr), "Mirroring should be set to \"%s\".  ", mstr[Mirroring & 3]);
 		}
 		if (tofix & 4)
@@ -724,7 +725,10 @@ BMAPPINGLocal bmap[] = {
 	{"F-15 MMC3 Based",		259, BMCF15_Init},
 	{"HP10xx/H20xx Boards",	260, BMCHPxx_Init},
 	{"810544-CA-1",			261, BMC810544CA1_Init},
-	{ "KONAMI QTAi Board",	547, QTAi_Init },
+
+	{"Impact Soft MMC3 Flash Board",	406, Mapper406_Init },
+
+	{"KONAMI QTAi Board",	547, QTAi_Init },
 
 	{"",					0, NULL}
 };
@@ -733,7 +737,7 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 	struct md5_context md5;
 
 	if (FCEU_fread(&head, 1, 16, fp) != 16 || memcmp(&head, "NES\x1A", 4))
-		return 0;
+		return LOADER_INVALID_FORMAT;
 	
 	head.cleanup();
 
@@ -790,7 +794,8 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 		if ((VROM = (uint8*)FCEU_malloc(VROM_size << 13)) == NULL) {
 			free(ROM);
 			ROM = NULL;
-			return 0;
+			FCEU_PrintError("Unable to allocate memory.");
+			return LOADER_HANDLED_ERROR;
 		}
 		memset(VROM, 0xFF, VROM_size << 13);
 	}
@@ -835,7 +840,7 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 		FCEU_printf("\n");
 	}
 
-	char* mappername = "Not Listed";
+	const char* mappername = "Not Listed";
 
 	for (int mappertest = 0; mappertest < (sizeof bmap / sizeof bmap[0]) - 1; mappertest++) {
 		if (bmap[mappertest].number == MapperNo) {
@@ -891,8 +896,29 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 	iNESCart.battery = (head.ROM_type & 2) ? 1 : 0;
 	iNESCart.mirror = Mirroring;
 
-	if (!iNES_Init(MapperNo))
+	int result = iNES_Init(MapperNo);
+	switch(result)
+	{
+	case 0:
+		goto init_ok;
+	case 1:
 		FCEU_PrintError("iNES mapper #%d is not supported at all.", MapperNo);
+		break;
+	case 2:
+		FCEU_PrintError("Unable to allocate CHR-RAM.");
+		break;
+	}
+	if (ROM) free(ROM);
+	if (VROM) free(VROM);
+	if (trainerpoo) free(trainerpoo);
+	if (ExtraNTARAM) free(ExtraNTARAM);
+	ROM = NULL;
+	VROM = NULL;
+	trainerpoo = NULL;
+	ExtraNTARAM = NULL;
+	return LOADER_HANDLED_ERROR;
+
+init_ok:
 
 	GameInfo->mappernum = MapperNo;
 	FCEU_LoadGameSave(&iNESCart);
@@ -925,11 +951,11 @@ int iNESLoad(const char *name, FCEUFILE *fp, int OverwriteVidMode) {
 		else
 			FCEUI_SetVidSystem(0);
 	}
-	return 1;
+	return LOADER_OK;
 }
 
 // bbit edited: the whole function below was added
-int iNesSave() {
+int iNesSave(void) {
 	char name[2048];
 
 	strcpy(name, LoadedRomFName);
@@ -940,7 +966,7 @@ int iNesSave() {
 	return iNesSaveAs(name);
 }
 
-int iNesSaveAs(char* name)
+int iNesSaveAs(const char* name)
 {
 	//adelikat: TODO: iNesSave() and this have pretty much the same code, outsource the common code to a single function
 	//caitsith2: done. iNesSave() now gets filename and calls iNesSaveAs with that filename.
@@ -975,7 +1001,7 @@ int iNesSaveAs(char* name)
 }
 
 //para edit: added function below
-char *iNesShortFName() {
+char *iNesShortFName(void) {
 	char *ret;
 
 	if (!(ret = strrchr(LoadedRomFName, '\\')))
@@ -996,7 +1022,7 @@ static int iNES_Init(int num) {
 
 	while (tmp->init) {
 		if (num == tmp->number) {
-			UNIFchrrama = 0;	// need here for compatibility with UNIF mapper code
+			UNIFchrrama = NULL;	// need here for compatibility with UNIF mapper code
 			if (!VROM_size) {
 				if(!iNESCart.ines2)
 				{
@@ -1016,29 +1042,31 @@ static int iNES_Init(int num) {
 				{
 					CHRRAMSize = iNESCart.battery_vram_size + iNESCart.vram_size;
 				}
-				if ((VROM = (uint8*)FCEU_dmalloc(CHRRAMSize)) == NULL) return 0;
-				FCEU_MemoryRand(VROM, CHRRAMSize);
-
-				UNIFchrrama = VROM;
-				if(CHRRAMSize == 0)
+				if (CHRRAMSize > 0)
 				{
-					//probably a mistake. 
-					//but (for chrram): "Use of $00 with no CHR ROM implies that the game is wired to map nametable memory in CHR space. The value $00 MUST NOT be used if a mapper isn't defined to allow this. "
-					//well, i'm not going to do that now. we'll save it for when it's needed
-					//"it's only mapper 218 and no other mappers"
-				}
-				else
-				{
+					int mCHRRAMSize = (CHRRAMSize < 1024) ? 1024 : CHRRAMSize; // VPage has a resolution of 1k banks, ensure minimum allocation to prevent malicious access from NES software
+					if ((UNIFchrrama = VROM = (uint8*)FCEU_dmalloc(mCHRRAMSize)) == NULL) return 2;
+					FCEU_MemoryRand(VROM, CHRRAMSize);
 					SetupCartCHRMapping(0, VROM, CHRRAMSize, 1);
 					AddExState(VROM, CHRRAMSize, 0, "CHRR");
 				}
+				else {
+					// mapper 256 (OneBus) has not CHR-RAM _and_ has not CHR-ROM region in iNES file
+					// so zero-sized CHR should be supported at least for this mapper
+					VROM = NULL;
+				}
 			}
 			if (head.ROM_type & 8)
-				AddExState(ExtraNTARAM, 2048, 0, "EXNR");
+			{
+				if (ExtraNTARAM != NULL)
+				{
+					AddExState(ExtraNTARAM, 2048, 0, "EXNR");
+				}
+			}
 			tmp->init(&iNESCart);
-			return 1;
+			return 0;
 		}
 		tmp++;
 	}
-	return 0;
+	return 1;
 }

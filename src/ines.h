@@ -43,9 +43,10 @@ extern uint8 *VROM;
 extern uint32 VROM_size;
 extern uint32 ROM_size;
 extern uint8 *ExtraNTARAM;
-extern int iNesSave(); //bbit Edited: line added
-extern int iNesSaveAs(char* name);
+extern int iNesSave(void); //bbit Edited: line added
+extern int iNesSaveAs(const char* name);
 extern char LoadedRomFName[2048]; //bbit Edited: line added
+extern char *iNesShortFName(void);
 extern const TMasterRomInfo* MasterRomInfo;
 extern TMasterRomInfoParams MasterRomInfoParams;
 
@@ -267,9 +268,10 @@ void Mapper250_Init(CartInfo *);
 void Mapper252_Init(CartInfo *);
 void Mapper253_Init(CartInfo *);
 void Mapper254_Init(CartInfo *);
+void Mapper406_Init(CartInfo *);
 
 typedef struct {
-	char *name;
+	const char *name;
 	int32 number;
 	void (*init)(CartInfo *);
 } BMAPPINGLocal;

@@ -22,7 +22,6 @@
 #include "cheat.h"
 #include "memview.h"
 #include "memwatch.h"
-#include "debugger.h"
 #include "ramwatch.h"
 #include "../../fceu.h"
 #include "../../cart.h"
@@ -30,16 +29,19 @@
 #include <map>
 
 // static HWND pwindow = 0;	    // owomomo: removed pwindow because ambiguous, perhaps it is some obseleted early future plan from half developed old FCEUX? 
-HWND hCheat = 0;			    //Handle to Cheats dialog
+HWND hCheat = 0;			 //Handle to Cheats dialog
+HWND hCheatTip = 0;          //Handle to tooltip
 HMENU hCheatcontext = 0;     //Handle to cheat context menu
 
 bool pauseWhileActive = false;	//For checkbox "Pause while active"
 extern int globalCheatDisabled;
 extern int disableAutoLSCheats;
+extern bool disableShowGG;
 extern bool wasPausedByCheats;
 
 int CheatWindow;
 int CheatStyle = 1;
+int CheatMapUsers = 0; // how many windows using cheatmap
 
 #define GGLISTSIZE 128 //hopefully this is enough for all cases
 
@@ -72,7 +74,7 @@ char* GameGenieLetters = "APZLGITYEOXUKSVN";
 
 // bool dodecode;
 
-HWND hGGConv;
+HWND hGGConv = 0;
 
 void EncodeGG(char *str, int a, int v, int c);
 void ListGGAddresses(HWND hwndDlg);
@@ -279,7 +281,7 @@ HWND InitializeCheatList(HWND hwnd)
 	SendMessage(hwndChtList, LVM_INSERTCOLUMN, 0, (LPARAM)&lv);
 
 	lv.pszText = "Name";
-	lv.cx = 132;
+	lv.cx = 152;
 	SendMessage(hwndChtList, LVM_INSERTCOLUMN, 1, (LPARAM)&lv);
 
 	// Add a checkbox to indicate if the cheat is activated
@@ -314,6 +316,7 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 			CheckDlgButton(hwndDlg, IDC_CHEAT_PAUSEWHENACTIVE, pauseWhileActive ? BST_CHECKED : BST_UNCHECKED);
 			CheckDlgButton(hwndDlg, IDC_CHEAT_GLOBAL_SWITCH, globalCheatDisabled ? BST_UNCHECKED : BST_CHECKED);
 			CheckDlgButton(hwndDlg, IDC_CHEAT_AUTOLOADSAVE, disableAutoLSCheats == 2 ? BST_UNCHECKED : disableAutoLSCheats == 1 ? BST_INDETERMINATE : BST_CHECKED);
+			CheckDlgButton(hwndDlg, IDC_CHEAT_SHOWGG, disableShowGG ? BST_UNCHECKED : BST_CHECKED);
 
 			//setup font
 			SetupCheatFont(hwndDlg);
@@ -352,7 +355,8 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 			SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_CHEAT_TEXT), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
 			SetWindowLongPtr(GetDlgItem(hwndDlg, IDC_CHEAT_GAME_GENIE_TEXT), GWLP_WNDPROC, (LONG_PTR)FilterEditCtrlProc);
 
-
+			// Create popup to "Auto load / save with game", since it has 3 states and the text need some explanation
+			SetCheatToolTip(hwndDlg, IDC_CHEAT_AUTOLOADSAVE);
 
 			possiTotalCount = 0;
 			possiItemCount = SendDlgItemMessage(hwndDlg, IDC_CHEAT_LIST_POSSIBILITIES, LVM_GETCOUNTPERPAGE, 0, 0);
@@ -395,6 +399,8 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 			break;
 		case WM_QUIT:
 		case WM_CLOSE:
+			DestroyWindow(hCheatTip);
+			DestroyMenu(hCheatcontext);
 			if (CheatStyle)
 				DestroyWindow(hwndDlg);
 			else
@@ -463,7 +469,7 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 		break;
 		case WM_COMMAND:
 		{
-			static int editMode = 0;
+			static int editMode = -1;
 
 			switch (HIWORD(wParam))
 			{
@@ -534,7 +540,7 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 						break;
 						case CHEAT_CONTEXT_POSSI_ADDTOMEMORYWATCH:
 						{
-							char addr[16] = { 0 };
+							char addr[32] = { 0 };
 							int sel = SendDlgItemMessage(hwndDlg, IDC_CHEAT_LIST_POSSIBILITIES, LVM_GETSELECTIONMARK, 0, 0);
 							if (sel != -1)
 							{
@@ -741,12 +747,13 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 							}
 						break;
 						case IDC_CHEAT_AUTOLOADSAVE:
+						{
 							switch (IsDlgButtonChecked(hwndDlg, IDC_CHEAT_AUTOLOADSAVE))
 							{
 								case BST_CHECKED: disableAutoLSCheats = 0; break;
 								case BST_INDETERMINATE: disableAutoLSCheats = 1; break;
 								case BST_UNCHECKED: 
-									if(MessageBox(hwndDlg, "If this option is unchecked, you must manually save the cheats by yourself, or all the changed you made to the cheat list would be discarded silently without any asking once you close the game!\nDo you really want to do it in this way?", "Cheat warning", MB_YESNO | MB_ICONWARNING) == IDYES)
+									if(MessageBox(hwndDlg, "If this option is unchecked, you must manually save the cheats by yourself, or all the changes you made to the cheat list would be discarded silently without any asking once you close the game!\nDo you really want to do it in this way?", "Cheat warning", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES)
 										disableAutoLSCheats = 2;
 									else
 									{
@@ -754,6 +761,33 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 										CheckDlgButton(hwndDlg, IDC_CHEAT_AUTOLOADSAVE, BST_CHECKED);
 									}
 							}
+							SetCheatToolTip(hwndDlg, IDC_CHEAT_AUTOLOADSAVE);
+						}
+						break;
+						case IDC_CHEAT_SHOWGG:
+						{
+							disableShowGG ^= 1;
+							void(*CreateCheatStr)(char* buf, int a, int v, int c) = disableShowGG ? GetCheatCodeStr : EncodeGG;
+							
+							int i = 0;
+							char buf[32];
+
+							LVITEM lvi;
+							lvi.iSubItem = 0;
+							struct CHEATF* cheat = cheats;
+							 
+							while (cheat != NULL)
+							{
+								if (cheat->addr > 0x7FFF)
+								{
+									CreateCheatStr(buf, cheat->addr, cheat->val, cheat->compare);
+									lvi.pszText = buf;
+									SendDlgItemMessage(hwndDlg, IDC_LIST_CHEATS, LVM_SETITEMTEXT, i, (LPARAM)&lvi);
+								}
+								cheat = cheat->next;
+								++i;
+							}
+						}
 					}
 					break;
 					case EN_SETFOCUS:
@@ -764,6 +798,18 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 							case IDC_CHEAT_COM: editMode = 0; break;
 							case IDC_CHEAT_TEXT: editMode = 1; break;
 							case IDC_CHEAT_GAME_GENIE_TEXT: editMode = 2; break;
+							default: editMode = -1;
+						}
+						break;
+					case EN_KILLFOCUS:
+						switch (LOWORD(wParam))
+						{
+							case IDC_CHEAT_ADDR:
+							case IDC_CHEAT_VAL:
+							case IDC_CHEAT_COM:
+							case IDC_CHEAT_TEXT:
+							case IDC_CHEAT_GAME_GENIE_TEXT:
+							default: editMode = -1; break;
 						}
 						break;
 					case EN_UPDATE:
@@ -797,9 +843,9 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 									if (strchr(buf, ':'))
 									{
 										if (strchr(buf, '?'))
-											sscanf(buf, "%X:%X?%X", &a, &c, &v);
+											sscanf(buf, "%X:%X?%X", (unsigned int*)&a, (unsigned int*)&c, (unsigned int*)&v);
 										else
-											sscanf(buf, "%X:%X", &a, &v);
+											sscanf(buf, "%X:%X", (unsigned int*)&a, (unsigned int*)&v);
 									}
 
 									SetDlgItemText(hwndDlg, IDC_CHEAT_ADDR, (LPCSTR)(a == -1 ? "" : U16ToStr(a)));
@@ -959,7 +1005,7 @@ INT_PTR CALLBACK CheatConsoleCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARA
 							break;
 							case NM_DBLCLK:
 							{
-								char addr[16];
+								char addr[32];
 								sprintf(addr, "%04X", possiList[((NMITEMACTIVATE*)lParam)->iItem].addr);
 								AddMemWatch(addr);
 							}
@@ -1016,19 +1062,19 @@ void UpdateCheatListGroupBoxUI()
 	char temp[64];
 	if (FrozenAddressCount < 256)
 	{
-		sprintf(temp, "Active Cheats %d", FrozenAddressCount);
+		sprintf(temp, "Active Cheats %u", FrozenAddressCount);
 		EnableWindow(GetDlgItem(hCheat, IDC_BTN_CHEAT_ADD), TRUE);
 		EnableWindow(GetDlgItem(hCheat, IDC_BTN_CHEAT_ADDFROMFILE), TRUE);
 	}
 	else if (FrozenAddressCount == 256)
 	{
-		sprintf(temp, "Active Cheats %d (Max Limit)", FrozenAddressCount);
+		sprintf(temp, "Active Cheats %u (Max Limit)", FrozenAddressCount);
 		EnableWindow(GetDlgItem(hCheat, IDC_BTN_CHEAT_ADD), FALSE);
 		EnableWindow(GetDlgItem(hCheat, IDC_BTN_CHEAT_ADDFROMFILE), FALSE);
 	}
 	else
 	{
-		sprintf(temp, "%d Error: Too many cheats loaded!", FrozenAddressCount);
+		sprintf(temp, "%u Error: Too many cheats loaded!", FrozenAddressCount);
 		EnableWindow(GetDlgItem(hCheat, IDC_BTN_CHEAT_ADD), FALSE);
 		EnableWindow(GetDlgItem(hCheat, IDC_BTN_CHEAT_ADDFROMFILE), FALSE);
 	}
@@ -1046,8 +1092,6 @@ void UpdateCheatsAdded()
 
 INT_PTR CALLBACK GGConvCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-//	int i;
-	extern void GetUIGGInfo(HWND hwndDlg, uint32* a, uint8* v, int* c);
 
 	switch(uMsg) {
 		case WM_MOVE: {
@@ -1227,7 +1271,6 @@ void ListGGAddresses(HWND hwndDlg)
 	SendDlgItemMessage(hwndDlg, IDC_LIST_GGADDRESSES, LB_RESETCONTENT,0,0);
 
 	uint32 a = -1; uint8 v = -1; int c = -1;
-	extern void GetUIGGInfo(HWND hwnd, uint32* a, uint8* v, int* c);
 	GetUIGGInfo(hwndDlg, &a, &v, &c);
 
 	// also enable/disable the add GG button here
@@ -1295,11 +1338,10 @@ void DoGGConv()
 
 inline void GetCheatStr(char* buf, int a, int v, int c)
 {
-	if (a > 0x7FFF)
-		EncodeGG(buf, a, v, c);
-	else {
+	if (a < 0x8000 || disableShowGG)
 		GetCheatCodeStr(buf, a, v, c);
-	}
+	else
+		EncodeGG(buf, a, v, c);
 }
 
 inline void GetCheatCodeStr(char* buf, int a, int v, int c)
@@ -1308,6 +1350,50 @@ inline void GetCheatCodeStr(char* buf, int a, int v, int c)
 		sprintf(buf, "%04X:%02X", a, v);
 	else
 		sprintf(buf, "%04X?%02X:%02X", a, c, v);
+}
+
+static void SetCheatToolTip(HWND hwndDlg, UINT id)
+{
+	TOOLINFO info;
+	memset(&info, 0, sizeof(TOOLINFO));
+	info.cbSize = sizeof(TOOLINFO);
+	info.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+	info.hwnd = hwndDlg;
+	info.lpszText = GetCheatToolTipStr(hwndDlg, id);
+	info.uId = (UINT_PTR)GetDlgItem(hwndDlg, id);
+
+	if (hCheatTip)
+		SendMessage(hCheatTip, TTM_UPDATETIPTEXT, 0, (LPARAM)&info);
+	else
+	{
+		if (hCheatTip = CreateWindow(TOOLTIPS_CLASS, NULL, WS_POPUP | TTS_ALWAYSTIP, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, hwndDlg, NULL, fceu_hInstance, NULL)) {
+			SendMessage(hCheatTip, TTM_ADDTOOL, 0, (LPARAM)&info);
+			SendMessage(hCheatTip, TTM_SETDELAYTIME, TTDT_AUTOPOP, 30000);
+			SendMessage(hCheatTip, TTM_SETMAXTIPWIDTH, 0, 8000);
+		}
+	}
+}
+
+char* GetCheatToolTipStr(HWND hwndDlg, UINT id)
+{
+	switch (id)
+	{
+		case IDC_CHEAT_AUTOLOADSAVE:
+			switch (disableAutoLSCheats)
+			{
+				case 0: return "Automatically load/save cheat file along with the game.";
+				case 1: return
+					"Don't add cheat on game load, but prompt for saving on game closes.\r\n"
+					"You must manually import cht file when it's needed.";
+				case 2: return
+					"Don't add cheat on game load, and don't save cheat on game closes.\r\n"
+					"You must manually import/export cht file by yourself,\nor all your changes to cheat will be lost!";
+				default:
+					return "Mysterious undocumented state.";
+			}
+	}
+
+	return NULL;
 }
 
 void GetUICheatInfo(HWND hwndDlg, char* name, uint32* a, uint8* v, int* c)
@@ -1356,24 +1442,22 @@ void UpdateCheatRelatedWindow()
 	// ram search
 	extern HWND RamSearchHWnd;
 	if (RamSearchHWnd)
-	{
 		// if ram search is open then update the ram list.
 		SendDlgItemMessage(RamSearchHWnd, IDC_RAMLIST, LVM_REDRAWITEMS, 
 			SendDlgItemMessage(RamSearchHWnd, IDC_RAMLIST, LVM_GETTOPINDEX, 0, 0),
+			SendDlgItemMessage(RamSearchHWnd, IDC_RAMLIST, LVM_GETTOPINDEX, 0, 0) + 
 			SendDlgItemMessage(RamSearchHWnd, IDC_RAMLIST, LVM_GETCOUNTPERPAGE, 0, 0) + 1);
-	}
 
 	// ram watch
 	extern void UpdateWatchCheats();
 	UpdateWatchCheats();
 	extern HWND RamWatchHWnd;
 	if (RamWatchHWnd)
-	{
 		// if ram watch is open then update the ram list.
 		SendDlgItemMessage(RamWatchHWnd, IDC_WATCHLIST, LVM_REDRAWITEMS,
 			SendDlgItemMessage(RamWatchHWnd, IDC_WATCHLIST, LVM_GETTOPINDEX, 0, 0),
+			SendDlgItemMessage(RamSearchHWnd, IDC_RAMLIST, LVM_GETTOPINDEX, 0, 0) + 
 			SendDlgItemMessage(RamWatchHWnd, IDC_WATCHLIST, LVM_GETCOUNTPERPAGE, 0, 0) + 1);
-	}
 
 }
 
@@ -1484,3 +1568,19 @@ void DeleteCheatFont()
 		hNewFont = NULL;
 	}
 }
+
+void CreateCheatMap()
+{
+	if (!CheatMapUsers)
+		FCEUI_CreateCheatMap();
+	++CheatMapUsers;
+}
+
+void ReleaseCheatMap()
+{
+	--CheatMapUsers;
+	// printf("CheatMapUsers: %d\n", CheatMapUsers);
+	if (!CheatMapUsers)
+		FCEUI_ReleaseCheatMap();
+}
+
