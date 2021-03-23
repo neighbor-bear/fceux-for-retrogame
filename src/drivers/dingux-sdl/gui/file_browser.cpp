@@ -24,7 +24,7 @@ int RunFileBrowser(char *source, char *outname, const char *types[],
 	int size = 0;
 	int index;
 	int offset_start, offset_end;
-	static int max_entries = 8;
+	static int max_entries = 9;
 	int scrollModifier = 1; // OpenDingux - 1 page scrolling
 	int justsavedromdir = 0;
 	int scrollMult;
@@ -234,7 +234,7 @@ RESTART:
 			if (offset_start > 0)
 				DrawChar(gui_screen, SP_UPARROW, 157, 57);
 			if (offset_end < list->Size())
-				DrawChar(gui_screen, SP_DOWNARROW, 157, 197);
+				DrawChar(gui_screen, SP_DOWNARROW, 157, 212);
 
 			g_dirty = 0;
 		}
