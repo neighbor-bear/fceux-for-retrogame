@@ -190,7 +190,7 @@ void draw_shot_preview(unsigned short *dest, int x, int y) {
 static int load_rom() {
 	const char *types[] = { ".nes", ".fds", ".zip", ".fcm", ".fm2", ".nsf",
 			NULL };
-	char filename[128], romname[128];
+	char filename[128] = "\0", romname[128];
 	int error;
 
 	#ifdef WIN32
@@ -202,6 +202,10 @@ static int load_rom() {
 		SDL_Quit();
 		exit(-1);
 	}
+
+	// Exit from selector without any file selected.
+	if (filename[0] == '\0')
+	    return 0;
 
 	//  TODO - Must close game here?
 	CloseGame();
@@ -236,12 +240,13 @@ static int flip_disc() {
 static int save_state() {
 	FCEUI_SaveState(NULL);
 	save_preview();
-	return 0;
+	load_preview();
+	return 1;
 }
 
 static int load_state() {
 	FCEUI_LoadState(NULL);
-	return 0;
+	return 1;
 }
 
 static int save_screenshot() {
@@ -270,6 +275,8 @@ static MenuEntry main_menu[] = {
 		{ "Settings", "Change current settings", cmd_settings_menu },
 		{ "Exit", "Exit emulator", cmd_exit } 
 };
+static int main_menu_items = sizeof(main_menu) / sizeof(main_menu[0]);
+static MenuEntry main_menu_bck[sizeof(main_menu) / sizeof(main_menu[0])];
 
 extern char FileBase[2048];
 
@@ -285,6 +292,10 @@ int FCEUGUI_Init(FCEUGI *gi)
 
 	if (InitFont() < 0)
 		return -2;
+
+	// Taken from RetroFW (pingflood)
+	for (int i = 0; i < main_menu_items; i++)
+		main_menu_bck[i] = main_menu[i];
 
 	if (gi) {
 		if (strlen(FileBase) > 28) {
@@ -319,13 +330,33 @@ void FCEUGUI_Kill() {
 }
 
 extern void InitGuiVideo();
+// OpenDingux - Fix flip disk side
+extern int FDSSwitchRequested;
+
+int menu_items_process(int *current_menu_items) {
+	// Remove FDS Flip if not disk is loaded
+	if (g_romtype != GIT_FDS && *current_menu_items == main_menu_items) { // Remove "Flip disc" if not a FDS
+		for (int i = 2; i < main_menu_items - 1; i++)
+			main_menu[i] = main_menu_bck[i+1];
+		(*current_menu_items)--;
+	} else if (g_romtype == GIT_FDS && *current_menu_items < main_menu_items) {
+		for (int i = 0; i < main_menu_items; i++)
+			main_menu[i] = main_menu_bck[i];
+		*current_menu_items = main_menu_items;
+	}
+	return (main_menu_items - *current_menu_items);
+}
 
 void FCEUGUI_Run() {
 	static int index = 0;
 	static int spy = 72;
 	int done = 0, y, i;
+	static int current_menu_items = main_menu_items;
+	int index_correction;
 
-    InitGuiVideo();
+	InitGuiVideo();
+
+	index_correction = menu_items_process(&current_menu_items);
 
 	load_preview();
 
@@ -342,13 +373,13 @@ void FCEUGUI_Run() {
 				index--;
 				spy -= 16;
 			} else {
-				index = 7;
+				index = current_menu_items - 1;
 				spy = 72 + 16*index;
 			}
 		}
 
 		if (parsekey(DINGOO_DOWN, 0)) {
-			if (index < 7) {
+			if (index < current_menu_items - 1) {
 				index++;
 				spy += 16;
 			} else {
@@ -359,10 +390,9 @@ void FCEUGUI_Run() {
 
 		if (parsekey(DINGOO_A)) {
 			done = main_menu[index].command();
-			if(index == 3) load_preview();
 		}
 
-		if (index == 3 || index == 4) {
+		if (index == (3 - index_correction) || index == (4 - index_correction)) {
 			if (parsekey(DINGOO_RIGHT, 0)) {
 				if (g_slot < 9) {
 					g_slot++;
@@ -397,7 +427,7 @@ void FCEUGUI_Run() {
 			DrawChar(gui_screen, SP_SELECTOR, 56, spy);
 			DrawChar(gui_screen, SP_SELECTOR, 77, spy);
 
-			if (index == 3 || index == 4) {
+			if (index == (3 - index_correction) || index == (4 - index_correction)) {
 				// Draw state preview
 				DrawChar(gui_screen, SP_PREVIEWBLOCK, 184, 73);
 				draw_preview((unsigned short *)gui_screen->pixels, 185, 100);
@@ -405,7 +435,7 @@ void FCEUGUI_Run() {
 					DrawChar(gui_screen, SP_NOPREVIEW, 207, 135);
 			}
 
-			if (index == 5) {
+			if (index == (5 - index_correction)) {
 				DrawChar(gui_screen, SP_PREVIEWBLOCK, 184, 73);
 				draw_shot_preview((unsigned short *)gui_screen->pixels, 185, 100);
 			}
@@ -414,7 +444,7 @@ void FCEUGUI_Run() {
 			DrawText(gui_screen, g_romname, 96, 37);
 
 			// Draw menu
-			for (i = 0, y = 72; i < 8; i++, y += 16) {
+			for (i = 0, y = 72; i < current_menu_items; i++, y += 16) {
 				DrawText(gui_screen, main_menu[i].name, 60, y);
 			}
 
@@ -422,7 +452,7 @@ void FCEUGUI_Run() {
 			DrawText(gui_screen, main_menu[index].info, 8, 225);
 
 			// If save/load state render slot preview and number
-			if (index == 3 || index == 4) {
+			if (index == (3 - index_correction) || index == (4 - index_correction)) {
 				char tmp[32];
 				sprintf(tmp, "Slot %d", g_slot);
 				DrawText(gui_screen, tmp, 212, 80);
@@ -434,7 +464,7 @@ void FCEUGUI_Run() {
 			}
 
 			// If screenshot render current frame preview
-			if (index == 5) {
+			if (index == (5 - index_correction)) {
 				DrawText(gui_screen, "Preview", 207, 80);
 			}
 
@@ -452,7 +482,11 @@ void FCEUGUI_Run() {
 	// Must update emulation core and drivers
 	UpdateEMUCore(g_config);
 	UpdateInputConfig(g_config);
+	// OpenDingux - Fix flip disk side
+	// Save switch request here, in FCEUD_DriverReset reset it
+	int save_FDSSwitchRequested = FDSSwitchRequested;
 	FCEUD_DriverReset();
+	FDSSwitchRequested = save_FDSSwitchRequested;
 
 	// Clear screen
 	dingoo_clear_video();

@@ -104,12 +104,10 @@ static void custom_update(unsigned long key) {
 	#ifdef WIN32
 	if (!RunFileBrowser("d:\\", palname, types, "Choose nes palette (.pal)")) 
 	#else
-	if (!RunFileBrowser(NULL, palname, types, "Choose nes palette (.pal)")) 
+	if (!RunFileBrowser(NULL, palname, types, "Choose nes palette (.pal)") || palname[0] == '\0')
 	#endif
 	{
-		CloseGame();
-		SDL_Quit();
-		exit(-1);
+	    return;
 	}
 
 	std::string cpalette = std::string(palname);

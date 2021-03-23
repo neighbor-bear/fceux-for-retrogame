@@ -12,6 +12,7 @@
 #include <fstream>
 #include <limits.h>
 #include <math.h>
+#include <libgen.h>
 
 #include "main.h"
 #include "throttle.h"
@@ -46,6 +47,8 @@
 #ifdef WIN32
 #include <windows.h>
 #endif
+
+extern void InitGuiVideo();
 
 extern double g_fpsScale;
 
@@ -212,10 +215,7 @@ int LoadGame(const char *path) {
 	// set pal/ntsc
 	int id;
 	g_config->getOption("SDL.PAL", &id);
-	if (id)
-		FCEUI_SetVidSystem(1);
-	else
-		FCEUI_SetVidSystem(0);
+	FCEUI_SetRegion(id);
 
 	std::string filename;
 	g_config->getOption("SDL.Sound.RecordFile", &filename);
@@ -332,6 +332,25 @@ static int DriverInitialize(FCEUGI *gi) {
 	InitInputInterface();
 
 	FCEUGUI_Reset(gi);
+	return 1;
+}
+
+/**
+ * Set Video Region option and save it.
+ */
+int FCEUD_VideoRegionSave(int pal) {
+	int val;
+
+	if (pal)
+		val = 1;
+	else
+		val = 0;
+
+	if (g_config->setOption("SDL.PAL", val))
+	    return 0;
+
+	// Save game config file
+	g_config->save(FCEU_MakeFName(FCEUMKF_CFG, 0, 0));
 	return 1;
 }
 
@@ -561,6 +580,12 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
+	// For remote debug:
+	// No rom is supplied so file selector will be used, but the background
+	// is not loaded becouse the current dir is not stablished and it fail
+	// to display any file,
+	chdir(dirname(argv[0]));
+
 	// Initialize the fceu320 gui
 	FCEUGUI_Init(NULL);
 
@@ -755,14 +780,16 @@ int main(int argc, char *argv[]) {
 		// Launch file browser
 		const char *types[] = { ".nes", ".fds", ".zip", ".fcm", ".fm2", ".nsf",
 				NULL };
-		char filename[128], romname[128];
+		char filename[128] = "\0", romname[128];
 
 		InitVideo(0); inited |= 4; // Hack to init video mode before running gui
+		// Init screen to GUI Resolution
+		InitGuiVideo();
 
 		#ifdef WIN32
 		if (!RunFileBrowser("D:\\", filename, types)) {
 		#else
-		if (!RunFileBrowser(NULL, filename, types)) {
+		if (!RunFileBrowser(NULL, filename, types) || filename[0] == '\0') {
 		#endif
 			DriverKill();
 			SDL_Quit();
@@ -881,6 +908,14 @@ void FCEUI_UseInputPreset(int preset) {
 }
 bool FCEUD_PauseAfterPlayback() {
 	return false;
+}
+void FCEUD_TraceInstruction(uint8 *opcode, int size)
+{
+   // Place holder to allow for compiling. GTK GUI doesn't support this. Qt Does.
+}
+void FCEUD_DebugBreakpoint(int bp_num)
+{
+    // Place holder to allow for compiling. GTK GUI doesn't support this. Qt Does.
 }
 // These are actually fine, but will be unused and overriden by the current UI code.
 void FCEUD_TurboOn(void) {

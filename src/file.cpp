@@ -762,6 +762,12 @@ std::string FCEU_MakeFName(int type, int id1, const char *cd1)
 			if(odirs[FCEUIOD_MOVIES])
 				sprintf(ret,"%s" PSS "*.???",odirs[FCEUIOD_MOVIES]);
 			else
+#ifdef DINGUX
+				// Taken from RetroFW (pingflood)
+				// Try to load disksys.rom from current rom directory
+				sprintf(ret,"%s" PSS "disksys.rom",FileBaseDirectory);
+				if (stat(ret,&tmpstat) != 0)
+#endif
 				sprintf(ret,"%s" PSS "movies" PSS "*.???",BaseDirectory.c_str());
 			break;
 		case FCEUMKF_MOVIEGLOB2:sprintf(ret,"%s" PSS "*.???",BaseDirectory.c_str());break;

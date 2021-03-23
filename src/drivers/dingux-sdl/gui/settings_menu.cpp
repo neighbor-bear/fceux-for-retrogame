@@ -32,7 +32,7 @@ static int cmd_control_settings() {
 
 static int cmd_config_save() {
 	extern Config *g_config;
-	g_config->save();
+	return g_config->save();
 }
 
 static MenuEntry
@@ -119,4 +119,7 @@ int RunSettingsMenu() {
 	dingoo_clear_video();
 
 	g_dirty = 1;
+
+	// OpenDingux - Fix exit from menu
+	return 0;
 }

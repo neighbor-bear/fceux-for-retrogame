@@ -104,6 +104,7 @@ BOARDS_OBJS = \
 	$(SRC)boards/BMW8544.o \
 	$(SRC)boards/bonza.o \
 	$(SRC)boards/bs-5.o \
+	$(SRC)boards/bs4xxxr.o \
 	$(SRC)boards/cheapocabra.o \
 	$(SRC)boards/cityfighter.o \
 	$(SRC)boards/coolboy.o \
@@ -119,6 +120,7 @@ BOARDS_OBJS = \
 	$(SRC)boards/famicombox.o \
 	$(SRC)boards/ffe.o \
 	$(SRC)boards/fk23c.o \
+	$(SRC)boards/fns.o \
 	$(SRC)boards/ghostbusters63in1.o \
 	$(SRC)boards/gs-2004.o \
 	$(SRC)boards/gs-2013.o \
@@ -181,7 +183,8 @@ INPUT_OBJS = $(SRC)input/arkanoid.o $(SRC)input/bworld.o $(SRC)input/cursor.o \
 	$(SRC)input/fkb.o $(SRC)input/ftrainer.o $(SRC)input/hypershot.o $(SRC)input/mahjong.o \
 	$(SRC)input/mouse.o $(SRC)input/oekakids.o $(SRC)input/pec586kb.o \
 	$(SRC)input/powerpad.o $(SRC)input/quiz.o $(SRC)input/shadow.o $(SRC)input/snesmouse.o \
-	$(SRC)input/suborkb.o $(SRC)input/toprider.o $(SRC)input/zapper.o
+	$(SRC)input/suborkb.o $(SRC)input/toprider.o $(SRC)input/zapper.o $(SRC)input/virtualboy.o \
+	$(SRC)input/lcdcompzapper.o $(SRC)input/fns.o
 
 MAPPERS_OBJS = 
 
@@ -209,12 +212,12 @@ DRIVER_OBJS = $(SRC)drivers/dingux-sdl/config.o $(SRC)drivers/dingux-sdl/input.o
 OBJS = $(CORE_OBJS) $(BOARDS_OBJS) $(INPUT_OBJS) $(MAPPERS_OBJS) $(UTILS_OBJS) \
 	$(COMMON_DRIVER_OBJS) $(DRIVER_OBJS)
 
-TOOLCHAIN=
-BINDIR=
-CC = mipsel-linux-gcc
-CXX = mipsel-linux-g++
-LD = mipsel-linux-g++
-AS = mipsel-linux-as
+TOOLCHAIN=/opt/gcw0-toolchain
+BINDIR=$(TOOLCHAIN)/usr/bin
+CC = $(BINDIR)/mipsel-linux-gcc
+CXX = $(BINDIR)/mipsel-linux-g++
+LD = $(BINDIR)/mipsel-linux-g++
+AS = $(BINDIR)/mipsel-linux-as
 
 SYSROOT     := $(shell $(CC) --print-sysroot)
 SDL_CONFIG  := $(SYSROOT)/usr/bin/sdl-config
@@ -223,17 +226,21 @@ SDL_LIBS    := $(shell $(SDL_CONFIG) --libs)
 
 INCLUDEDIR=$(TOOLCHAIN)/include
 CFLAGS = -I$(INCLUDEDIR) -I$(SRC)
-CXXFLAGS = -I$(INCLUDEDIR) -std=gnu++0x
+CFLAGS_ONLY = -std=gnu11
+CXXFLAGS = -I$(INCLUDEDIR) -std=gnu++11 -fpermissive
 
-LDFLAGS = -s
+W_OPTS= -Wno-write-strings -Wno-sign-compare -Wno-shift-overflow
 
-W_OPTS= -Wno-write-strings -Wno-sign-compare
+F_OPTS = -fomit-frame-pointer -fno-builtin -fno-common
 
-F_OPTS = -fomit-frame-pointer -fno-builtin -fno-common -fpermissive
-
-OPTIMIZE =  -O3 -mips32r2 -fomit-frame-pointer -fno-builtin   \
-            -fno-common -Wno-write-strings -Wno-sign-compare -ffast-math -ftree-vectorize \
-			-funswitch-loops -fno-strict-aliasing
+DEBUG=no
+ifeq ($(DEBUG),yes)
+    LDFLAGS =
+    OPTIMIZE =  -O0 -g3 -mips32r2
+else
+    LDFLAGS = -s
+    OPTIMIZE =  -O3 -mips32r2
+endif
 
 CC_OPTS	= $(F_OPTS) $(W_OPTS) $(OPTIMIZE)
 
@@ -252,27 +259,31 @@ LDFLAGS  += -static-libgcc -static-libstdc++
 endif
 LIBS = $(SDL_LIBS) -lz -lm
 
-TARGET = fceux
+TARGET = fceux_od
 
-all: $(TARGET)
+RELEASE = 2.3.0
+RELEASE_DATE = $(shell date +%F)
+OPK_TARGET = $(TARGET)-$(RELEASE)-$(RELEASE_DATE)
 
-opk: $(TARGET).opk
+all: $(TARGET).opk
 
 $(TARGET).opk: $(TARGET)
-	@echo Creating $@...
-	@mipsel-linux-strip bin/$(TARGET)
-	@mksquashfs $(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png opk/default.gcw0.desktop $@ -all-root -no-xattrs -noappend -no-exports
+	@echo Creating bin/$(OPK_TARGET).opk...
+ifeq ($(DEBUG),no)
+	@$(BINDIR)/mipsel-linux-strip bin/$(TARGET)
+endif
+	@mksquashfs bin/$(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png opk/default.gcw0.desktop bin/$(OPK_TARGET).opk -all-root -no-xattrs -noappend -no-exports
 
 $(TARGET): $(OBJS)
 	@mkdir -p bin/
 	@cp src/drivers/dingux-sdl/gui/*.bmp bin/
 	@echo Linking $@...
-	@echo $(LD) $(LDFLAGS) $(OBJS) -o $@
-	$(LD) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
+	@echo $(LD) $(LDFLAGS) $(OBJS) -o bin/$@
+	$(LD) $(LDFLAGS) $(OBJS) $(LIBS) -o bin/$@
 
 %.o: %.c
 	@echo Compiling $<...
-	$(CC) $(CDEFS) $(CFLAGS) -c $< -o $@
+	$(CC) $(CDEFS) $(CFLAGS) $(CFLAGS_ONLY) -c $< -o $@
 
 %.o: %.o \
 	@echo Compiling $<...
@@ -287,4 +298,4 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CDEFS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) bin/$(TARGET)
+	rm -f $(OBJS) bin/$(TARGET) bin/$(TARGET).opk

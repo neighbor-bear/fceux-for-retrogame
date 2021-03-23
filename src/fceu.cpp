@@ -573,6 +573,14 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 		if (FrozenAddressCount)
 			FCEU_DispMessage("%d cheats active", 0, FrozenAddressCount);
 #endif
+#ifdef DINGUX
+		// Taken from gameblabla's port
+		if (PAL) {
+			    setenv("SDL_VIDEO_REFRESHRATE", "50", 0);
+		} else {
+			    setenv("SDL_VIDEO_REFRESHRATE", "60", 0);
+		}
+#endif
 	}
 	else {
 		if (!silent)
@@ -1000,6 +1008,16 @@ void FCEU_ResetVidSys(void) {
 	if (PAL)
 		dendy = 0;
 
+#ifdef DINGUX
+	FCEUD_VideoRegionSave(PAL);
+	// Taken from gameblabla's port
+	if (PAL) {
+		    setenv("SDL_VIDEO_REFRESHRATE", "50", 0);
+	} else {
+		    setenv("SDL_VIDEO_REFRESHRATE", "60", 0);
+	}
+#endif
+
 	if (newppu)
 		overclock_enabled = 0;
 
@@ -1060,6 +1078,14 @@ void FCEUI_SetRenderedLines(int ntscf, int ntscl, int palf, int pall) {
 
 void FCEUI_SetVidSystem(int a) {
 	FSettings.PAL = a ? 1 : 0;
+#ifdef DINGUX
+	// Taken from gameblabla's port
+	if (FSettings.PAL) {
+		    setenv("SDL_VIDEO_REFRESHRATE", "50", 0);
+	} else {
+		    setenv("SDL_VIDEO_REFRESHRATE", "60", 0);
+	}
+#endif
 	if (GameInfo) {
 		FCEU_ResetVidSys();
 		FCEU_ResetPalette();
@@ -1131,6 +1157,14 @@ void FCEUI_SetRegion(int region, int notify)
 			}
 			break;
 	}
+#ifdef DINGUX
+	// Taken from gameblabla's port
+	if (region > 0) {
+		setenv("SDL_VIDEO_REFRESHRATE", "50", 0);
+	} else {
+		setenv("SDL_VIDEO_REFRESHRATE", "60", 0);
+	}
+#endif
 	normalscanlines += newppu;
 	totalscanlines = normalscanlines + (overclock_enabled ? postrenderscanlines : 0);
 	FCEUI_SetVidSystem(pal_emulation);

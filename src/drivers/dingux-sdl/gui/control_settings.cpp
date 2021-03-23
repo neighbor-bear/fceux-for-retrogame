@@ -103,30 +103,46 @@ static SettingEntry cm_menu[] =
 	{"Reset defaults", "Reset default control mappings", "", resetMappings},
 };
 
+uint64 FCEUD_GetTime(void);
+uint64 FCEUD_GetTimeFreq(void);
+
+static char control_infos[2][12] = {
+	"B - Go Back",
+	"A - Edit",
+};
+
 int RunControlSettings()
 {
 	static int index = 0;
 	static int spy = 72;
+	int spy_edit = 0;
 	int done = 0, y, i;
 	int err = 1;
 	int editMode = 0;
+	uint64 time_start, time_current;
+	uint8 info_index = 0;
+
+	time_start = FCEUD_GetTime();
 
 	g_dirty = 1;
 	while (!done) {
+		if ( ( (FCEUD_GetTime() - time_start) / FCEUD_GetTimeFreq() ) > 3 ) {
+			info_index = ( info_index + 1 ) % 2;
+			time_start = FCEUD_GetTime();
+			g_dirty = 1;
+		}
 		// Parse input
 		readkey();
-		if (parsekey(DINGOO_SELECT)) {
-			if(index < 4) // Allow edit mode only for button mapping menu items
-			{
-				editMode = 1;
-				DrawText(gui_screen, ">>", 185, spy);
-				g_dirty = 0;
-			}
-		}
 
 		if (!editMode) {
 			if (parsekey(DINGOO_A)) {
-				if (index > 3) {
+				if (index < 4) // Allow edit mode only for button mapping menu items
+				{
+					editMode = 1;
+					spy_edit = spy;
+					DrawText(gui_screen, ">>", 185, spy_edit);
+					g_dirty = 0;
+				} else {
 					cm_menu[index].update(g_key);
 				}
 			}
@@ -150,12 +166,11 @@ int RunControlSettings()
 				}
 
 				done= err;
-			}
-		}	
-		if ( !editMode ) {
-	   		if (parsekey(DINGOO_UP, 1)) {
+			}	
+
+			if (parsekey(DINGOO_UP, 1)) {
 				if (index > 0) {
-					index--; 
+					index--;
 					spy -= 15;
 				} else {
 					index = CONTROL_MENUSIZE - 1;
@@ -173,24 +188,24 @@ int RunControlSettings()
 				}
 			}
 
-	   		if (parsekey(DINGOO_LEFT, 1)) {
+			if (parsekey(DINGOO_LEFT, 1)) {
 				if (index >= 4 && index <= 6) {
 					cm_menu[index].update(g_key);
 				}
 			}
 
-	   		if (parsekey(DINGOO_RIGHT, 1)) {
+			if (parsekey(DINGOO_RIGHT, 1)) {
 				if (index >= 4 && index <= 6) {
 					cm_menu[index].update(g_key);
 				}
 			}
-		}
 
-		if ( editMode ) {
+		} else {
 			if (parsekey(DINGOO_A, 0) || parsekey(DINGOO_B, 0) || parsekey(DINGOO_X, 0) || parsekey(DINGOO_Y, 0)) {
 				cm_menu[index].update(g_key);
 				g_dirty = 1;
 				editMode = 0;
+				spy_edit = 0;
 			}
 		}
   
@@ -204,7 +219,7 @@ int RunControlSettings()
 			DrawChar(gui_screen, SP_SELECTOR, 81, 37);
 			DrawChar(gui_screen, SP_SELECTOR, 0, 225);
 			DrawChar(gui_screen, SP_SELECTOR, 81, 225);
-			DrawText(gui_screen, "B - Go Back", 235, 225);
+			DrawText(gui_screen, control_infos[info_index], 235, 225);
 			DrawChar(gui_screen, SP_LOGO, 12, 9);
 			
 			// Draw selector
@@ -213,7 +228,7 @@ int RunControlSettings()
 			if (err == 0) {
 				DrawText(gui_screen, "!!!Error - Duplicate Key Mapping!!! ", 8, 37);
 			} else {
-				DrawText(gui_screen, "Control Settings - Press select to edit", 8, 37);
+				DrawText(gui_screen, "Control Settings", 8, 37);
 			}
 
 			// Draw menu
@@ -248,13 +263,13 @@ int RunControlSettings()
 					sprintf(cBtn, "%s", mergeValue ? "on" : "off");
 				}
 				else if (iBtnVal == DefaultGamePad[0][0])
-					sprintf(cBtn, "%s", "GCW_A");
+					sprintf(cBtn, "%s", "A");
 				else if (iBtnVal == DefaultGamePad[0][1])
-					sprintf(cBtn, "%s", "GCW_B");
+					sprintf(cBtn, "%s", "B");
 				else if (iBtnVal == DefaultGamePad[0][8])
-					sprintf(cBtn, "%s", "GCW_Y");
+					sprintf(cBtn, "%s", "X");
 				else if (iBtnVal == DefaultGamePad[0][9])
-					sprintf(cBtn, "%s", "GCW_X");
+					sprintf(cBtn, "%s", "Y");
 				else
 					sprintf(cBtn, "%s", "<empty>");
 
@@ -262,6 +277,9 @@ int RunControlSettings()
 				DrawText(gui_screen, cBtn, 210, y);
 				
 			}
+
+			if (spy_edit)
+				DrawText(gui_screen, ">>", 185, spy_edit);
 
 			// Draw info
 			DrawText(gui_screen, cm_menu[index].info, 8, 225);

@@ -1,10 +1,10 @@
 [Desktop Entry]
-Name=Fceux
+Name=Fceux 2.3.0
 Comment=NES/Famicom emulator
-Exec=fceux %f
+Exec=fceux_od %f
 Terminal=false
 Type=Application
-MimeType=application/zip;application/x-nes-rom;
+MimeType=application/zip;application/x-nes-rom;application/x-fds-disk;
 StartupNotify=true
 Icon=fceux
 Categories=emulators;

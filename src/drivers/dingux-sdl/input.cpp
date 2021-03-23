@@ -182,6 +182,9 @@ static int resetkey(int sdlk_code)
 	Uint8 *keystate = SDL_GetKeyState(NULL);
 	keystate[sdlk_code] = 0;
 	g_keyState[sdlk_code] = 0;
+
+	// Fix crashes on beta OpenDingux
+	return 0;
 }
 
 static int g_fkbEnabled = 0;

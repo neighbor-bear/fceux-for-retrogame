@@ -8,6 +8,15 @@
 extern SDL_Surface* screen;
 extern Config *g_config;
 
+uint64 FCEUD_GetTime(void);
+uint64 FCEUD_GetTimeFreq(void);
+
+static char file_infos[3][12] = {
+	"B - Go Back",
+	"X - Exit",
+	"A - Load",
+};
+
 static char s_LastDir[128] = "/";
 int RunFileBrowser(char *source, char *outname, const char *types[],
 		const char *info) {
@@ -16,12 +25,16 @@ int RunFileBrowser(char *source, char *outname, const char *types[],
 	int index;
 	int offset_start, offset_end;
 	static int max_entries = 8;
-	int scrollModifier = 4;
+	int scrollModifier = 1; // OpenDingux - 1 page scrolling
 	int justsavedromdir = 0;
 	int scrollMult;
 
 	static int spy;
 	int y, i;
+	uint64 time_start, time_current;
+	uint8 info_index = 0;
+
+	time_start = FCEUD_GetTime();
 
 	// Try to get a saved romdir from a config file
 	char* home = getenv("HOME");
@@ -51,6 +64,11 @@ RESTART:
 
 	g_dirty = 1;
 	while (1) {
+		if ( ( (FCEUD_GetTime() - time_start) / FCEUD_GetTimeFreq() ) > 3 ) {
+			info_index = ( info_index + 1 ) % 3;
+			time_start = FCEUD_GetTime();
+			g_dirty = 1;
+		}
 		// Parse input
 		readkey();
 		// TODO - put exit keys
@@ -63,17 +81,21 @@ RESTART:
 
 		// Enter folder or select rom ...
 		if (parsekey(DINGOO_A)) {
-			if (list->GetSize(index) == -1) {
-				list->Enter(index);
-				goto RESTART;
-			} else {
-				strncpy(outname, list->GetPath(index), 128);
-				break;
+			// Fix for OpenDingux when no files are shown don't
+			// allow select
+			if (size > 0) {
+				if (list->GetSize(index) == -1) {
+					list->Enter(index);
+					goto RESTART;
+				} else {
+					strncpy(outname, list->GetPath(index), 128);
+					break;
+				}
 			}
 		}
 
 		if (parsekey(DINGOO_X)) {
-			return 0;
+			return 1; // OpenDingux - Don't exit emulator
 		}
 
 		if (parsekey(DINGOO_SELECT)) {
@@ -179,7 +201,7 @@ RESTART:
 			DrawChar(gui_screen, SP_SELECTOR, 81, 37);
 			DrawChar(gui_screen, SP_SELECTOR, 0, 225);
 			DrawChar(gui_screen, SP_SELECTOR, 81, 225);
-			DrawText(gui_screen, "B - Go Back", 235, 225);
+			DrawText(gui_screen, file_infos[info_index], 235, 225);
 			DrawChar(gui_screen, SP_LOGO, 12, 9);
 
 			// Draw selector
