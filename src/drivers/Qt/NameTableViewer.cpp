@@ -24,6 +24,7 @@
 #include <QDir>
 #include <QMenu>
 #include <QAction>
+#include <QActionGroup>
 #include <QMenuBar>
 #include <QPainter>
 #include <QInputDialog>
@@ -888,6 +889,7 @@ ppuNameTableView_t::ppuNameTableView_t(QWidget *parent)
 	selTable    = 0;
 	scrollArea  = NULL;
 	hover2Focus = false;
+	ensureVis   = false;
 	ppuAddr     = 0x2000;
 	palAddr     = 0x3F00;
 	atrbAddr    = 0x3F00;

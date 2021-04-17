@@ -37,6 +37,7 @@
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
+#include <QActionGroup>
 #include <QGuiApplication>
 
 #include "../../types.h"
@@ -400,7 +401,6 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	bpFrame = new QGroupBox(tr("Breakpoints"));
 	vbox3   = new QVBoxLayout();
 	vbox    = new QVBoxLayout();
-	hbox    = new QHBoxLayout();
 	bpTree  = new QTreeWidget();
 
 	bpTree->setColumnCount(2);
@@ -426,8 +426,6 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 
 	connect( bpTree, SIGNAL(itemClicked(QTreeWidgetItem*, int)),
 			   this, SLOT(bpItemClicked( QTreeWidgetItem*, int)) );
-
-	hbox->addWidget( bpTree );
 
 	hbox   = new QHBoxLayout();
 	button = new QPushButton( tr("Add") );
@@ -881,8 +879,8 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp )
 	hbox->addWidget( cancelButton );
 	hbox->addWidget(     okButton );
 
-   connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
-   connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
 
 	okButton->setDefault(true);
 
@@ -2986,7 +2984,7 @@ QAsmView::QAsmView(QWidget *parent)
 	//c = pal.color(QPalette::Base);
 	//printf("Base: R:%i  G:%i  B:%i \n", c.red(), c.green(), c.blue() );
 
-	//c = pal.color(QPalette::Background);
+	//c = pal.color(QPalette::Window);
 	//printf("BackGround: R:%i  G:%i  B:%i \n", c.red(), c.green(), c.blue() );
 
 	// Figure out if we are using a light or dark theme by checking the 
@@ -3003,13 +3001,13 @@ QAsmView::QAsmView(QWidget *parent)
 	if ( useDarkTheme )
 	{
 		pal.setColor(QPalette::Base      , fg );
-		pal.setColor(QPalette::Background, fg );
+		pal.setColor(QPalette::Window    , fg );
 		pal.setColor(QPalette::WindowText, bg );
 	}
 	else 
 	{
 		pal.setColor(QPalette::Base      , bg );
-		pal.setColor(QPalette::Background, bg );
+		pal.setColor(QPalette::Window    , bg );
 		pal.setColor(QPalette::WindowText, fg );
 	}
 
@@ -3032,6 +3030,8 @@ QAsmView::QAsmView(QWidget *parent)
 	lineOffset = 0;
 	maxLineOffset = 0;
 	ctxMenuAddr = -1;
+	cursorPosX = 0;
+	cursorPosY = 0;
 
 	mouseLeftBtnDown  = false;
 	txtHlgtAnchorLine = -1;
@@ -3877,7 +3877,7 @@ void QAsmView::paintEvent(QPaintEvent *event)
 	}
 	selAddr = parent->getBookmarkSelectedAddress();
 
-	painter.fillRect( 0, 0, viewWidth, viewHeight, this->palette().color(QPalette::Background) );
+	painter.fillRect( 0, 0, viewWidth, viewHeight, this->palette().color(QPalette::Window) );
 
 	y = pxLineSpacing;
 
