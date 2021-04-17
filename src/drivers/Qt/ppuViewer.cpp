@@ -33,6 +33,7 @@
 #include <QMessageBox>
 #include <QHeaderView>
 #include <QTreeWidget>
+#include <QActionGroup>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -48,6 +49,7 @@
 #include "Qt/config.h"
 #include "Qt/HexEditor.h"
 #include "Qt/fceuWrapper.h"
+#include "Qt/ConsoleWindow.h"
 
 #define PATTERNWIDTH          128
 #define PATTERNHEIGHT         128
@@ -58,6 +60,7 @@
 #define PALETTEBITWIDTH       PALETTEWIDTH*3
 
 static ppuViewerDialog_t *ppuViewWindow = NULL;
+static spriteViewerDialog_t *spriteViewWindow = NULL;
 static int PPUViewScanline = 0;
 static int PPUViewSkip = 0;
 static int PPUViewRefresh = 1;
@@ -69,11 +72,13 @@ static QColor ppuv_palette[PALETTEHEIGHT][PALETTEWIDTH];
 static uint8_t pallast[32+3] = { 0 }; // palette cache for change comparison
 static uint8_t palcache[36] = { 0 }; //palette cache for drawing
 static uint8_t chrcache0[0x1000] = {0}, chrcache1[0x1000] = {0}, logcache0[0x1000] = {0}, logcache1[0x1000] = {0}; //cache CHR, fixes a refresh problem when right-clicking
+static uint8_t oam[256];
 static bool	redrawWindow = true;
 
 static void initPPUViewer(void);
 static ppuPatternTable_t pattern0;
 static ppuPatternTable_t pattern1;
+static oamPatternTable_t oamPattern;
 //----------------------------------------------------
 int openPPUViewWindow( QWidget *parent )
 {
@@ -86,6 +91,21 @@ int openPPUViewWindow( QWidget *parent )
 	ppuViewWindow = new ppuViewerDialog_t(parent);
 
 	ppuViewWindow->show();
+
+	return 0;
+}
+//----------------------------------------------------
+int openOAMViewWindow( QWidget *parent )
+{
+	if ( spriteViewWindow != NULL )
+	{
+		return -1;
+	}
+	initPPUViewer();
+
+	spriteViewWindow = new spriteViewerDialog_t(parent);
+
+	spriteViewWindow->show();
 
 	return 0;
 }
@@ -139,7 +159,6 @@ ppuViewerDialog_t::ppuViewerDialog_t(QWidget *parent)
 
 	setLayout( mainLayout );
 
-	vbox              = new QVBoxLayout();
 	hbox              = new QHBoxLayout();
 	grid              = new QGridLayout;
 	patternVbox[0]    = new QVBoxLayout();
@@ -1247,6 +1266,7 @@ static void initPPUViewer(void)
 	memset( chrcache1, 0, sizeof(chrcache1) );
 	memset( logcache0, 0, sizeof(logcache0) );
 	memset( logcache1, 0, sizeof(logcache1) );
+	memset( oam,       0, sizeof(oam)       );
 
 	// forced palette (e.g. for debugging CHR when palettes are all-black)
 	palcache[(8*4)+0] = 0x0F;
@@ -1310,9 +1330,169 @@ static void DrawPatternTable( ppuPatternTable_t *pattern, uint8_t *table, uint8_
 	}
 }
 //----------------------------------------------------
+static void drawSpriteTable(void)
+{
+	int j=0, y,x,yy,xx,p,tmp,idx,chr0,chr1,pal,t0,t1;
+	uint8_t *chrcache;
+	struct oamSpriteData_t *spr;
+
+	if (palo == NULL)
+	{
+		return;
+	}
+	oamPattern.mode8x16 = (PPU[0] & 0x20) ? 1 : 0;
+
+	for (int i=0; i<64; i++)
+	{
+		spr = &oamPattern.sprite[i];
+
+		spr->y     = (oam[j]);
+		spr->x     = (oam[j+3]);
+		spr->pal   = (oam[j+2] & 0x03) | 0x04;
+		spr->pri   = (oam[j+2] & 0x20) ? 1 : 0;
+		spr->hFlip = (oam[j+2] & 0x40) ? 1 : 0;
+		spr->vFlip = (oam[j+2] & 0x80) ? 1 : 0;
+
+		if ( oamPattern.mode8x16 )
+		{
+			spr->bank  = (oam[j+1] & 0x01);
+			spr->tNum  = (oam[j+1] & 0xFE);
+		}
+		else
+		{
+			spr->bank  = (PPU[0] & 0x08) ? 1 : 0;
+			spr->tNum  = (oam[j+1]);
+		}
+
+		idx = spr->tNum << 4;
+
+		if ( spr->bank )
+		{
+			chrcache = chrcache1;
+			spr->chrAddr = 0x1000 + idx;
+		}
+		else
+		{
+			chrcache = chrcache0;
+			spr->chrAddr = idx;
+		}
+
+		if ( oamPattern.mode8x16 && spr->vFlip )
+		{
+			t0 = 1; t1 = 0;
+		}
+		else
+		{
+			t0 = 0; t1 = 1;
+		}
+		//printf("OAM:$%02X  TileNum:$%02X  TileAddr:$%04X \n", i, spr->tNum, spr->chrAddr );
+
+		pal = spr->pal * 4;
+
+		for (yy = 0; yy < 8; yy++)
+		{
+			if ( spr->vFlip )
+			{
+				y = 7 - yy;
+			}
+			else
+			{
+				y = yy;
+			}
+
+			chr0 = chrcache[idx];
+			chr1 = chrcache[idx + 8];
+			tmp = 7;
+
+			for (xx = 0; xx < 8; xx++)
+			{
+				if ( spr->hFlip )
+				{
+					x = 7 - xx;
+				}
+				else
+				{
+					x = xx;
+				}
+
+				p  =  (chr0 >> tmp) & 1;
+				p |= ((chr1 >> tmp) & 1) << 1;
+
+				spr->tile[t0].pixel[y][x].val = p;
+
+				p = palcache[p | pal];
+				tmp--;
+				spr->tile[t0].pixel[y][x].color.setBlue( palo[p].b );
+				spr->tile[t0].pixel[y][x].color.setGreen( palo[p].g );
+				spr->tile[t0].pixel[y][x].color.setRed( palo[p].r );
+
+				//printf("Tile: %X%X Pixel: (%i,%i)  P:%i RGB: (%i,%i,%i)\n", j, i, x, y, p,
+				//	  pattern->tile[j][i].pixel[y][x].color.red(), 
+				//	  pattern->tile[j][i].pixel[y][x].color.green(), 
+				//	  pattern->tile[j][i].pixel[y][x].color.blue() );
+			}
+			idx++;
+		}
+		idx+=8;
+
+		for (yy = 0; yy < 8; yy++)
+		{
+			if ( spr->vFlip )
+			{
+				y = 7 - yy;
+			}
+			else
+			{
+				y = yy;
+			}
+			chr0 = chrcache[idx];
+			chr1 = chrcache[idx + 8];
+			tmp = 7;
+
+			for (xx = 0; xx < 8; xx++)
+			{
+				if ( spr->hFlip )
+				{
+					x = 7 - xx;
+				}
+				else
+				{
+					x = xx;
+				}
+
+				p  =  (chr0 >> tmp) & 1;
+				p |= ((chr1 >> tmp) & 1) << 1;
+
+				spr->tile[t1].pixel[y][x].val = p;
+
+				p = palcache[p | pal];
+				tmp--;
+				spr->tile[t1].pixel[y][x].color.setBlue( palo[p].b );
+				spr->tile[t1].pixel[y][x].color.setGreen( palo[p].g );
+				spr->tile[t1].pixel[y][x].color.setRed( palo[p].r );
+
+				//printf("Tile: %X%X Pixel: (%i,%i)  P:%i RGB: (%i,%i,%i)\n", j, i, x, y, p,
+				//	  pattern->tile[j][i].pixel[y][x].color.red(), 
+				//	  pattern->tile[j][i].pixel[y][x].color.green(), 
+				//	  pattern->tile[j][i].pixel[y][x].color.blue() );
+			}
+			idx++;
+		}
+		idx+=8;
+
+		//if ( oamPattern.mode8x16 )
+		//{
+		//	spr->chrAddr = 
+		//}
+
+		//printf("OAM:%i   (X,Y)=(%3i,%3i)   Bank:%i  Tile:%i\n", i, oam[j], oam[j+3], bank, tile );
+		j += 4;
+	}
+}
+//----------------------------------------------------
 void FCEUD_UpdatePPUView(int scanline, int refreshchr)
 {
-	if ( ppuViewWindow == NULL )
+	if ( (ppuViewWindow == NULL) && (spriteViewWindow == NULL) )
 	{
 		return;
 	}
@@ -1321,7 +1501,6 @@ void FCEUD_UpdatePPUView(int scanline, int refreshchr)
 		return;
 	}
 	int x,y,i;
-
 
 	if (refreshchr)
 	{
@@ -1367,7 +1546,7 @@ void FCEUD_UpdatePPUView(int scanline, int refreshchr)
 	PPUViewSkip = 0;
 	
 	// update palette only if required
-	if ((memcmp(pallast, PALRAM, 32) != 0) || (memcmp(pallast+32, UPALRAM, 3) != 0))
+	if ( (palo != NULL) && ( (memcmp(pallast, PALRAM, 32) != 0) || (memcmp(pallast+32, UPALRAM, 3) != 0) ))
 	{
 		//printf("Updated PPU View Palette\n");
 		memcpy(pallast, PALRAM, 32);
@@ -1397,6 +1576,12 @@ void FCEUD_UpdatePPUView(int scanline, int refreshchr)
 	DrawPatternTable( &pattern0,chrcache0,logcache0,pindex[0]);
 	DrawPatternTable( &pattern1,chrcache1,logcache1,pindex[1]);
 
+	if ( spriteViewWindow != NULL )
+	{
+		memcpy( oam, SPRAM, 256 );
+
+		drawSpriteTable();
+	}
 	redrawWindow = true;
 }
 //----------------------------------------------------
@@ -2340,6 +2525,977 @@ void ppuTileEditColorPicker_t::paintEvent(QPaintEvent *event)
 			painter.setPen( QColor(255,255,255) );
 	        }
 		painter.drawText( x, y, tr(c) );
+	}
+}
+//----------------------------------------------------
+//----------------------------------------------------
+//--- Sprite Viewer Object
+//----------------------------------------------------
+//----------------------------------------------------
+spriteViewerDialog_t::spriteViewerDialog_t(QWidget *parent)
+	: QDialog(parent, Qt::Window)
+{
+	QMenuBar    *menuBar;
+	QVBoxLayout *mainLayout, *vbox, *vbox1, *vbox2, *vbox3, *vbox4;
+	QHBoxLayout *hbox, *hbox1, *hbox2;
+	QGridLayout *infoGrid;
+	QGroupBox   *frame;
+	QLabel      *lbl;
+	QActionGroup *group;
+	QMenu *fileMenu, *viewMenu, *optMenu, *subMenu;
+	QAction *act;
+	QFont font;
+	//char stmp[64];
+	int useNativeMenuBar, pxCharWidth;
+
+	spriteViewWindow = this;
+
+	menuBar = new QMenuBar(this);
+
+	// This is needed for menu bar to show up on MacOS
+	g_config->getOption( "SDL.UseNativeMenuBar", &useNativeMenuBar );
+
+	menuBar->setNativeMenuBar( useNativeMenuBar ? true : false );
+
+	//-----------------------------------------------------------------------
+	// Menu 
+	//-----------------------------------------------------------------------
+	// File
+	fileMenu = menuBar->addMenu(tr("&File"));
+
+	// File -> Close
+	act = new QAction(tr("&Close"), this);
+	act->setShortcut(QKeySequence::Close);
+	act->setStatusTip(tr("Close Window"));
+	connect(act, SIGNAL(triggered()), this, SLOT(closeWindow(void)) );
+	
+	fileMenu->addAction(act);
+
+	// View
+	viewMenu = menuBar->addMenu(tr("&View"));
+
+	// View -> Toggle Grid
+	act = new QAction(tr("Toggle &Grid"), this);
+	//act->setShortcut(QKeySequence::Close);
+	act->setStatusTip(tr("Toggle Grid"));
+	connect(act, SIGNAL(triggered()), this, SLOT(toggleGridVis(void)) );
+	
+	viewMenu->addAction(act);
+
+	// View -> Show Preview
+	act = new QAction(tr("Show &Preview"), this);
+	//act->setShortcut(QKeySequence::Close);
+	act->setCheckable(true);
+	act->setStatusTip(tr("Show Preview Area"));
+	connect(act, SIGNAL(triggered(bool)), this, SLOT(togglePreviewVis(bool)) );
+	
+	viewMenu->addAction(act);
+
+	// View -> Preview Size
+	subMenu = viewMenu->addMenu(tr("Preview &Size"));
+	group   = new QActionGroup(this);
+	group->setExclusive(true);
+
+	act = new QAction(tr("&1x"), this);
+	act->setCheckable(true);
+	act->setChecked(true);
+	group->addAction(act);
+	subMenu->addAction(act);
+	connect(act, SIGNAL(triggered()), this, SLOT(setPreviewSize1x(void)) );
+
+	act = new QAction(tr("&2x"), this);
+	act->setCheckable(true);
+	act->setChecked(false);
+	group->addAction(act);
+	subMenu->addAction(act);
+	connect(act, SIGNAL(triggered()), this, SLOT(setPreviewSize2x(void)) );
+
+	// Focus Policy
+	optMenu = menuBar->addMenu(tr("&Options"));
+
+	// Options -> Focus
+	subMenu = optMenu->addMenu(tr("&Focus Policy"));
+	group   = new QActionGroup(this);
+	group->setExclusive(true);
+
+	act = new QAction(tr("&Click"), this);
+	act->setCheckable(true);
+	act->setChecked(true);
+	group->addAction(act);
+	subMenu->addAction(act);
+	connect(act, SIGNAL(triggered()), this, SLOT(setClickFocus(void)) );
+
+	act = new QAction(tr("&Hover"), this);
+	act->setCheckable(true);
+	act->setChecked(false);
+	group->addAction(act);
+	subMenu->addAction(act);
+	connect(act, SIGNAL(triggered()), this, SLOT(setHoverFocus(void)) );
+	
+	//-----------------------------------------------------------------------
+	// End Menu 
+	//-----------------------------------------------------------------------
+	
+	// Monospace Font for Data Display Fields (LineEdits)
+	font.setFamily("Courier New");
+	font.setStyle( QFont::StyleNormal );
+	font.setStyleHint( QFont::Monospace );
+
+	QFontMetrics metrics(font);
+#if QT_VERSION > QT_VERSION_CHECK(5, 11, 0)
+	pxCharWidth = metrics.horizontalAdvance(QLatin1Char('2'));
+#else
+	pxCharWidth = metrics.width(QLatin1Char('2'));
+#endif
+
+	setWindowTitle( tr("Sprite Viewer") );
+
+	mainLayout = new QVBoxLayout();
+
+	mainLayout->setMenuBar( menuBar );
+
+	setLayout( mainLayout );
+
+	oamView = new oamPatternView_t(this);
+
+	hbox1 = new QHBoxLayout();
+	hbox1->addWidget( oamView );
+
+	mainLayout->addLayout( hbox1 );
+
+	vbox1 = new QVBoxLayout();
+	vbox2 = new QVBoxLayout();
+	hbox1->addLayout( vbox1, 1);
+
+	hbox  = new QHBoxLayout();
+	vbox1->addLayout( hbox );
+
+	useSprRam = new QRadioButton( tr("Sprite RAM") );
+	useCpuPag = new QRadioButton( tr("CPU Page #") );
+	cpuPagIdx = new QSpinBox(this);
+
+	useSprRam->setChecked(true);
+	useSprRam->setEnabled(false); // TODO Implement CPU paging option
+	cpuPagIdx->setEnabled(false);
+	useCpuPag->setEnabled(false);
+
+	hbox->addWidget( new QLabel( tr("Data Source:") ) );
+	hbox->addWidget( useSprRam );
+	hbox->addWidget( useCpuPag );
+	hbox->addWidget( cpuPagIdx );
+
+	frame    = new QGroupBox( tr("Sprite Info") );
+	infoGrid = new QGridLayout();
+	vbox1->addWidget( frame );
+	frame->setLayout( vbox2 );
+	//vbox2->addLayout( infoGrid );
+
+	lbl      = new QLabel( tr("Sprite Index:") );
+	spriteIndexBox = new QLineEdit();
+	spriteIndexBox->setFont(font);
+	spriteIndexBox->setReadOnly(true);
+	spriteIndexBox->setMinimumWidth( 4 * pxCharWidth );
+	infoGrid->addWidget( lbl, 0, 0 );
+	infoGrid->addWidget( spriteIndexBox, 0, 1 );
+
+	lbl      = new QLabel( tr("Tile Address:") );
+	tileAddrBox = new QLineEdit();
+	tileAddrBox->setFont(font);
+	tileAddrBox->setReadOnly(true);
+	tileAddrBox->setMinimumWidth( 6 * pxCharWidth );
+	infoGrid->addWidget( lbl, 1, 0 );
+	infoGrid->addWidget( tileAddrBox, 1, 1 );
+
+	lbl      = new QLabel( tr("Tile Index:") );
+	tileIndexBox   = new QLineEdit();
+	tileIndexBox->setFont(font);
+	tileIndexBox->setReadOnly(true);
+	tileIndexBox->setMinimumWidth( 4 * pxCharWidth );
+	infoGrid->addWidget( lbl, 2, 0 );
+	infoGrid->addWidget( tileIndexBox, 2, 1 );
+
+	lbl      = new QLabel( tr("Palette Address:") );
+	palAddrBox = new QLineEdit();
+	palAddrBox->setFont(font);
+	palAddrBox->setReadOnly(true);
+	palAddrBox->setMinimumWidth( 6 * pxCharWidth );
+	infoGrid->addWidget( lbl, 3, 0 );
+	infoGrid->addWidget( palAddrBox, 3, 1 );
+
+	hbox2    = new QHBoxLayout();
+	vbox3    = new QVBoxLayout();
+	frame    = new QGroupBox( tr("Tile:") );
+	vbox     = new QVBoxLayout();
+	tileView = new oamTileView_t(this);
+	frame->setLayout( vbox );
+	vbox->addWidget( tileView );
+	vbox2->addLayout( hbox2 );
+	vbox3->addWidget( frame, 4 );
+	hbox2->addLayout( vbox3, 1 );
+	
+	frame    = new QGroupBox( tr("Palette:") );
+	vbox     = new QVBoxLayout();
+	vbox4    = new QVBoxLayout();
+	vbox4->addLayout( infoGrid );
+	hbox2->addLayout( vbox4, 1 );
+	frame->setLayout( vbox );
+	palView  = new oamPaletteView_t(this);
+	vbox->addWidget( palView );
+	vbox3->addWidget( frame, 1 );
+	
+	lbl      = new QLabel( tr("Position (X,Y):") );
+	posBox   = new QLineEdit();
+	posBox->setFont(font);
+	posBox->setReadOnly(true);
+	posBox->setMinimumWidth( 10 * pxCharWidth );
+	infoGrid->addWidget( lbl, 4, 0 );
+	infoGrid->addWidget( posBox, 4, 1 );
+
+	showPosHex = new QCheckBox( tr("Show Position in Hex") );
+	vbox4->addWidget( showPosHex, 1 );
+
+	hFlipBox = new QCheckBox( tr("Horizontal Flip") );
+	hFlipBox->setFocusPolicy(Qt::NoFocus);
+	vbox4->addWidget( hFlipBox, 1 );
+
+	vFlipBox = new QCheckBox( tr("Vertical Flip") );
+	vFlipBox->setFocusPolicy(Qt::NoFocus);
+	vbox4->addWidget( vFlipBox, 1 );
+
+	bgPrioBox = new QCheckBox( tr("Background Priority") );
+	bgPrioBox->setFocusPolicy(Qt::NoFocus);
+	vbox4->addWidget( bgPrioBox, 1 );
+
+	vbox4->addStretch(10);
+
+	frame    = new QGroupBox( tr("Preview:") );
+	vbox     = new QVBoxLayout();
+	preView  = new oamPreview_t(this);
+	frame->setLayout( vbox );
+	hbox1->addWidget( frame );
+	vbox->addWidget( preView );
+	previewFrame = frame;
+	previewFrame->setMaximumWidth(0);
+
+	previewAnimation = new QPropertyAnimation( previewFrame, "maximumWidth", this);
+	previewAnimation->setDuration(500);
+	previewAnimation->setStartValue(0);
+	previewAnimation->setEndValue(600);
+	previewAnimation->setEasingCurve( QEasingCurve::InOutCirc );
+
+	connect( previewAnimation, SIGNAL(valueChanged(const QVariant &)), this, SLOT(previewAnimWidthChange(const QVariant &)));
+	connect( previewAnimation, SIGNAL(finished(void)), this, SLOT(previewAnimResizeDone(void)) );
+
+	updateTimer  = new QTimer( this );
+
+	connect( updateTimer, &QTimer::timeout, this, &spriteViewerDialog_t::periodicUpdate );
+
+	updateTimer->start( 33 ); // 30hz
+}
+//----------------------------------------------------
+spriteViewerDialog_t::~spriteViewerDialog_t(void)
+{
+	if ( this == spriteViewWindow )
+	{
+		spriteViewWindow = NULL;
+	}
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::closeEvent(QCloseEvent *event)
+{
+	printf("Sprite Viewer Close Window Event\n");
+	done(0);
+	deleteLater();
+	event->accept();
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::closeWindow(void)
+{
+	printf("Close Window\n");
+	done(0);
+	deleteLater();
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::setClickFocus(void)
+{
+	oamView->setHover2Focus(false);
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::setHoverFocus(void)
+{
+	oamView->setHover2Focus(true);
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::toggleGridVis(void)
+{
+	oamView->setGridVisibility( !oamView->getGridVisibility() );
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::setPreviewSize1x(void)
+{
+	preView->setMinScale(1);
+	resize( minimumSizeHint() );
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::setPreviewSize2x(void)
+{
+	preView->setMinScale(2);
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::togglePreviewVis(bool state)
+{
+	if ( state )
+	{
+		previewAnimation->setStartValue(0);
+		previewAnimation->setEndValue(600);
+		previewAnimation->start();
+	}
+	else
+	{
+		previewAnimation->setStartValue( previewFrame->width() );
+		previewAnimation->setEndValue(0);
+		previewAnimation->start();
+	}
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::previewAnimWidthChange(const QVariant &value)
+{
+	resize( minimumSizeHint() );
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::previewAnimResizeDone(void)
+{
+	resize( minimumSizeHint() );
+}
+//----------------------------------------------------
+void spriteViewerDialog_t::periodicUpdate(void)
+{
+	int idx;
+	char stmp[32];
+
+	idx = oamView->getSpriteIndex();
+
+	sprintf( stmp, "$%02X", idx );
+	spriteIndexBox->setText( tr(stmp) );
+
+	sprintf( stmp, "$%02X", oamPattern.sprite[idx].tNum );
+	tileIndexBox->setText( tr(stmp) );
+
+	sprintf( stmp, "$%04X", oamPattern.sprite[idx].chrAddr );
+	tileAddrBox->setText( tr(stmp) );
+
+	sprintf( stmp, "$%04X", 0x3F00 + (oamPattern.sprite[idx].pal*4) );
+	palAddrBox->setText( tr(stmp) );
+
+	if ( showPosHex->isChecked() )
+	{
+		sprintf( stmp, "$%02X, $%02X", oamPattern.sprite[idx].x, oamPattern.sprite[idx].y );
+	}
+	else
+	{
+		sprintf( stmp, "%3i, %3i", oamPattern.sprite[idx].x, oamPattern.sprite[idx].y );
+	}
+	posBox->setText( tr(stmp) );
+
+	hFlipBox->setChecked( oamPattern.sprite[idx].hFlip );
+	vFlipBox->setChecked( oamPattern.sprite[idx].vFlip );
+	bgPrioBox->setChecked( oamPattern.sprite[idx].pri  );
+
+	tileView->setIndex(idx);
+	tileView->setIndex(idx);
+	palView->setIndex(idx);
+	preView->setIndex(idx);
+
+	oamView->update();
+	tileView->update();
+	palView->update();
+	preView->update();
+}
+//----------------------------------------------------
+//-- OAM Pattern Viewer
+//----------------------------------------------------
+oamPatternView_t::oamPatternView_t( QWidget *parent )
+	: QWidget( parent )
+{
+	this->setFocusPolicy(Qt::StrongFocus);
+	this->setMouseTracking(true);
+	setMinimumWidth( 256 );
+	setMinimumHeight( 512 );
+	viewWidth = 256;
+	viewHeight = 512;
+	hover2Focus  = false;
+	showGrid = false;
+
+	//selTileColor.setRgb(255,255,255);
+	//gridColor.setRgb(128,128,128);
+	selSpriteBoxColor.setRgb(255,0,0);
+	
+	selSprite.setX(0);
+	selSprite.setY(0);
+	spriteIdx = 0;
+}
+//----------------------------------------------------
+oamPatternView_t::~oamPatternView_t(void)
+{
+
+}
+//----------------------------------------------------
+void oamPatternView_t::setHover2Focus(bool val){ hover2Focus = val; }
+//----------------------------------------------------
+void oamPatternView_t::setGridVisibility(bool val){ showGrid = val; }
+//----------------------------------------------------
+int oamPatternView_t::getSpriteIndex(void){ return spriteIdx; }
+//----------------------------------------------------
+int oamPatternView_t::heightForWidth(int w) const
+{
+	return 2*w;
+}
+//----------------------------------------------------
+void oamPatternView_t::openTilePpuViewer(void)
+{
+	int pTable,x,y,tileAddr;
+
+	tileAddr = oamPattern.sprite[ spriteIdx ].chrAddr;
+
+	pTable = tileAddr >= 0x1000;
+	y = (tileAddr & 0x0F00) >> 8;
+	x = (tileAddr & 0x00F0) >> 4;
+
+	openPPUViewWindow( consoleWindow );
+
+	//printf("TileAddr: %04X   %i,%X%X\n", tileAddr, pTable, x, y );
+
+	setPPUSelPatternTile(  pTable,  x,  y );
+	setPPUSelPatternTile( !pTable, -1, -1 );
+}
+//----------------------------------------------------
+void oamPatternView_t::resizeEvent(QResizeEvent *event)
+{
+	viewWidth  = event->size().width();
+	viewHeight = event->size().height();
+}
+//----------------------------------------------------
+QPoint oamPatternView_t::convPixToTile( QPoint p )
+{
+	QPoint t(0,0);
+	int x,y,w,h,i,j;
+
+	x = p.x(); y = p.y();
+
+	w = oamPattern.w;
+	h = oamPattern.h;
+
+	i = x / (w*8);
+	j = y / (h*16);
+
+	//printf("(x,y) = (%i,%i) w=%i h=%i  $%X%X \n", x, y, w, h, jj, ii );
+
+	t.setX(i);
+	t.setY(j);
+
+	return t;
+}
+//----------------------------------------------------
+void oamPatternView_t::keyPressEvent(QKeyEvent *event)
+{
+	int x,y;
+
+	if ( event->key() == Qt::Key_Up )
+	{
+		y = selSprite.y();
+
+		y = (y - 1);
+
+		if ( y < 0 )
+		{
+			y = 7;
+		}
+		
+		selSprite.setY(y);
+		spriteIdx = selSprite.y()*8 + selSprite.x();
+	}
+	else if ( event->key() == Qt::Key_Down )
+	{
+		y = selSprite.y();
+
+		y = (y + 1);
+
+		if ( y > 7 )
+		{
+			y = 0;
+		}
+		
+		selSprite.setY(y);
+		spriteIdx = selSprite.y()*8 + selSprite.x();
+	}
+	else if ( event->key() == Qt::Key_Left )
+	{
+		x = selSprite.x();
+
+		x = (x - 1);
+
+		if ( x < 0 )
+		{
+			x = 7;
+		}
+		
+		selSprite.setX(x);
+		spriteIdx = selSprite.y()*8 + selSprite.x();
+	}
+	else if ( event->key() == Qt::Key_Right )
+	{
+		x = selSprite.x();
+
+		x = (x + 1);
+
+		if ( x > 7 )
+		{
+			x = 0;
+		}
+		
+		selSprite.setX(x);
+		spriteIdx = selSprite.y()*8 + selSprite.x();
+	}
+
+}
+//----------------------------------------------------
+void oamPatternView_t::mouseMoveEvent(QMouseEvent *event)
+{
+	QPoint tile = convPixToTile( event->pos() );
+
+	//printf("Tile: (%i,%i) = %i \n", tile.x(), tile.y(), tile.y()*8 + tile.x() );
+	
+	if ( hover2Focus )
+	{
+		if ( (tile.x() >= 0) && (tile.x() < 8) &&
+			(tile.y() >= 0) && (tile.y() < 8) )
+		{
+			selSprite = tile;
+			spriteIdx = tile.y()*8 + tile.x();
+			//printf("Tile: (%i,%i) = %i \n", tile.x(), tile.y(), tile.y()*8 + tile.x() );
+		}
+	}
+
+
+}
+//----------------------------------------------------
+void oamPatternView_t::mousePressEvent(QMouseEvent *event)
+{
+	QPoint tile = convPixToTile( event->pos() );
+
+	if ( event->button() == Qt::LeftButton )
+	{
+		if ( (tile.x() >= 0) && (tile.x() < 8) &&
+			(tile.y() >= 0) && (tile.y() < 8) )
+		{
+			selSprite = tile;
+			spriteIdx = tile.y()*8 + tile.x();
+			//printf("Tile: (%i,%i) = %i \n", tile.x(), tile.y(), tile.y()*8 + tile.x() );
+		}
+	}
+}
+//----------------------------------------------------
+void oamPatternView_t::contextMenuEvent(QContextMenuEvent *event)
+{
+	QAction *act;
+	QMenu menu(this);
+	//QMenu *subMenu;
+	//QActionGroup *group;
+	//char stmp[64];
+
+	act = new QAction(tr("Open PPU CHR &Viewer"), &menu);
+	//act->setShortcut( QKeySequence(tr("E")));
+	connect( act, SIGNAL(triggered(void)), this, SLOT(openTilePpuViewer(void)) );
+	menu.addAction( act );
+
+	menu.exec(event->globalPos());
+}
+//----------------------------------------------------
+void oamPatternView_t::paintEvent(QPaintEvent *event)
+{
+	int i,j,x,y,w,h,xx,yy,ii,jj;
+	QPainter painter(this);
+	QPen pen;
+	//char showSelector;
+
+	pen = painter.pen();
+
+	viewWidth  = event->rect().width();
+	viewHeight = event->rect().height();
+
+	w = viewWidth  / 64;
+  	h = viewHeight / 128;
+
+	if ( w < h )
+	{
+		h = w;
+	}
+	else
+	{
+		w = h;
+	}
+
+	oamPattern.w = w;
+	oamPattern.h = h;
+
+	for (i=0; i<64; i++)
+	{
+		ii = (i % 8) * (w*8);
+		jj = (i / 8) * (h*16);
+
+		for (j=0; j<2; j++)
+		{
+			xx = ii;
+
+			for (x=0; x<8; x++)
+			{
+				yy = jj + (j*h*8);
+
+				for (y=0; y < 8; y++)
+				{
+					painter.fillRect( xx, yy, w, h, oamPattern.sprite[i].tile[j].pixel[y][x].color );
+					yy += h;
+				}
+				xx += w;
+			}
+		}
+	}
+
+	if ( showGrid )
+	{
+		int tw, th;
+		pen.setWidth( 1 );
+		pen.setColor( QColor(128,128,128) );
+		painter.setPen( pen );
+
+		tw=  8*w;
+		th= 16*h;
+
+		xx = 0;
+		y = 8*th;
+
+		for (x=0; x<=8; x++)
+		{
+			painter.drawLine( xx, 0 , xx, y ); xx += tw;
+		}
+
+		yy = 0;
+		x = 8*tw;
+
+		for (y=0; y<=8; y++)
+		{
+			painter.drawLine( 0, yy , x, yy ); yy += th;
+		}
+	}
+
+	if ( (spriteIdx >= 0) && (spriteIdx < 64) )
+	{
+		xx = (spriteIdx % 8) * (w*8);
+		yy = (spriteIdx / 8) * (h*16);
+
+		pen.setWidth( 3 );
+		pen.setColor( QColor(  0,  0,  0) );
+		painter.setPen( pen );
+
+		painter.drawRect( xx, yy, w*8, h*16 );
+
+		pen.setWidth( 1 );
+		pen.setColor( QColor(255,255,255) );
+		painter.setPen( pen );
+
+		painter.drawRect( xx, yy, w*8, h*16 );
+
+		//painter.fillRect( ii, jj, w*8, h*16, selSpriteBoxColor );
+	}
+}
+//----------------------------------------------------
+//-- OAM Tile View
+//----------------------------------------------------
+oamTileView_t::oamTileView_t(QWidget *parent)
+	: QWidget(parent)
+{
+	setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+	viewWidth = 8;
+	viewHeight = 16;
+	setMinimumWidth( viewWidth );
+	setMinimumHeight( viewHeight );
+
+	spriteIdx = 0;
+}
+//----------------------------------------------------
+oamTileView_t::~oamTileView_t(void)
+{
+
+}
+//----------------------------------------------------
+void oamTileView_t::setIndex( int val )
+{
+	spriteIdx = val;
+}
+//----------------------------------------------------
+int  oamTileView_t::heightForWidth(int w) const
+{
+	return 2*w;
+}
+//----------------------------------------------------
+void oamTileView_t::resizeEvent(QResizeEvent *event)
+{
+	viewWidth  = event->size().width();
+	viewHeight = event->size().height();
+}
+//----------------------------------------------------
+void oamTileView_t::paintEvent(QPaintEvent *event)
+{
+	int j,x,y,w,h,xx,yy;
+	QPainter painter(this);
+	//QPen pen;
+	//char showSelector;
+
+	//pen = painter.pen();
+
+	viewWidth  = event->rect().width();
+	viewHeight = event->rect().height();
+
+	w = viewWidth  / 8;
+  	h = viewHeight / 16;
+
+	if ( w < h )
+	{
+		h = w;
+	}
+	else
+	{
+		w = h;
+	}
+
+	yy = 0;
+
+	for (j=0; j<2; j++)
+	{
+		for (y=0; y<8; y++)
+		{
+			xx = 0;
+			for (x=0; x < 8; x++)
+			{
+				painter.fillRect( xx, yy, w, h, oamPattern.sprite[ spriteIdx ].tile[j].pixel[y][x].color );
+				xx += w;
+			}
+			yy += h;
+		}
+	}
+}
+//----------------------------------------------------
+//-- OAM Palette View
+//----------------------------------------------------
+oamPaletteView_t::oamPaletteView_t(QWidget *parent)
+	: QWidget(parent)
+{
+	setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+	viewHeight = 32;
+	viewWidth = viewHeight*4;
+	setMinimumWidth( viewWidth );
+	setMinimumHeight( viewHeight );
+
+	palIdx = 0;
+}
+//----------------------------------------------------
+oamPaletteView_t::~oamPaletteView_t(void)
+{
+
+}
+//----------------------------------------------------
+void oamPaletteView_t::setIndex( int val )
+{
+	palIdx = oamPattern.sprite[val].pal;
+}
+//----------------------------------------------------
+int  oamPaletteView_t::heightForWidth(int w) const
+{
+	return w/4;
+}
+//----------------------------------------------------
+void oamPaletteView_t::resizeEvent(QResizeEvent *event)
+{
+	viewWidth  = event->size().width();
+	viewHeight = event->size().height();
+}
+//----------------------------------------------------
+void oamPaletteView_t::paintEvent(QPaintEvent *event)
+{
+	int x,w,h,xx,yy,p,p2;
+	QPainter painter(this);
+	QColor color( 0, 0, 0);
+	//QPen pen;
+	//char showSelector;
+
+	//pen = painter.pen();
+
+	viewWidth  = event->rect().width();
+	viewHeight = event->rect().height();
+
+	w = viewWidth  / 4;
+  	h = viewHeight;
+
+	if ( w < h )
+	{
+		h = w;
+	}
+	else
+	{
+		w = h;
+	}
+
+	p2 = palIdx * 4;
+	yy = 0;
+	xx = 0;
+	for (x=0; x < 4; x++)
+	{
+		if ( palo != NULL )
+		{
+			p = palcache[p2 | x];
+			color.setBlue( palo[p].b );
+			color.setGreen( palo[p].g );
+			color.setRed( palo[p].r );
+		}
+		painter.fillRect( xx, yy, w, h, color );
+		xx += w;
+	}
+}
+//----------------------------------------------------
+//-- OAM Preview
+//----------------------------------------------------
+oamPreview_t::oamPreview_t(QWidget *parent)
+	: QWidget(parent)
+{
+	setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+	viewHeight = 240;
+	viewWidth = 256;
+	setMinimumWidth( viewWidth );
+	setMinimumHeight( viewHeight );
+}
+//----------------------------------------------------
+oamPreview_t::~oamPreview_t(void)
+{
+
+}
+//----------------------------------------------------
+void oamPreview_t::setIndex(int val)
+{
+	selSprite = val;
+}
+//----------------------------------------------------
+void oamPreview_t::setMinScale(int scale)
+{
+	if ( scale < 1 )
+	{
+		scale = 1;
+	}
+	setMinimumWidth( scale*256 );
+	setMinimumHeight( scale*240 );
+
+	return;
+}
+//----------------------------------------------------
+int  oamPreview_t::heightForWidth(int w) const
+{
+	return ((w*256)/240);
+}
+//----------------------------------------------------
+QSize oamPreview_t::sizeHint(void) const
+{
+	return QSize(512,480);
+}
+//----------------------------------------------------
+void oamPreview_t::resizeEvent(QResizeEvent *event)
+{
+	viewWidth  = event->size().width();
+	viewHeight = event->size().height();
+}
+//----------------------------------------------------
+void oamPreview_t::paintEvent(QPaintEvent *event)
+{
+	int w,h,i,j,x,y,xx,yy,nt;
+	QPainter painter(this);
+	QColor bgColor(0, 0, 0);
+	QPen pen;
+	char spriteRendered[64];
+	struct oamSpriteData_t *spr;
+
+	pen = painter.pen();
+
+	viewWidth  = event->rect().width();
+	viewHeight = event->rect().height();
+
+	//printf("Draw: %i,%i\n", viewWidth, viewHeight );
+
+	w = viewWidth  / 256;
+  	h = viewHeight / 240;
+
+	if ( w < h )
+	{
+		h = w;
+	}
+	else
+	{
+		w = h;
+	}
+
+	if ( palo != NULL )
+	{
+		int p = palcache[0];
+
+		bgColor.setRed( palo[p].r );
+		bgColor.setGreen( palo[p].g );
+		bgColor.setBlue( palo[p].b );
+	}
+	painter.fillRect( 0, 0, w*256, h*240, bgColor );
+
+	nt = ( oamPattern.mode8x16 ) ? 2 : 1;
+
+	for (i=63; i>=0; i--)
+	{
+		spr = &oamPattern.sprite[i];
+
+		spriteRendered[i] = 0;
+		//printf("Sprite: (%i,%i) -> (%02X,%02X) \n", spr->x, spr->y, spr->x, spr->y );
+
+		// Check if sprite is off screen
+		if ( spr->y >= 0xEF )
+		{
+			continue;
+		}
+
+		yy = spr->y * h;
+
+		for (j=0; j<nt; j++)
+		{
+			for (y=0; y<8; y++)
+			{
+				xx = spr->x * w;
+
+				for (x=0; x < 8; x++)
+				{
+					painter.fillRect( xx, yy, w, h, spr->tile[j].pixel[y][x].color );
+					xx += w;
+				}
+				yy += h;
+			}
+		}
+		spriteRendered[i] = 1;
+	}
+
+	if ( spriteRendered[ selSprite ] )
+	{
+		spr = &oamPattern.sprite[selSprite];
+
+		pen.setWidth( 1 );
+		pen.setColor( QColor(128,128,128) );
+		painter.setPen( pen );
+
+		yy = spr->y * h;
+		xx = spr->x * w;
+
+		painter.drawRect( xx, yy, w*8, h*nt*8 );
 	}
 }
 //----------------------------------------------------

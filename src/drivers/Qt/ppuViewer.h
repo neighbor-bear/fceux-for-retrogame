@@ -10,13 +10,16 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QLabel>
 #include <QFrame>
 #include <QTimer>
 #include <QSlider>
+#include <QSpinBox>
 #include <QLineEdit>
 #include <QGroupBox>
 #include <QCloseEvent>
+#include <QPropertyAnimation>
 
 #include "Qt/main.h"
 
@@ -280,6 +283,188 @@ class ppuViewerDialog_t : public QDialog
 		void setHoverFocus(void);
 };
 
+struct oamSpriteData_t
+{
+	struct 
+	{
+		struct 
+		{
+			QColor color;
+			char   val;
+		} pixel[8][8];
+
+	} tile[2];
+
+	uint8_t tNum;
+	uint8_t bank;
+	uint8_t pal;
+	uint8_t pri;
+	uint8_t hFlip;
+	uint8_t vFlip;
+	int     chrAddr;
+	int     x;
+	int     y;
+
+};
+
+struct oamPatternTable_t
+{
+	struct oamSpriteData_t sprite[64];
+
+	bool  mode8x16;
+	int  w;
+	int  h;
+};
+
+class oamPatternView_t : public QWidget
+{
+	Q_OBJECT
+
+	public:
+		oamPatternView_t( QWidget *parent = 0);
+		~oamPatternView_t(void);
+
+		QPoint convPixToTile( QPoint p );
+
+		int  getSpriteIndex(void);
+		void setHover2Focus(bool val);
+		void setGridVisibility(bool val);
+		bool getGridVisibility(void){ return showGrid; };
+	protected:
+		void paintEvent(QPaintEvent *event);
+		void resizeEvent(QResizeEvent *event);
+		void keyPressEvent(QKeyEvent *event);
+		void mouseMoveEvent(QMouseEvent *event);
+		void mousePressEvent(QMouseEvent * event);
+		void contextMenuEvent(QContextMenuEvent *event);
+		int  heightForWidth(int w) const;
+
+		int  viewWidth;
+		int  viewHeight;
+
+		bool hover2Focus;
+		bool showGrid;
+
+		QColor selSpriteBoxColor;
+		QPoint selSprite;
+		int    spriteIdx;
+	private:
+
+	private slots:
+		void openTilePpuViewer(void);
+
+};
+
+class oamTileView_t : public QWidget
+{
+	Q_OBJECT
+
+	public:
+		oamTileView_t( QWidget *parent = 0);
+		~oamTileView_t(void);
+
+		void setIndex( int val );
+	protected:
+		void paintEvent(QPaintEvent *event);
+		void resizeEvent(QResizeEvent *event);
+		int  heightForWidth(int w) const;
+
+	private:
+		int  viewWidth;
+		int  viewHeight;
+		int  spriteIdx;
+};
+
+class oamPaletteView_t : public QWidget
+{
+	Q_OBJECT
+
+	public:
+		oamPaletteView_t( QWidget *parent = 0);
+		~oamPaletteView_t(void);
+
+		void setIndex( int val );
+	protected:
+		void paintEvent(QPaintEvent *event);
+		void resizeEvent(QResizeEvent *event);
+		int  heightForWidth(int w) const;
+
+	private:
+		int  viewWidth;
+		int  viewHeight;
+		int  palIdx;
+};
+
+class oamPreview_t : public QWidget
+{
+	Q_OBJECT
+
+	public:
+		oamPreview_t( QWidget *parent = 0);
+		~oamPreview_t(void);
+
+		void setIndex(int val);
+		void setMinScale(int val);
+	protected:
+		void paintEvent(QPaintEvent *event);
+		void resizeEvent(QResizeEvent *event);
+		int  heightForWidth(int w) const;
+		QSize sizeHint(void) const;
+
+	private:
+		int  viewWidth;
+		int  viewHeight;
+		int  selSprite;
+};
+
+class spriteViewerDialog_t : public QDialog
+{
+   Q_OBJECT
+
+	public:
+		spriteViewerDialog_t(QWidget *parent = 0);
+		~spriteViewerDialog_t(void);
+
+		oamPatternView_t  *oamView;
+		oamPaletteView_t  *palView;
+		oamTileView_t     *tileView;
+		oamPreview_t      *preView;
+
+	protected:
+
+		void closeEvent(QCloseEvent *bar);
+	private:
+		QTimer *updateTimer;
+		QRadioButton *useSprRam;
+		QRadioButton *useCpuPag;
+		QSpinBox     *cpuPagIdx;
+		QLineEdit    *spriteIndexBox;
+		QLineEdit    *tileIndexBox;
+		QLineEdit    *tileAddrBox;
+		QLineEdit    *palAddrBox;
+		QLineEdit    *posBox;
+		QCheckBox    *hFlipBox;
+		QCheckBox    *vFlipBox;
+		QCheckBox    *bgPrioBox;
+		QCheckBox    *showPosHex;
+		QGroupBox    *previewFrame;
+		QPropertyAnimation *previewAnimation;
+
+	public slots:
+		void closeWindow(void);
+	private slots:
+		void periodicUpdate(void);
+		void setClickFocus(void);
+		void setHoverFocus(void);
+		void toggleGridVis(void);
+		void togglePreviewVis(bool);
+		void setPreviewSize1x(void);
+		void setPreviewSize2x(void);
+		void previewAnimWidthChange(const QVariant &);
+		void previewAnimResizeDone(void);
+};
+
 int openPPUViewWindow( QWidget *parent );
+int openOAMViewWindow( QWidget *parent );
 void setPPUSelPatternTile( int table, int x, int y );
 

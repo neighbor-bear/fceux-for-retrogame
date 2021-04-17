@@ -38,10 +38,14 @@
 #include <QDesktopServices>
 #include <QStyleFactory>
 #include <QApplication>
+#include <QActionGroup>
+#include <QShortcut>
 #include <QUrl>
 
 #include "../../fceu.h"
 #include "../../fds.h"
+#include "../../file.h"
+#include "../../input.h"
 #include "../../movie.h"
 #include "../../version.h"
 
@@ -96,15 +100,21 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 
 	QApplication::setStyle( new fceuStyle() );
 
-	createMainMenu();
+	initHotKeys();
 
-	g_config->getOption( "SDL.VideoDriver", &use_SDL_video );
+	createMainMenu();
 
 	firstResize    = true;
 	closeRequested = false;
 	errorMsgValid  = false;
 	viewport_GL    = NULL;
 	viewport_SDL   = NULL;
+
+	mainMenuEmuPauseSet   = false;
+	mainMenuEmuWasPaused  = false;
+	mainMenuPauseWhenActv = false;
+
+	g_config->getOption( "SDL.PauseOnMainMenuAccess", &mainMenuPauseWhenActv );
 
 	if ( use_SDL_video )
 	{
@@ -124,7 +134,11 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	setWindowIcon(QIcon(":fceux1.png"));
 
 	gameTimer  = new QTimer( this );
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+	mutex      = new QRecursiveMutex();
+#else
 	mutex      = new QMutex( QMutex::Recursive );
+#endif
 	emulatorThread = new emulatorThread_t();
 
 	connect(emulatorThread, &QThread::finished, emulatorThread, &QObject::deleteLater);
@@ -387,6 +401,11 @@ void consoleWin_t::setViewportAspect(void)
 	}
 }
 
+void consoleWin_t::setMenuAccessPauseEnable( bool enable )
+{
+	mainMenuPauseWhenActv = enable;
+}
+
 void consoleWin_t::loadCursor(void)
 {
 	int cursorVis;
@@ -506,11 +525,12 @@ void consoleWin_t::showErrorMsgWindow()
 	QMessageBox msgBox(this);
 
 	fceuWrapperLock();
+	msgBox.resize( this->size() );
 	msgBox.setIcon( QMessageBox::Critical );
 	msgBox.setText( tr(errorMsg.c_str()) );
 	errorMsg.clear();
 	fceuWrapperUnLock();
-	msgBox.show();
+	//msgBox.show();
 	msgBox.exec();
 }
 
@@ -540,14 +560,73 @@ void consoleWin_t::keyPressEvent(QKeyEvent *event)
 {
 	//printf("Key Press: 0x%x \n", event->key() );
 	pushKeyEvent( event, 1 );
+
+	event->accept();
 }
 
 void consoleWin_t::keyReleaseEvent(QKeyEvent *event)
 {
 	//printf("Key Release: 0x%x \n", event->key() );
 	pushKeyEvent( event, 0 );
+
+	event->accept();
 }
 
+//---------------------------------------------------------------------------
+void consoleWin_t::initHotKeys(void)
+{
+	for (int i = 0; i < HK_MAX; i++)
+	{
+		Hotkeys[i].init( this );
+	}
+
+	for (int i = 0; i < HK_MAX; i++)
+	{
+		QShortcut *shortcut = Hotkeys[i].getShortcut();
+
+		// Use Lambda Function to set callback
+		connect( shortcut, &QShortcut::activatedAmbiguously, [ this, shortcut ] { warnAmbiguousShortcut( shortcut ); } );
+	}
+
+	// Frame Advance uses key state directly, disable shortcut events
+	Hotkeys[HK_FRAME_ADVANCE].getShortcut()->setEnabled(false);
+	Hotkeys[HK_TURBO        ].getShortcut()->setEnabled(false);
+
+	connect( Hotkeys[ HK_VOLUME_DOWN ].getShortcut(), SIGNAL(activated()), this, SLOT(decrSoundVolume(void)) );
+	connect( Hotkeys[ HK_VOLUME_UP   ].getShortcut(), SIGNAL(activated()), this, SLOT(incrSoundVolume(void)) );
+
+	connect( Hotkeys[ HK_LAG_COUNTER_DISPLAY  ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleLagCounterDisplay(void)) );
+	connect( Hotkeys[ HK_FA_LAG_SKIP          ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleFrameAdvLagSkip(void))   );
+	connect( Hotkeys[ HK_BIND_STATE           ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleMovieBindSaveState(void)));
+	connect( Hotkeys[ HK_TOGGLE_FRAME_DISPLAY ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleMovieFrameDisplay(void)) );
+	connect( Hotkeys[ HK_MOVIE_TOGGLE_RW      ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleMovieReadWrite(void))    );
+	connect( Hotkeys[ HK_TOGGLE_INPUT_DISPLAY ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleInputDisplay(void))      );
+	connect( Hotkeys[ HK_TOGGLE_BG            ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleBackground(void))        );
+	connect( Hotkeys[ HK_TOGGLE_FG            ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleForeground(void))        );
+	connect( Hotkeys[ HK_FKB_ENABLE           ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleFamKeyBrdEnable(void))   );
+
+	connect( Hotkeys[ HK_SAVE_STATE_0         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState0(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_1         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState1(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_2         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState2(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_3         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState3(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_4         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState4(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_5         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState5(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_6         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState6(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_7         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState7(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_8         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState8(void))        );
+	connect( Hotkeys[ HK_SAVE_STATE_9         ].getShortcut(), SIGNAL(activated()), this, SLOT(saveState9(void))        );
+
+	connect( Hotkeys[ HK_LOAD_STATE_0         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState0(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_1         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState1(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_2         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState2(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_3         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState3(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_4         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState4(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_5         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState5(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_6         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState6(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_7         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState7(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_8         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState8(void))        );
+	connect( Hotkeys[ HK_LOAD_STATE_9         ].getShortcut(), SIGNAL(activated()), this, SLOT(loadState9(void))        );
+}
 //---------------------------------------------------------------------------
 void consoleWin_t::createMainMenu(void)
 {
@@ -555,9 +634,8 @@ void consoleWin_t::createMainMenu(void)
 	QMenu *subMenu;
 	QActionGroup *group;
 	int useNativeMenuBar;
-	QStyle *style;
+	//QShortcut *shortcut;
 
-	style   = this->style();
 	menubar = new consoleMenuBar(this);
 
 	this->setMenuBar(menubar);
@@ -570,24 +648,33 @@ void consoleWin_t::createMainMenu(void)
 	//-----------------------------------------------------------------------
 	// File
 	fileMenu = menubar->addMenu(tr("&File"));
+	
+	connect( fileMenu, SIGNAL(aboutToShow(void)), this, SLOT(mainMenuOpen(void)) );
+	connect( fileMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
 
 	// File -> Open ROM
 	openROM = new QAction(tr("&Open ROM"), this);
-	openROM->setShortcuts(QKeySequence::Open);
+	//openROM->setShortcuts(QKeySequence::Open);
 	openROM->setStatusTip(tr("Open ROM File"));
 	//openROM->setIcon( QIcon(":icons/rom.png") );
 	//openROM->setIcon( style->standardIcon( QStyle::SP_FileIcon ) );
-	openROM->setIcon( style->standardIcon( QStyle::SP_FileDialogStart ) );
+	openROM->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
 	connect(openROM, SIGNAL(triggered()), this, SLOT(openROMFile(void)) );
+
+	Hotkeys[ HK_OPEN_ROM ].setAction( openROM );
+	connect( Hotkeys[ HK_OPEN_ROM ].getShortcut(), SIGNAL(activated()), this, SLOT(openROMFile(void)) );
 	
 	fileMenu->addAction(openROM);
 
 	// File -> Close ROM
 	closeROM = new QAction(tr("&Close ROM"), this);
-	closeROM->setShortcut( QKeySequence(tr("Ctrl+C")));
+	//closeROM->setShortcut( QKeySequence(tr("Ctrl+C")));
 	closeROM->setStatusTip(tr("Close Loaded ROM"));
-	closeROM->setIcon( style->standardIcon( QStyle::SP_BrowserStop ) );
+	closeROM->setIcon( style()->standardIcon( QStyle::SP_BrowserStop ) );
 	connect(closeROM, SIGNAL(triggered()), this, SLOT(closeROMCB(void)) );
+	
+	Hotkeys[ HK_CLOSE_ROM ].setAction( closeROM );
+	connect( Hotkeys[ HK_CLOSE_ROM ].getShortcut(), SIGNAL(activated()), this, SLOT(closeROMCB(void)) );
 	
 	fileMenu->addAction(closeROM);
 	
@@ -600,7 +687,7 @@ void consoleWin_t::createMainMenu(void)
 
 	// File -> Play NSF
 	playNSF = new QAction(tr("Play &NSF"), this);
-	playNSF->setShortcut( QKeySequence(tr("Ctrl+N")));
+	//playNSF->setShortcut( QKeySequence(tr("Ctrl+N")));
 	playNSF->setStatusTip(tr("Play NSF"));
 	connect(playNSF, SIGNAL(triggered()), this, SLOT(loadNSF(void)) );
 	
@@ -612,7 +699,7 @@ void consoleWin_t::createMainMenu(void)
 	loadStateAct = new QAction(tr("Load State &From"), this);
 	//loadStateAct->setShortcut( QKeySequence(tr("Ctrl+N")));
 	loadStateAct->setStatusTip(tr("Load State From"));
-	loadStateAct->setIcon( style->standardIcon( QStyle::SP_FileDialogStart ) );
+	loadStateAct->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
 	connect(loadStateAct, SIGNAL(triggered()), this, SLOT(loadStateFrom(void)) );
 	
 	fileMenu->addAction(loadStateAct);
@@ -621,27 +708,33 @@ void consoleWin_t::createMainMenu(void)
 	saveStateAct = new QAction(tr("Save State &As"), this);
 	//loadStateAct->setShortcut( QKeySequence(tr("Ctrl+N")));
 	saveStateAct->setStatusTip(tr("Save State As"));
-	saveStateAct->setIcon( style->standardIcon( QStyle::SP_DialogSaveButton ) );
+	saveStateAct->setIcon( style()->standardIcon( QStyle::SP_DialogSaveButton ) );
 	connect(saveStateAct, SIGNAL(triggered()), this, SLOT(saveStateAs(void)) );
 	
 	fileMenu->addAction(saveStateAct);
 
 	// File -> Quick Load
 	quickLoadAct = new QAction(tr("Quick &Load"), this);
-	quickLoadAct->setShortcut( QKeySequence(tr("F7")));
+	//quickLoadAct->setShortcut( QKeySequence(tr("Shift+I")));
 	quickLoadAct->setStatusTip(tr("Quick Load"));
 	connect(quickLoadAct, SIGNAL(triggered()), this, SLOT(quickLoad(void)) );
 	
 	fileMenu->addAction(quickLoadAct);
 
+	Hotkeys[ HK_LOAD_STATE ].setAction( quickLoadAct );
+	connect( Hotkeys[ HK_LOAD_STATE ].getShortcut(), SIGNAL(activated()), this, SLOT(quickLoad(void)) );
+	
 	// File -> Quick Save
 	quickSaveAct = new QAction(tr("Quick &Save"), this);
-	quickSaveAct->setShortcut( QKeySequence(tr("F5")));
+	//quickSaveAct->setShortcut( QKeySequence(tr("F5")));
 	quickSaveAct->setStatusTip(tr("Quick Save"));
 	connect(quickSaveAct, SIGNAL(triggered()), this, SLOT(quickSave(void)) );
 	
 	fileMenu->addAction(quickSaveAct);
 
+	Hotkeys[ HK_SAVE_STATE ].setAction( quickSaveAct );
+	connect( Hotkeys[ HK_SAVE_STATE ].getShortcut(), SIGNAL(activated()), this, SLOT(quickSave(void)) );
+	
 	// File -> Change State
 	subMenu = fileMenu->addMenu(tr("Change &State"));
 	group   = new QActionGroup(this);
@@ -675,6 +768,31 @@ void consoleWin_t::createMainMenu(void)
 	
 	fileMenu->addSeparator();
 
+	Hotkeys[ HK_SELECT_STATE_0 ].setAction( state[0] );
+	Hotkeys[ HK_SELECT_STATE_1 ].setAction( state[1] );
+	Hotkeys[ HK_SELECT_STATE_2 ].setAction( state[2] );
+	Hotkeys[ HK_SELECT_STATE_3 ].setAction( state[3] );
+	Hotkeys[ HK_SELECT_STATE_4 ].setAction( state[4] );
+	Hotkeys[ HK_SELECT_STATE_5 ].setAction( state[5] );
+	Hotkeys[ HK_SELECT_STATE_6 ].setAction( state[6] );
+	Hotkeys[ HK_SELECT_STATE_7 ].setAction( state[7] );
+	Hotkeys[ HK_SELECT_STATE_8 ].setAction( state[8] );
+	Hotkeys[ HK_SELECT_STATE_9 ].setAction( state[9] );
+
+	connect( Hotkeys[ HK_SELECT_STATE_0 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState0(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_1 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState1(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_2 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState2(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_3 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState3(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_4 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState4(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_5 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState5(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_6 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState6(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_7 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState7(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_8 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState8(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_9 ].getShortcut(), SIGNAL(activated()), this, SLOT(changeState9(void)) );
+	
+	connect( Hotkeys[ HK_SELECT_STATE_PREV ].getShortcut(), SIGNAL(activated()), this, SLOT(decrementState(void)) );
+	connect( Hotkeys[ HK_SELECT_STATE_NEXT ].getShortcut(), SIGNAL(activated()), this, SLOT(incrementState(void)) );
+
 #ifdef _S9XLUA_H
 	// File -> Quick Save
 	loadLuaAct = new QAction(tr("Load &Lua Script"), this);
@@ -690,28 +808,37 @@ void consoleWin_t::createMainMenu(void)
 	loadLuaAct = NULL;
 #endif
 
-	// File -> Screenshort
+	// File -> Screenshot
 	scrShotAct = new QAction(tr("Screens&hot"), this);
-	scrShotAct->setShortcut( QKeySequence(tr("F12")));
+	//scrShotAct->setShortcut( QKeySequence(tr("F12")));
 	scrShotAct->setStatusTip(tr("Screenshot"));
 	scrShotAct->setIcon( QIcon(":icons/camera.png") );
 	connect(scrShotAct, SIGNAL(triggered()), this, SLOT(takeScreenShot()));
 	
 	fileMenu->addAction(scrShotAct);
 
+	Hotkeys[ HK_SCREENSHOT ].setAction( scrShotAct );
+	connect( Hotkeys[ HK_SCREENSHOT ].getShortcut(), SIGNAL(activated()), this, SLOT(takeScreenShot(void)) );
+
 	// File -> Quit
 	quitAct = new QAction(tr("&Quit"), this);
-	quitAct->setShortcut( QKeySequence(tr("Ctrl+Q")));
+	//quitAct->setShortcut( QKeySequence(tr("Ctrl+Q")));
 	quitAct->setStatusTip(tr("Quit the Application"));
-	//quitAct->setIcon( style->standardIcon( QStyle::SP_DialogCloseButton ) );
+	//quitAct->setIcon( style()->standardIcon( QStyle::SP_DialogCloseButton ) );
 	quitAct->setIcon( QIcon(":icons/application-exit.png") );
 	connect(quitAct, SIGNAL(triggered()), this, SLOT(closeApp()));
 	
 	fileMenu->addAction(quitAct);
 
+	Hotkeys[ HK_QUIT ].setAction( quitAct );
+	connect( Hotkeys[ HK_QUIT ].getShortcut(), SIGNAL(activated()), this, SLOT(closeApp(void)) );
+
 	//-----------------------------------------------------------------------
 	// Options
 	optMenu = menubar->addMenu(tr("&Options"));
+
+	connect( optMenu, SIGNAL(aboutToShow(void)), this, SLOT(mainMenuOpen(void)) );
+	connect( optMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
 
 	// Options -> Input Config
 	inputConfig = new QAction(tr("&Input Config"), this);
@@ -735,7 +862,7 @@ void consoleWin_t::createMainMenu(void)
 	gameSoundConfig = new QAction(tr("&Sound Config"), this);
 	//gameSoundConfig->setShortcut( QKeySequence(tr("Ctrl+C")));
 	gameSoundConfig->setStatusTip(tr("Sound Configure"));
-	gameSoundConfig->setIcon( style->standardIcon( QStyle::SP_MediaVolume ) );
+	gameSoundConfig->setIcon( style()->standardIcon( QStyle::SP_MediaVolume ) );
 	connect(gameSoundConfig, SIGNAL(triggered()), this, SLOT(openGameSndConfWin(void)) );
 	
 	optMenu->addAction(gameSoundConfig);
@@ -744,7 +871,7 @@ void consoleWin_t::createMainMenu(void)
 	gameVideoConfig = new QAction(tr("&Video Config"), this);
 	//gameVideoConfig->setShortcut( QKeySequence(tr("Ctrl+C")));
 	gameVideoConfig->setStatusTip(tr("Video Preferences"));
-	gameVideoConfig->setIcon( style->standardIcon( QStyle::SP_ComputerIcon ) );
+	gameVideoConfig->setIcon( style()->standardIcon( QStyle::SP_ComputerIcon ) );
 	connect(gameVideoConfig, SIGNAL(triggered()), this, SLOT(openGameVideoConfWin(void)) );
 	
 	optMenu->addAction(gameVideoConfig);
@@ -771,7 +898,7 @@ void consoleWin_t::createMainMenu(void)
 	guiConfig = new QAction(tr("G&UI Config"), this);
 	//guiConfig->setShortcut( QKeySequence(tr("Ctrl+C")));
 	guiConfig->setStatusTip(tr("GUI Configure"));
-	guiConfig->setIcon( style->standardIcon( QStyle::SP_TitleBarNormalButton ) );
+	guiConfig->setIcon( style()->standardIcon( QStyle::SP_TitleBarNormalButton ) );
 	connect(guiConfig, SIGNAL(triggered()), this, SLOT(openGuiConfWin(void)) );
 	
 	optMenu->addAction(guiConfig);
@@ -807,25 +934,34 @@ void consoleWin_t::createMainMenu(void)
 
 	// Options -> Full Screen
 	fullscreen = new QAction(tr("&Fullscreen"), this);
-	fullscreen->setShortcut( QKeySequence(tr("Alt+Return")));
+	//fullscreen->setShortcut( QKeySequence(tr("Alt+Return")));
 	fullscreen->setStatusTip(tr("Fullscreen"));
 	fullscreen->setIcon( QIcon(":icons/view-fullscreen.png") );
 	connect(fullscreen, SIGNAL(triggered()), this, SLOT(toggleFullscreen(void)) );
 	
 	optMenu->addAction(fullscreen);
 
+	Hotkeys[ HK_FULLSCREEN ].setAction( fullscreen );
+	connect( Hotkeys[ HK_FULLSCREEN ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleFullscreen(void)) );
+
 	// Options -> Hide Menu Screen
 	act = new QAction(tr("&Hide Menu"), this);
-	act->setShortcut( QKeySequence(tr("Alt+/")));
+	//act->setShortcut( QKeySequence(tr("Alt+/")));
 	act->setStatusTip(tr("Hide Menu"));
-	act->setIcon( style->standardIcon( QStyle::SP_TitleBarMaxButton ) );
+	act->setIcon( style()->standardIcon( QStyle::SP_TitleBarMaxButton ) );
 	connect(act, SIGNAL(triggered()), this, SLOT(toggleMenuVis(void)) );
 	
 	optMenu->addAction(act);
 
+	Hotkeys[ HK_MAIN_MENU_HIDE ].setAction( act );
+	connect( Hotkeys[ HK_MAIN_MENU_HIDE ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleMenuVis(void)) );
+
 	//-----------------------------------------------------------------------
 	// Emulation
 	emuMenu = menubar->addMenu(tr("&Emulation"));
+
+	connect( emuMenu, SIGNAL(aboutToShow(void)), this, SLOT(mainMenuOpen(void)) );
+	connect( emuMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
 
 	// Emulation -> Power
 	powerAct = new QAction(tr("&Power"), this);
@@ -836,33 +972,42 @@ void consoleWin_t::createMainMenu(void)
 	
 	emuMenu->addAction(powerAct);
 
+	Hotkeys[ HK_POWER ].setAction( powerAct );
+	connect( Hotkeys[ HK_POWER ].getShortcut(), SIGNAL(activated()), this, SLOT(powerConsoleCB(void)) );
+
 	// Emulation -> Reset
 	resetAct = new QAction(tr("&Reset"), this);
 	//resetAct->setShortcut( QKeySequence(tr("Ctrl+R")));
 	resetAct->setStatusTip(tr("Reset Console"));
-	resetAct->setIcon( style->standardIcon( QStyle::SP_DialogResetButton ) );
+	resetAct->setIcon( style()->standardIcon( QStyle::SP_DialogResetButton ) );
 	connect(resetAct, SIGNAL(triggered()), this, SLOT(consoleHardReset(void)) );
 	
 	emuMenu->addAction(resetAct);
+
+	Hotkeys[ HK_RESET ].setAction( resetAct );
+	connect( Hotkeys[ HK_RESET ].getShortcut(), SIGNAL(activated()), this, SLOT(consoleHardReset(void)) );
 
 	// Emulation -> Soft Reset
 	sresetAct = new QAction(tr("&Soft Reset"), this);
 	//sresetAct->setShortcut( QKeySequence(tr("Ctrl+R")));
 	sresetAct->setStatusTip(tr("Soft Reset of Console"));
-	sresetAct->setIcon( style->standardIcon( QStyle::SP_BrowserReload ) );
+	sresetAct->setIcon( style()->standardIcon( QStyle::SP_BrowserReload ) );
 	connect(sresetAct, SIGNAL(triggered()), this, SLOT(consoleSoftReset(void)) );
 	
 	emuMenu->addAction(sresetAct);
 
 	// Emulation -> Pause
 	pauseAct = new QAction(tr("&Pause"), this);
-	pauseAct->setShortcut( QKeySequence(tr("Pause")));
+	//pauseAct->setShortcut( QKeySequence(tr("Pause")));
 	pauseAct->setStatusTip(tr("Pause Console"));
-	pauseAct->setIcon( style->standardIcon( QStyle::SP_MediaPause ) );
+	pauseAct->setIcon( style()->standardIcon( QStyle::SP_MediaPause ) );
 	connect(pauseAct, SIGNAL(triggered()), this, SLOT(consolePause(void)) );
 	
 	emuMenu->addAction(pauseAct);
 	
+	Hotkeys[ HK_PAUSE ].setAction( pauseAct );
+	connect( Hotkeys[ HK_PAUSE ].getShortcut(), SIGNAL(activated()), this, SLOT(consolePause(void)) );
+
 	emuMenu->addSeparator();
 
 	// Emulation -> Region
@@ -974,6 +1119,9 @@ void consoleWin_t::createMainMenu(void)
 	
 	emuMenu->addAction(insCoinAct);
 	
+	Hotkeys[ HK_VS_INSERT_COIN ].setAction( insCoinAct );
+	connect( Hotkeys[ HK_VS_INSERT_COIN ].getShortcut(), SIGNAL(activated()), this, SLOT(insertCoin(void)) );
+
 	emuMenu->addSeparator();
 
 	// Emulation -> FDS
@@ -985,6 +1133,9 @@ void consoleWin_t::createMainMenu(void)
 	fdsSwitchAct->setStatusTip(tr("Switch Disk"));
 	connect(fdsSwitchAct, SIGNAL(triggered()), this, SLOT(fdsSwitchDisk(void)) );
 	
+	Hotkeys[ HK_FDS_SELECT ].setAction( fdsSwitchAct );
+	connect( Hotkeys[ HK_FDS_SELECT ].getShortcut(), SIGNAL(activated()), this, SLOT(fdsSwitchDisk(void)) );
+
 	subMenu->addAction(fdsSwitchAct);
 
 	// Emulation -> FDS -> Eject Disk
@@ -993,6 +1144,9 @@ void consoleWin_t::createMainMenu(void)
 	fdsEjectAct->setStatusTip(tr("Eject Disk"));
 	connect(fdsEjectAct, SIGNAL(triggered()), this, SLOT(fdsEjectDisk(void)) );
 	
+	Hotkeys[ HK_FDS_EJECT ].setAction( fdsEjectAct );
+	connect( Hotkeys[ HK_FDS_EJECT ].getShortcut(), SIGNAL(activated()), this, SLOT(fdsEjectDisk(void)) );
+
 	subMenu->addAction(fdsEjectAct);
 
 	// Emulation -> FDS -> Load BIOS
@@ -1010,20 +1164,26 @@ void consoleWin_t::createMainMenu(void)
 
 	// Emulation -> Speed -> Speed Up
 	act = new QAction(tr("Speed &Up"), this);
-	act->setShortcut( QKeySequence(tr("=")));
+	//act->setShortcut( QKeySequence(tr("=")));
 	act->setStatusTip(tr("Speed Up"));
-	act->setIcon( style->standardIcon( QStyle::SP_MediaSeekForward ) );
+	act->setIcon( style()->standardIcon( QStyle::SP_MediaSeekForward ) );
 	connect(act, SIGNAL(triggered()), this, SLOT(emuSpeedUp(void)) );
 	
+	Hotkeys[ HK_INCREASE_SPEED ].setAction( act );
+	connect( Hotkeys[ HK_INCREASE_SPEED ].getShortcut(), SIGNAL(activated()), this, SLOT(emuSpeedUp(void)) );
+
 	subMenu->addAction(act);
 
 	// Emulation -> Speed -> Slow Down
 	act = new QAction(tr("Slow &Down"), this);
-	act->setShortcut( QKeySequence(tr("-")));
+	//act->setShortcut( QKeySequence(tr("-")));
 	act->setStatusTip(tr("Slow Down"));
-	act->setIcon( style->standardIcon( QStyle::SP_MediaSeekBackward ) );
+	act->setIcon( style()->standardIcon( QStyle::SP_MediaSeekBackward ) );
 	connect(act, SIGNAL(triggered()), this, SLOT(emuSlowDown(void)) );
 	
+	Hotkeys[ HK_DECREASE_SPEED ].setAction( act );
+	connect( Hotkeys[ HK_DECREASE_SPEED ].getShortcut(), SIGNAL(activated()), this, SLOT(emuSlowDown(void)) );
+
 	subMenu->addAction(act);
 	
 	subMenu->addSeparator();
@@ -1032,7 +1192,7 @@ void consoleWin_t::createMainMenu(void)
 	act = new QAction(tr("&Slowest"), this);
 	//act->setShortcut( QKeySequence(tr("-")));
 	act->setStatusTip(tr("Slowest"));
-	act->setIcon( style->standardIcon( QStyle::SP_MediaSkipBackward ) );
+	act->setIcon( style()->standardIcon( QStyle::SP_MediaSkipBackward ) );
 	connect(act, SIGNAL(triggered()), this, SLOT(emuSlowestSpd(void)) );
 	
 	subMenu->addAction(act);
@@ -1041,7 +1201,7 @@ void consoleWin_t::createMainMenu(void)
 	act = new QAction(tr("&Normal"), this);
 	//act->setShortcut( QKeySequence(tr("-")));
 	act->setStatusTip(tr("Normal"));
-	act->setIcon( style->standardIcon( QStyle::SP_MediaPlay ) );
+	act->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
 	connect(act, SIGNAL(triggered()), this, SLOT(emuNormalSpd(void)) );
 	
 	subMenu->addAction(act);
@@ -1050,7 +1210,7 @@ void consoleWin_t::createMainMenu(void)
 	act = new QAction(tr("&Turbo"), this);
 	//act->setShortcut( QKeySequence(tr("-")));
 	act->setStatusTip(tr("Turbo (Fastest)"));
-	act->setIcon( style->standardIcon( QStyle::SP_MediaSkipForward ) );
+	act->setIcon( style()->standardIcon( QStyle::SP_MediaSkipForward ) );
 	connect(act, SIGNAL(triggered()), this, SLOT(emuFastestSpd(void)) );
 	
 	subMenu->addAction(act);
@@ -1096,12 +1256,18 @@ void consoleWin_t::createMainMenu(void)
 	// Tools
 	toolsMenu = menubar->addMenu(tr("&Tools"));
 
+	connect( toolsMenu, SIGNAL(aboutToShow(void)), this, SLOT(mainMenuOpen(void)) );
+	connect( toolsMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
+
 	// Tools -> Cheats
 	cheatsAct = new QAction(tr("&Cheats..."), this);
 	//cheatsAct->setShortcut( QKeySequence(tr("Shift+F7")));
 	cheatsAct->setStatusTip(tr("Open Cheat Window"));
 	connect(cheatsAct, SIGNAL(triggered()), this, SLOT(openCheats(void)) );
 	
+	Hotkeys[ HK_CHEAT_MENU ].setAction( cheatsAct );
+	connect( Hotkeys[ HK_CHEAT_MENU ].getShortcut(), SIGNAL(activated()), this, SLOT(openCheats(void)) );
+
 	toolsMenu->addAction(cheatsAct);
 
 	// Tools -> RAM Search
@@ -1140,6 +1306,9 @@ void consoleWin_t::createMainMenu(void)
 	 // Debug
 	debugMenu = menubar->addMenu(tr("&Debug"));
 
+	connect( debugMenu, SIGNAL(aboutToShow(void)), this, SLOT(mainMenuOpen(void)) );
+	connect( debugMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
+
 	// Debug -> Debugger 
 	debuggerAct = new QAction(tr("&Debugger..."), this);
 	//debuggerAct->setShortcut( QKeySequence(tr("Shift+F7")));
@@ -1163,6 +1332,14 @@ void consoleWin_t::createMainMenu(void)
 	connect(ppuViewAct, SIGNAL(triggered()), this, SLOT(openPPUViewer(void)) );
 	
 	debugMenu->addAction(ppuViewAct);
+
+	// Debug -> Sprite Viewer
+	oamViewAct = new QAction(tr("&Sprite Viewer..."), this);
+	//oamViewAct->setShortcut( QKeySequence(tr("Shift+F7")));
+	oamViewAct->setStatusTip(tr("Open Sprite Viewer"));
+	connect(oamViewAct, SIGNAL(triggered()), this, SLOT(openOAMViewer(void)) );
+	
+	debugMenu->addAction(oamViewAct);
 
 	// Debug -> Name Table Viewer
 	ntViewAct = new QAction(tr("&Name Table Viewer..."), this);
@@ -1208,29 +1385,50 @@ void consoleWin_t::createMainMenu(void)
 	// Movie
 	movieMenu = menubar->addMenu(tr("&Movie"));
 
+	connect( movieMenu, SIGNAL(aboutToShow(void)), this, SLOT(mainMenuOpen(void)) );
+	connect( movieMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
+
 	// Movie -> Play
 	openMovAct = new QAction(tr("&Play"), this);
-	openMovAct->setShortcut( QKeySequence(tr("Shift+F7")));
+	//openMovAct->setShortcut( QKeySequence(tr("Shift+F7")));
 	openMovAct->setStatusTip(tr("Play Movie File"));
-	openMovAct->setIcon( style->standardIcon( QStyle::SP_MediaPlay ) );
+	openMovAct->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
 	connect(openMovAct, SIGNAL(triggered()), this, SLOT(openMovie(void)) );
 	
+	Hotkeys[ HK_PLAY_MOVIE_FROM ].setAction( openMovAct );
+	connect( Hotkeys[ HK_PLAY_MOVIE_FROM ].getShortcut(), SIGNAL(activated()), this, SLOT(openMovie(void)) );
+
 	movieMenu->addAction(openMovAct);
+
+	// Movie -> Play From Beginning
+	playMovBeginAct = new QAction(tr("Play From &Beginning"), this);
+	//playMovBeginAct->setShortcut( QKeySequence(tr("Shift+F7")));
+	playMovBeginAct->setStatusTip(tr("Play Movie From Beginning"));
+	//playMovBeginAct->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
+	connect(playMovBeginAct, SIGNAL(triggered()), this, SLOT(playMovieFromBeginning(void)) );
+	
+	Hotkeys[ HK_MOVIE_PLAY_RESTART ].setAction( playMovBeginAct );
+	connect( Hotkeys[ HK_MOVIE_PLAY_RESTART ].getShortcut(), SIGNAL(activated()), this, SLOT(playMovieFromBeginning(void)) );
+
+	movieMenu->addAction(playMovBeginAct);
 
 	// Movie -> Stop
 	stopMovAct = new QAction(tr("&Stop"), this);
 	//stopMovAct->setShortcut( QKeySequence(tr("Shift+F7")));
 	stopMovAct->setStatusTip(tr("Stop Movie Recording"));
-	stopMovAct->setIcon( style->standardIcon( QStyle::SP_MediaStop ) );
+	stopMovAct->setIcon( style()->standardIcon( QStyle::SP_MediaStop ) );
 	connect(stopMovAct, SIGNAL(triggered()), this, SLOT(stopMovie(void)) );
 	
+	Hotkeys[ HK_STOP_MOVIE ].setAction( stopMovAct );
+	connect( Hotkeys[ HK_STOP_MOVIE ].getShortcut(), SIGNAL(activated()), this, SLOT(stopMovie(void)) );
+
 	movieMenu->addAction(stopMovAct);
 	
 	movieMenu->addSeparator();
 
 	// Movie -> Record
 	recMovAct = new QAction(tr("&Record"), this);
-	recMovAct->setShortcut( QKeySequence(tr("Shift+F5")));
+	//recMovAct->setShortcut( QKeySequence(tr("Shift+F5")));
 	recMovAct->setStatusTip(tr("Record Movie"));
 	recMovAct->setIcon( QIcon(":icons/media-record.png") );
 	connect(recMovAct, SIGNAL(triggered()), this, SLOT(recordMovie(void)) );
@@ -1243,16 +1441,22 @@ void consoleWin_t::createMainMenu(void)
 	recAsMovAct->setStatusTip(tr("Record Movie"));
 	connect(recAsMovAct, SIGNAL(triggered()), this, SLOT(recordMovieAs(void)) );
 	
+	Hotkeys[ HK_RECORD_MOVIE_TO ].setAction( recAsMovAct );
+	connect( Hotkeys[ HK_RECORD_MOVIE_TO ].getShortcut(), SIGNAL(activated()), this, SLOT(recordMovieAs(void)) );
+
 	movieMenu->addAction(recAsMovAct);
 
 	//-----------------------------------------------------------------------
 	// Help
 	helpMenu = menubar->addMenu(tr("&Help"));
  
+	connect( helpMenu, SIGNAL(aboutToShow(void)), this, SLOT(mainMenuOpen(void)) );
+	connect( helpMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
+
 	// Help -> About FCEUX
 	aboutAct = new QAction(tr("&About FCEUX"), this);
 	aboutAct->setStatusTip(tr("About FCEUX"));
-	aboutAct->setIcon( style->standardIcon( QStyle::SP_MessageBoxInformation ) );
+	aboutAct->setIcon( style()->standardIcon( QStyle::SP_MessageBoxInformation ) );
 	connect(aboutAct, SIGNAL(triggered()), this, SLOT(aboutFCEUX(void)) );
 	
 	helpMenu->addAction(aboutAct);
@@ -1260,7 +1464,7 @@ void consoleWin_t::createMainMenu(void)
 	// Help -> About Qt
 	aboutActQt = new QAction(tr("About &Qt"), this);
 	aboutActQt->setStatusTip(tr("About Qt"));
-	aboutActQt->setIcon( style->standardIcon( QStyle::SP_TitleBarMenuButton ) );
+	aboutActQt->setIcon( style()->standardIcon( QStyle::SP_TitleBarMenuButton ) );
 	connect(aboutActQt, SIGNAL(triggered()), this, SLOT(aboutQt(void)) );
 	
 	helpMenu->addAction(aboutActQt);
@@ -1268,7 +1472,7 @@ void consoleWin_t::createMainMenu(void)
 	// Help -> Message Log
 	msgLogAct = new QAction(tr("&Message Log"), this);
 	msgLogAct->setStatusTip(tr("Message Log"));
-	msgLogAct->setIcon( style->standardIcon( QStyle::SP_MessageBoxWarning ) );
+	msgLogAct->setIcon( style()->standardIcon( QStyle::SP_MessageBoxWarning ) );
 	connect(msgLogAct, SIGNAL(triggered()), this, SLOT(openMsgLogWin(void)) );
 	
 	helpMenu->addAction(msgLogAct);
@@ -1276,11 +1480,61 @@ void consoleWin_t::createMainMenu(void)
 	// Help -> Documentation
 	act = new QAction(tr("&Docs (Online)"), this);
 	act->setStatusTip(tr("Documentation"));
-	act->setIcon( style->standardIcon( QStyle::SP_DialogHelpButton ) );
+	act->setIcon( style()->standardIcon( QStyle::SP_DialogHelpButton ) );
 	connect(act, SIGNAL(triggered()), this, SLOT(openOnlineDocs(void)) );
 	
 	helpMenu->addAction(act);
 };
+//---------------------------------------------------------------------------
+int consoleWin_t::loadVideoDriver( int driverId )
+{
+	if ( driverId )
+	{  // SDL Driver
+		if ( viewport_SDL != NULL )
+		{  // Already Loaded
+			return 0;
+		}
+
+		if ( viewport_GL != NULL )
+		{
+			if ( viewport_GL == centralWidget() )
+			{
+				takeCentralWidget();
+			}
+			delete viewport_GL;
+
+			viewport_GL = NULL;
+		}
+		
+		viewport_SDL = new ConsoleViewSDL_t(this);
+
+		setCentralWidget(viewport_SDL);
+
+		viewport_SDL->init();
+	}
+	else
+	{  // OpenGL Driver
+		if ( viewport_GL != NULL )
+		{  // Already Loaded
+			return 0;
+		}
+
+		if ( viewport_SDL != NULL )
+		{
+			if ( viewport_SDL == centralWidget() )
+			{
+				takeCentralWidget();
+			}
+			delete viewport_SDL;
+
+			viewport_SDL = NULL;
+		}
+		viewport_GL = new ConsoleViewGL_t(this);
+
+		setCentralWidget(viewport_GL);
+	}
+	return 0;
+}
 //---------------------------------------------------------------------------
 void consoleWin_t::clearRomList(void)
 {
@@ -1851,6 +2105,26 @@ void consoleWin_t::quickLoad(void)
 	fceuWrapperUnLock();
 }
 
+void consoleWin_t::loadState(int slot)
+{
+	int prevState;
+	fceuWrapperLock();
+	prevState = FCEUI_SelectState( slot, false );
+	FCEUI_LoadState( NULL, true );
+	FCEUI_SelectState( prevState, false );
+	fceuWrapperUnLock();
+}
+void consoleWin_t::loadState0(void){ loadState(0); }
+void consoleWin_t::loadState1(void){ loadState(1); }
+void consoleWin_t::loadState2(void){ loadState(2); }
+void consoleWin_t::loadState3(void){ loadState(3); }
+void consoleWin_t::loadState4(void){ loadState(4); }
+void consoleWin_t::loadState5(void){ loadState(5); }
+void consoleWin_t::loadState6(void){ loadState(6); }
+void consoleWin_t::loadState7(void){ loadState(7); }
+void consoleWin_t::loadState8(void){ loadState(8); }
+void consoleWin_t::loadState9(void){ loadState(9); }
+
 void consoleWin_t::quickSave(void)
 {
 	fceuWrapperLock();
@@ -1858,74 +2132,85 @@ void consoleWin_t::quickSave(void)
 	fceuWrapperUnLock();
 }
 
-void consoleWin_t::changeState0(void)
+void consoleWin_t::saveState(int slot)
+{
+	int prevState;
+	fceuWrapperLock();
+	prevState = FCEUI_SelectState( slot, false );
+	FCEUI_SaveState( NULL, true );
+	FCEUI_SelectState( prevState, false );
+	fceuWrapperUnLock();
+}
+void consoleWin_t::saveState0(void){ saveState(0); }
+void consoleWin_t::saveState1(void){ saveState(1); }
+void consoleWin_t::saveState2(void){ saveState(2); }
+void consoleWin_t::saveState3(void){ saveState(3); }
+void consoleWin_t::saveState4(void){ saveState(4); }
+void consoleWin_t::saveState5(void){ saveState(5); }
+void consoleWin_t::saveState6(void){ saveState(6); }
+void consoleWin_t::saveState7(void){ saveState(7); }
+void consoleWin_t::saveState8(void){ saveState(8); }
+void consoleWin_t::saveState9(void){ saveState(9); }
+
+void consoleWin_t::changeState(int slot)
 {
 	fceuWrapperLock();
-	FCEUI_SelectState( 0, 1 );
+	FCEUI_SelectState( slot, true );
+	fceuWrapperUnLock();
+	state[slot]->setChecked(true);
+}
+void consoleWin_t::changeState0(void){ changeState(0); }
+void consoleWin_t::changeState1(void){ changeState(1); }
+void consoleWin_t::changeState2(void){ changeState(2); }
+void consoleWin_t::changeState3(void){ changeState(3); }
+void consoleWin_t::changeState4(void){ changeState(4); }
+void consoleWin_t::changeState5(void){ changeState(5); }
+void consoleWin_t::changeState6(void){ changeState(6); }
+void consoleWin_t::changeState7(void){ changeState(7); }
+void consoleWin_t::changeState8(void){ changeState(8); }
+void consoleWin_t::changeState9(void){ changeState(9); }
+
+void consoleWin_t::incrementState(void)
+{
+	fceuWrapperLock();
+	FCEUI_SelectStateNext(1);
 	fceuWrapperUnLock();
 }
 
-void consoleWin_t::changeState1(void)
+void consoleWin_t::decrementState(void)
 {
 	fceuWrapperLock();
-	FCEUI_SelectState( 1, 1 );
+	FCEUI_SelectStateNext(-1);
 	fceuWrapperUnLock();
 }
 
-void consoleWin_t::changeState2(void)
+void consoleWin_t::mainMenuOpen(void)
 {
-	fceuWrapperLock();
-	FCEUI_SelectState( 2, 1 );
-	fceuWrapperUnLock();
+	//printf("Main Menu Open\n");
+
+	mainMenuEmuWasPaused = FCEUI_EmulationPaused() ? true : false;
+
+	if ( mainMenuPauseWhenActv && !mainMenuEmuPauseSet && !mainMenuEmuWasPaused )
+	{
+		FCEUI_ToggleEmulationPause();
+		mainMenuEmuPauseSet  = true;
+	}
 }
 
-void consoleWin_t::changeState3(void)
+void consoleWin_t::mainMenuClose(void)
 {
-	fceuWrapperLock();
-	FCEUI_SelectState( 3, 1 );
-	fceuWrapperUnLock();
-}
+	//printf("Main Menu Close\n");
 
-void consoleWin_t::changeState4(void)
-{
-	fceuWrapperLock();
-	FCEUI_SelectState( 4, 1 );
-	fceuWrapperUnLock();
-}
+	if ( mainMenuEmuPauseSet )
+	{
+		bool isPaused = FCEUI_EmulationPaused() ? true : false;
 
-void consoleWin_t::changeState5(void)
-{
-	fceuWrapperLock();
-	FCEUI_SelectState( 5, 1 );
-	fceuWrapperUnLock();
-}
-
-void consoleWin_t::changeState6(void)
-{
-	fceuWrapperLock();
-	FCEUI_SelectState( 6, 1 );
-	fceuWrapperUnLock();
-}
-
-void consoleWin_t::changeState7(void)
-{
-	fceuWrapperLock();
-	FCEUI_SelectState( 7, 1 );
-	fceuWrapperUnLock();
-}
-
-void consoleWin_t::changeState8(void)
-{
-	fceuWrapperLock();
-	FCEUI_SelectState( 8, 1 );
-	fceuWrapperUnLock();
-}
-
-void consoleWin_t::changeState9(void)
-{
-	fceuWrapperLock();
-	FCEUI_SelectState( 9, 1 );
-	fceuWrapperUnLock();
+		if ( isPaused != mainMenuEmuWasPaused )
+		{
+			FCEUI_ToggleEmulationPause();
+		}
+		mainMenuEmuPauseSet = false;
+	}
 }
 
 void consoleWin_t::takeScreenShot(void)
@@ -2114,6 +2399,13 @@ void consoleWin_t::openPPUViewer(void)
 	openPPUViewWindow(this);
 }
 
+void consoleWin_t::openOAMViewer(void)
+{
+	//printf("Open GUI OAM Viewer Window\n");
+	
+	openOAMViewWindow(this);
+}
+
 void consoleWin_t::openNTViewer(void)
 {
 	//printf("Open GUI Name Table Viewer Window\n");
@@ -2187,6 +2479,46 @@ void consoleWin_t::toggleFullscreen(void)
 	}
 }
 
+void consoleWin_t::toggleFamKeyBrdEnable(void)
+{
+	toggleFamilyKeyboardFunc();
+}
+
+void consoleWin_t::warnAmbiguousShortcut( QShortcut *shortcut)
+{
+	char stmp[256];
+	std::string msg;
+	int c = 0;
+
+	sprintf( stmp, "Error: Ambiguous Shortcut Activation for Key Sequence: '%s'\n", shortcut->key().toString().toStdString().c_str() );
+
+	msg.assign( stmp );
+
+	for (int i = 0; i < HK_MAX; i++)
+	{
+		QShortcut *sc = Hotkeys[i].getShortcut();
+
+		if ( sc == NULL )
+		{
+			continue;
+		}
+
+		if ( (sc == shortcut) || (shortcut->key().matches( sc->key() ) == QKeySequence::ExactMatch) )
+		{
+			if ( c == 0 )
+			{
+				msg.append("Hot Key Conflict: "); c++;
+			}
+			else
+			{
+				msg.append(" and "); c++;
+			}
+			msg.append( Hotkeys[i].getConfigName() );
+		}
+	}
+	QueueErrorMsgWindow( msg.c_str() );
+}
+
 void consoleWin_t::powerConsoleCB(void)
 {
 	fceuWrapperLock();
@@ -2216,6 +2548,8 @@ void consoleWin_t::consolePause(void)
 	fceuWrapperLock();
 	fceuWrapperTogglePause();
 	fceuWrapperUnLock();
+
+	mainMenuEmuPauseSet = false;
    return;
 }
 
@@ -2569,6 +2903,88 @@ void consoleWin_t::setAutoFireOffFrames(void)
 	}
 }
 
+void consoleWin_t::incrSoundVolume(void)
+{
+	fceuWrapperLock();
+	FCEUD_SoundVolumeAdjust( 1);
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::decrSoundVolume(void)
+{
+	fceuWrapperLock();
+	FCEUD_SoundVolumeAdjust(-1);
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleLagCounterDisplay(void)
+{
+	fceuWrapperLock();
+	lagCounterDisplay = !lagCounterDisplay;
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleFrameAdvLagSkip(void)
+{
+	fceuWrapperLock();
+	frameAdvanceLagSkip = !frameAdvanceLagSkip;
+	FCEUI_DispMessage ("Skipping lag in Frame Advance %sabled.", 0, frameAdvanceLagSkip ? "en" : "dis");
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleMovieBindSaveState(void)
+{
+	fceuWrapperLock();
+	bindSavestate = !bindSavestate;
+	FCEUI_DispMessage ("Savestate binding to movie %sabled.", 0, bindSavestate ? "en" : "dis");
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleMovieFrameDisplay(void)
+{
+	fceuWrapperLock();
+	FCEUI_MovieToggleFrameDisplay();
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleMovieReadWrite(void)
+{
+	fceuWrapperLock();
+	FCEUI_SetMovieToggleReadOnly (!FCEUI_GetMovieToggleReadOnly ());
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleInputDisplay(void)
+{
+	fceuWrapperLock();
+	FCEUI_ToggleInputDisplay();
+	g_config->setOption ("SDL.InputDisplay", input_display);
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleBackground(void)
+{
+	bool fgOn, bgOn;
+	fceuWrapperLock();
+	FCEUI_GetRenderPlanes( fgOn,  bgOn );
+	FCEUI_SetRenderPlanes( fgOn, !bgOn );
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleForeground(void)
+{
+	bool fgOn, bgOn;
+	fceuWrapperLock();
+	FCEUI_GetRenderPlanes(  fgOn, bgOn );
+	FCEUI_SetRenderPlanes( !fgOn, bgOn );
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::toggleTurboMode(void)
+{
+	NoWaiting ^= 1;
+}
+
 void consoleWin_t::openMovie(void)
 {
 	MoviePlayDialog_t *win;
@@ -2576,6 +2992,13 @@ void consoleWin_t::openMovie(void)
 	win = new MoviePlayDialog_t(this);
 
 	win->show();
+}
+
+void consoleWin_t::playMovieFromBeginning(void)
+{
+	fceuWrapperLock();
+	FCEUI_MoviePlayFromBeginning();
+	fceuWrapperUnLock();
 }
 
 void consoleWin_t::stopMovie(void)
@@ -2872,14 +3295,10 @@ void consoleWin_t::syncActionConfig( QAction *act, const char *property )
 
 void consoleWin_t::updatePeriodic(void)
 {
-	//struct timespec ts;
-	//double t;
-
-	//clock_gettime( CLOCK_REALTIME, &ts );
-
-	//t = (double)ts.tv_sec + (double)(ts.tv_nsec * 1.0e-9);
-   //printf("Run Frame %f\n", t);
 	
+	// Process all events before attempting to render viewport
+	QCoreApplication::processEvents();
+
 	// Update Input Devices
 	FCEUD_UpdateInput();
 	
@@ -2896,13 +3315,12 @@ void consoleWin_t::updatePeriodic(void)
 		else
 		{
 			viewport_GL->transfer2LocalBuffer();
-			//viewport_GL->repaint();
 			viewport_GL->update();
 		}
 	}
 
 	// Low Rate Updates
-	if ( (updateCounter % 20) == 0 )
+	if ( (updateCounter % 30) == 0 )
 	{
 		// Keep region menu selection sync'd to actual state
 		int actRegion = FCEUI_GetRegion();
@@ -2911,6 +3329,20 @@ void consoleWin_t::updatePeriodic(void)
 		{
 			region[ actRegion ]->setChecked(true);
 		}
+
+		powerAct->setEnabled( FCEU_IsValidUI( FCEUI_POWER ) );
+		resetAct->setEnabled( FCEU_IsValidUI( FCEUI_RESET ) );
+		sresetAct->setEnabled( FCEU_IsValidUI( FCEUI_RESET ) );
+		playMovBeginAct->setEnabled( FCEU_IsValidUI( FCEUI_PLAYFROMBEGINNING ) );
+		insCoinAct->setEnabled( FCEU_IsValidUI( FCEUI_INSERT_COIN ) );
+		fdsSwitchAct->setEnabled( FCEU_IsValidUI( FCEUI_SWITCH_DISK ) );
+		fdsEjectAct->setEnabled( FCEU_IsValidUI( FCEUI_EJECT_DISK ) );
+		stopMovAct->setEnabled( FCEU_IsValidUI( FCEUI_STOPMOVIE ) );
+		recentRomMenu->setEnabled( !recentRomMenu->isEmpty() );
+		quickLoadAct->setEnabled( FCEU_IsValidUI( FCEUI_QUICKLOAD ) );
+		quickSaveAct->setEnabled( FCEU_IsValidUI( FCEUI_QUICKSAVE ) );
+		loadStateAct->setEnabled( FCEU_IsValidUI( FCEUI_LOADSTATE ) );
+		saveStateAct->setEnabled( FCEU_IsValidUI( FCEUI_SAVESTATE ) );
 	}
 
 	if ( errorMsgValid )
@@ -3173,11 +3605,14 @@ void consoleMenuBar::keyPressEvent(QKeyEvent *event)
 	{
 		((QWidget*)parent())->setFocus();
 	}
+	event->accept();
 }
 
 void consoleMenuBar::keyReleaseEvent(QKeyEvent *event)
 {
 	QMenuBar::keyReleaseEvent(event);
+
+	event->accept();
 }
 //-----------------------------------------------------------------------------
 //----------------------------------------------------------------------------
