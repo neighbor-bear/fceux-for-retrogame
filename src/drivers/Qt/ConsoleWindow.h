@@ -16,6 +16,8 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QTimer>
 #include <QThread>
 #include <QCursor>
@@ -27,6 +29,7 @@
 #include "Qt/ConsoleViewerGL.h"
 #include "Qt/ConsoleViewerSDL.h"
 #include "Qt/GamePadConf.h"
+#include "Qt/AviRecord.h"
 
 class  emulatorThread_t : public QThread
 {
@@ -36,7 +39,7 @@ class  emulatorThread_t : public QThread
 		void run( void ) override;
 
 	public:
-		emulatorThread_t(void);
+		emulatorThread_t( QObject *parent = 0 );
 
 		void setPriority( QThread::Priority priority );
 
@@ -69,6 +72,29 @@ class  consoleMenuBar : public QMenuBar
 	protected:
 		void keyPressEvent(QKeyEvent *event);
 		void keyReleaseEvent(QKeyEvent *event);
+};
+
+class  autoFireMenuAction : public QAction
+{
+	Q_OBJECT
+
+	public:
+		autoFireMenuAction(int on, int off, QString name, QWidget *parent = 0);
+		~autoFireMenuAction(void);
+
+		bool isMatch( int on, int off );
+
+		void setPattern( int on, int off );
+
+		int  getOnValue(void){ return onFrames; };
+		int  getOffValue(void){ return offFrames; };
+
+	public slots:
+		void activateCB(void);
+
+	private:
+		int  onFrames;
+		int  offFrames;
 };
 
 class  consoleRecentRomAction : public QAction
@@ -105,6 +131,8 @@ class  consoleWin_t : public QMainWindow
 		QMutex *mutex;
 #endif
 
+		int  videoInit(void);
+		void videoReset(void);
 		void requestClose(void);
 
 	 	void QueueErrorMsgWindow( const char *msg );
@@ -123,6 +151,7 @@ class  consoleWin_t : public QMainWindow
 		int loadVideoDriver( int driverId );
 
 		emulatorThread_t *emulatorThread;
+		AviRecordDiskThread_t *aviDiskThread;
 
 		void addRecentRom( const char *rom );
 
@@ -202,6 +231,12 @@ class  consoleWin_t : public QMainWindow
 		QAction *recAsMovAct;
 		QAction *region[3];
 		QAction *ramInit[4];
+		QAction *recAviAct;
+		QAction *recAsAviAct;
+		QAction *stopAviAct;
+		QAction *recWavAct;
+		QAction *recAsWavAct;
+		QAction *stopWavAct;
 
 		QTimer  *gameTimer;
 
@@ -213,8 +248,11 @@ class  consoleWin_t : public QMainWindow
 		bool        mainMenuEmuPauseSet;
 		bool        mainMenuEmuWasPaused;
 		bool        mainMenuPauseWhenActv;
+		bool        scrHandlerConnected;
 
 		std::list <std::string*> romList;
+		std::vector <autoFireMenuAction*> afActList;
+		autoFireMenuAction *afActCustom;
 
 		unsigned int updateCounter;
 	protected:
@@ -222,11 +260,15 @@ class  consoleWin_t : public QMainWindow
 		void closeEvent(QCloseEvent *event);
 		void keyPressEvent(QKeyEvent *event);
 		void keyReleaseEvent(QKeyEvent *event);
+		void dragEnterEvent(QDragEnterEvent *event);
+		void dropEvent(QDropEvent *event);
+		void showEvent(QShowEvent *event);
 		void syncActionConfig( QAction *act, const char *property );
 		void showErrorMsgWindow(void);
 
 	private:
 		void initHotKeys(void);
+		void initScreenHandler(void);
 		void createMainMenu(void);
 		void buildRecentRomMenu(void);
 		void saveRecentRomMenu(void);
@@ -235,6 +277,7 @@ class  consoleWin_t : public QMainWindow
 		void changeState(int slot);
 		void saveState(int slot);
 		void loadState(int slot);
+		void syncAutoFirePatternMenu(void);
 
 	public slots:
 		void openDebugWindow(void);
@@ -283,6 +326,7 @@ class  consoleWin_t : public QMainWindow
 		void decrementState(void);
 		void loadLua(void);
 		void takeScreenShot(void);
+		void prepareScreenShot(void);
 		void powerConsoleCB(void);
 		void consoleHardReset(void);
 		void consoleSoftReset(void);
@@ -320,8 +364,7 @@ class  consoleWin_t : public QMainWindow
 		void recordMovie(void);
 		void recordMovieAs(void);
 		void playMovieFromBeginning(void);
-		void setAutoFireOnFrames(void);
-		void setAutoFireOffFrames(void);
+		void setCustomAutoFire(void);
 		void incrSoundVolume(void);
 		void decrSoundVolume(void);
 		void toggleLagCounterDisplay(void);
@@ -357,6 +400,15 @@ class  consoleWin_t : public QMainWindow
 		void mainMenuOpen(void);
 		void mainMenuClose(void);
 		void warnAmbiguousShortcut( QShortcut*);
+		void aviRecordStart(void);
+		void aviRecordAsStart(void);
+		void aviRecordStop(void);
+		void aviAudioEnableChange(bool);
+		void aviVideoFormatChanged(int idx);
+		void wavRecordStart(void);
+		void wavRecordAsStart(void);
+		void wavRecordStop(void);
+		void winScreenChanged( QScreen *scr );
 
 };
 

@@ -255,7 +255,6 @@ class ConsoleDebugger : public QDialog
 		QGroupBox *bmFrame;
 		QTreeWidget *bpTree;
 		QTreeWidget *bmTree;
-		QCheckBox *brkBadOpsCbox;
 		QCheckBox *N_chkbox;
 		QCheckBox *V_chkbox;
 		QCheckBox *U_chkbox;
@@ -266,12 +265,6 @@ class ConsoleDebugger : public QDialog
 		QCheckBox *C_chkbox;
 		QCheckBox *brkCpuCycExd;
 		QCheckBox *brkInstrsExd;
-		QCheckBox *romOfsChkBox;
-		QCheckBox *symDbgChkBox;
-		QCheckBox *regNamChkBox;
-		QCheckBox *autoOpenChkBox;
-		QCheckBox *debFileChkBox;
-		QCheckBox *idaFontChkBox;
 		QLabel    *emuStatLbl;
 		QLabel    *ppuLbl;
 		QLabel    *spriteLbl;
@@ -310,6 +303,7 @@ class ConsoleDebugger : public QDialog
 		void debugRunToCursorCB(void);
 		void debugRunLineCB(void);
 		void debugRunLine128CB(void);
+		void openGotoAddrDialog(void);
 		void seekToCB(void);
 		void seekPCCB(void);
 		void add_BP_CB(void);
@@ -320,12 +314,14 @@ class ConsoleDebugger : public QDialog
 		void delete_BM_CB(void);
 		void resetCountersCB (void);
 		void reloadSymbolsCB(void);
-		void displayROMoffsetCB(int value);
-		void symbolDebugEnableCB(int value);
-		void registerNameEnableCB(int value);
-		void autoOpenDebugCB( int value );
-		void debFileAutoLoadCB( int value );
-		void breakOnBadOpcodeCB(int value);
+		void displayROMoffsetCB(bool value);
+		void symbolDebugEnableCB(bool value);
+		void registerNameEnableCB(bool value);
+		void autoOpenDebugCB( bool value );
+		void debFileAutoLoadCB( bool value );
+		void breakOnBadOpcodeCB(bool value);
+		void breakOnNewCodeCB(bool value);
+		void breakOnNewDataCB(bool value);
 		void breakOnCyclesCB( int value );
 		void breakOnInstructionsCB( int value );
 		void bpItemClicked( QTreeWidgetItem *item, int column);
@@ -344,6 +340,8 @@ class ConsoleDebugger : public QDialog
 };
 
 bool debuggerWindowIsOpen(void);
+bool debuggerWaitingAtBreakpoint(void);
+void bpDebugSetEnable(bool val);
 void saveGameDebugBreakpoints(void);
 void loadGameDebugBreakpoints(void);
 void debuggerClearAllBreakpoints(void);

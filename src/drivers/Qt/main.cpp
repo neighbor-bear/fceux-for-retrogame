@@ -25,6 +25,10 @@
 #include "Qt/ConsoleWindow.h"
 #include "Qt/fceuWrapper.h"
 
+#ifdef WIN32
+#include <QtPlatformHeaders/QWindowsWindowFunctions>
+#endif
+
 consoleWin_t *consoleWindow = NULL;
 
 static void MessageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg)
@@ -83,6 +87,17 @@ int main( int argc, char *argv[] )
 	QApplication app(argc, argv);
 	//const char *styleSheetEnv = NULL;
 	
+	QCoreApplication::setOrganizationName("TasVideos");
+	QCoreApplication::setOrganizationDomain("TasVideos.org");
+	QCoreApplication::setApplicationName("fceux");
+
+	#ifdef WIN32
+	if (AttachConsole(ATTACH_PARENT_PROCESS))
+	{
+		freopen("CONOUT$", "w", stdout);
+		freopen("CONOUT$", "w", stderr);
+	}
+	#endif
 	//app.setStyle( new MenuStyle() );
 
 	//styleSheetEnv = ::getenv("FCEUX_QT_STYLESHEET");
@@ -111,15 +126,15 @@ int main( int argc, char *argv[] )
 
 	consoleWindow->show();
 
-	if ( consoleWindow->viewport_SDL )
-	{
-		consoleWindow->viewport_SDL->init();
-	}
-	else
-	{
-		consoleWindow->viewport_GL->init();
-	}
+	// Need to wait for window to initialize before video init can be called.
+	//consoleWindow->videoInit();
 
+#ifdef WIN32
+	// This function is needed to fix the issue referenced below. It adds a 1-pixel border
+	// around the fullscreen window due to some limitation in windows.
+	// https://doc.qt.io/qt-5/windows-issues.html#fullscreen-opengl-based-windows
+	QWindowsWindowFunctions::setHasBorderInFullScreen( consoleWindow->windowHandle(), true);
+#endif
 	retval = app.exec();
 
 	//printf("App Return: %i \n", retval );

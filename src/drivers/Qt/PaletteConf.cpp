@@ -27,6 +27,7 @@
 #include "Qt/main.h"
 #include "Qt/input.h"
 #include "Qt/config.h"
+#include "Qt/nes_shm.h"
 #include "Qt/keyscan.h"
 #include "Qt/fceuWrapper.h"
 #include "Qt/ConsoleUtilities.h"
@@ -34,6 +35,12 @@
 #include "../../ppu.h"
 
 extern bool force_grayscale;
+extern bool palupdate;
+extern  int palnotch;
+extern  int palsaturation;
+extern  int palsharpness;
+extern  int palcontrast;
+extern  int palbrightness;
 
 static const char *commentText =
 	"Palette Selection uses the 1st Matching Condition:\n\
@@ -47,7 +54,8 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 	: QDialog(parent)
 {
 	QVBoxLayout *mainLayout, *vbox;
-	QHBoxLayout *hbox1, *hbox;
+	QHBoxLayout *hbox1, *hbox2, *hbox;
+	QGridLayout *grid;
 	QGroupBox *frame;
 	QPushButton *closeButton;
 	QPushButton *button;
@@ -59,7 +67,7 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 
 	style = this->style();
 
-	resize(512, 650);
+	resize(512, 512);
 
 	// sync with config
 	g_config->getOption("SDL.Hue", &hue);
@@ -72,10 +80,13 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 	frame = new QGroupBox(tr("Custom Palette:"));
 	vbox = new QVBoxLayout();
 	hbox1 = new QHBoxLayout();
+	hbox2 = new QHBoxLayout();
 
 	useCustom = new QCheckBox(tr("Use Custom Palette"));
 	GrayScale = new QCheckBox(tr("Force Grayscale"));
 	deemphSwap = new QCheckBox(tr("De-emphasis Bit Swap"));
+
+	hbox1->addWidget(useCustom, 50);
 
 	useCustom->setChecked(FCEUI_GetUserPaletteAvail());
 	GrayScale->setChecked(force_grayscale);
@@ -85,9 +96,10 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 	connect(GrayScale, SIGNAL(stateChanged(int)), this, SLOT(force_GrayScale_Changed(int)));
 	connect(deemphSwap, SIGNAL(stateChanged(int)), this, SLOT(deemphswap_Changed(int)));
 
-	button = new QPushButton(tr("Open Palette"));
+	button = new QPushButton(tr("Load"));
 	button->setIcon(style->standardIcon(QStyle::SP_FileDialogStart));
-	hbox1->addWidget(button);
+	//hbox1->addStretch(10);
+	hbox1->addWidget(button, 25);
 
 	connect(button, SIGNAL(clicked(void)), this, SLOT(openPaletteFile(void)));
 
@@ -95,17 +107,23 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 
 	custom_palette_path = new QLineEdit();
 	custom_palette_path->setReadOnly(true);
+	custom_palette_path->setClearButtonEnabled(false);
 	custom_palette_path->setText(paletteFile.c_str());
 
-	vbox->addWidget(useCustom);
+	hbox = new QHBoxLayout();
+	hbox->addWidget(GrayScale);
+	hbox->addWidget(deemphSwap);
+
+	hbox2->addWidget( custom_palette_path );
+	//vbox->addWidget(useCustom);
 	vbox->addLayout(hbox1);
-	vbox->addWidget(custom_palette_path);
-	vbox->addWidget(GrayScale);
-	vbox->addWidget(deemphSwap);
+	vbox->addLayout(hbox2);
+	vbox->addLayout(hbox);
 
 	button = new QPushButton(tr("Clear"));
 	button->setIcon(style->standardIcon(QStyle::SP_LineEditClearButton));
-	hbox1->addWidget(button);
+	hbox1->addWidget(button, 25);
+	//hbox2->addWidget(button);
 
 	connect(button, SIGNAL(clicked(void)), this, SLOT(clearPalette(void)));
 
@@ -113,20 +131,19 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 
 	mainLayout->addWidget(frame);
 
-	frame = new QGroupBox(tr("NTSC Palette Controls:"));
+	ntscFrame = new QGroupBox(tr("NTSC Palette Control:"));
+	ntscFrame->setCheckable(true);
 
-	vbox = new QVBoxLayout();
-	useNTSC = new QCheckBox(tr("Use NTSC Palette"));
+	vbox  = new QVBoxLayout();
+	hbox2 = new QHBoxLayout();
 
 	int ntscPaletteEnable;
 	g_config->getOption("SDL.NTSCpalette", &ntscPaletteEnable);
-	useNTSC->setChecked(ntscPaletteEnable);
+	ntscFrame->setChecked(ntscPaletteEnable);
 
-	connect(useNTSC, SIGNAL(stateChanged(int)), this, SLOT(use_NTSC_Changed(int)));
+	connect(ntscFrame, SIGNAL(clicked(bool)), this, SLOT(use_NTSC_Changed(bool)));
 
-	vbox->addWidget(useNTSC);
-
-	sprintf(stmp, "Tint: %3i \n", tint);
+	sprintf(stmp, "Tint: %3i", tint);
 	tintFrame = new QGroupBox(tr(stmp));
 	hbox1 = new QHBoxLayout();
 	tintSlider = new QSlider(Qt::Horizontal);
@@ -138,9 +155,9 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 
 	hbox1->addWidget(tintSlider);
 	tintFrame->setLayout(hbox1);
-	vbox->addWidget(tintFrame);
+	hbox2->addWidget(tintFrame);
 
-	sprintf(stmp, "Hue: %3i \n", hue);
+	sprintf(stmp, "Hue: %3i", hue);
 	hueFrame = new QGroupBox(tr(stmp));
 	hbox1 = new QHBoxLayout();
 	hueSlider = new QSlider(Qt::Horizontal);
@@ -152,17 +169,119 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 
 	hbox1->addWidget(hueSlider);
 	hueFrame->setLayout(hbox1);
-	vbox->addWidget(hueFrame);
+	hbox2->addWidget(hueFrame);
 
-	frame->setLayout(vbox);
+	ntscReset = new QPushButton( tr("Reset") );
+	hbox2->addWidget(ntscReset);
+	vbox->addLayout(hbox2);
 
-	mainLayout->addWidget(frame);
+	connect(ntscReset, SIGNAL(clicked(void)), this, SLOT(ntscResetClicked(void)));
+
+	ntscFrame->setLayout(vbox);
+
+	mainLayout->addWidget(ntscFrame);
+
+	palFrame = new QGroupBox(tr("PAL Emulation:"));
+	palFrame->setCheckable(false);
+	palFrame->setEnabled( nes_shm->video.preScaler == 9 );
+
+	grid  = new QGridLayout();
+	grid->setColumnStretch( 0, 40 );
+	grid->setColumnStretch( 1, 40 );
+	grid->setColumnStretch( 2, 20 );
+
+	sprintf(stmp, "Notch: %3i%%", palnotch);
+	notchFrame = new QGroupBox(tr(stmp));
+	notchFrame->setMinimumWidth( notchFrame->fontMetrics().horizontalAdvance('2') * strlen(stmp) );
+	hbox1 = new QHBoxLayout();
+	notchSlider = new QSlider(Qt::Horizontal);
+	notchSlider->setMinimumWidth(100);
+	notchSlider->setMinimum(0);
+	notchSlider->setMaximum(100);
+	notchSlider->setValue(palnotch);
+
+	hbox1->addWidget(notchSlider);
+	notchFrame->setLayout(hbox1);
+
+	sprintf(stmp, "Saturation: %3i%%", palsaturation);
+	saturationFrame = new QGroupBox(tr(stmp));
+	saturationFrame->setMinimumWidth( saturationFrame->fontMetrics().horizontalAdvance('2') * strlen(stmp) );
+	hbox1 = new QHBoxLayout();
+	saturationSlider = new QSlider(Qt::Horizontal);
+	saturationSlider->setMinimumWidth(100);
+	saturationSlider->setMinimum(0);
+	saturationSlider->setMaximum(200);
+	saturationSlider->setValue(palsaturation);
+
+	hbox1->addWidget(saturationSlider);
+	saturationFrame->setLayout(hbox1);
+
+	sprintf(stmp, "Sharpness: %3i%%", palsharpness*2);
+	sharpnessFrame = new QGroupBox(tr(stmp));
+	sharpnessFrame->setMinimumWidth( sharpnessFrame->fontMetrics().horizontalAdvance('2') * strlen(stmp) );
+	hbox1 = new QHBoxLayout();
+	sharpnessSlider = new QSlider(Qt::Horizontal);
+	sharpnessSlider->setMinimumWidth(50);
+	sharpnessSlider->setMinimum(0);
+	sharpnessSlider->setMaximum(50);
+	sharpnessSlider->setValue(palsharpness);
+
+	hbox1->addWidget(sharpnessSlider);
+	sharpnessFrame->setLayout(hbox1);
+
+	sprintf(stmp, "Contrast: %3i%%", palcontrast);
+	contrastFrame = new QGroupBox(tr(stmp));
+	contrastFrame->setMinimumWidth( contrastFrame->fontMetrics().horizontalAdvance('2') * strlen(stmp) );
+	hbox1 = new QHBoxLayout();
+	contrastSlider = new QSlider(Qt::Horizontal);
+	contrastSlider->setMinimumWidth(100);
+	contrastSlider->setMinimum(0);
+	contrastSlider->setMaximum(200);
+	contrastSlider->setValue(palcontrast);
+
+	hbox1->addWidget(contrastSlider);
+	contrastFrame->setLayout(hbox1);
+
+	sprintf(stmp, "Brightness: %3i%%", palbrightness);
+	brightnessFrame = new QGroupBox(tr(stmp));
+	brightnessFrame->setMinimumWidth( brightnessFrame->fontMetrics().horizontalAdvance('2') * strlen(stmp) );
+	hbox1 = new QHBoxLayout();
+	brightnessSlider = new QSlider(Qt::Horizontal);
+	brightnessSlider->setMinimumWidth(100);
+	brightnessSlider->setMinimum(0);
+	brightnessSlider->setMaximum(100);
+	brightnessSlider->setValue(palbrightness);
+
+	hbox1->addWidget(brightnessSlider);
+	brightnessFrame->setLayout(hbox1);
+
+	palReset = new QPushButton( tr("Reset") );
+
+	grid->addWidget(notchFrame     , 0, 0);
+	grid->addWidget(saturationFrame, 0, 1);
+	grid->addWidget(sharpnessFrame , 0, 2);
+	grid->addWidget(contrastFrame  , 1, 0);
+	grid->addWidget(brightnessFrame, 1, 1);
+	grid->addWidget(palReset       , 1, 2);
+
+	connect( palReset        , SIGNAL(clicked(void))    , this, SLOT(palResetClicked(void)) );
+	connect( notchSlider     , SIGNAL(valueChanged(int)), this, SLOT(palNotchChanged(int) ) );
+	connect( saturationSlider, SIGNAL(valueChanged(int)), this, SLOT(palSaturationChanged(int) ) );
+	connect( sharpnessSlider , SIGNAL(valueChanged(int)), this, SLOT(palSharpnessChanged(int) ) );
+	connect( contrastSlider  , SIGNAL(valueChanged(int)), this, SLOT(palContrastChanged(int) ) );
+	connect( brightnessSlider, SIGNAL(valueChanged(int)), this, SLOT(palBrightnessChanged(int) ) );
+
+	palFrame->setLayout(grid);
+
+	mainLayout->addWidget(palFrame);
 
 	comments = new QTextEdit();
 
 	comments->setText(commentText);
 	comments->moveCursor(QTextCursor::Start);
 	comments->setReadOnly(true);
+
+	comments->setMinimumHeight( 7 * comments->fontMetrics().lineSpacing() );
 
 	mainLayout->addWidget(comments);
 
@@ -176,12 +295,19 @@ PaletteConfDialog_t::PaletteConfDialog_t(QWidget *parent)
 	mainLayout->addLayout( hbox );
 
 	setLayout(mainLayout);
+
+	updateTimer = new QTimer(this);
+
+	connect(updateTimer, &QTimer::timeout, this, &PaletteConfDialog_t::updatePeriodic);
+
+	updateTimer->start(500); // 2hz
 }
 
 //----------------------------------------------------
 PaletteConfDialog_t::~PaletteConfDialog_t(void)
 {
 	printf("Destroy Palette Config Window\n");
+	updateTimer->stop();
 }
 //----------------------------------------------------------------------------
 void PaletteConfDialog_t::closeEvent(QCloseEvent *event)
@@ -197,6 +323,17 @@ void PaletteConfDialog_t::closeWindow(void)
 	//printf("Close Window\n");
 	done(0);
 	deleteLater();
+}
+//----------------------------------------------------
+void PaletteConfDialog_t::updatePeriodic(void)
+{
+	palFrame->setEnabled( nes_shm->video.preScaler == 9 );
+}
+//----------------------------------------------------
+void PaletteConfDialog_t::ntscResetClicked(void)
+{
+	 hueSlider->setValue( 72 );
+	tintSlider->setValue( 56 );
 }
 //----------------------------------------------------
 void PaletteConfDialog_t::hueChanged(int v)
@@ -277,6 +414,8 @@ void PaletteConfDialog_t::force_GrayScale_Changed(int state)
 		force_grayscale = value ? true : false;
 		FCEUI_SetNTSCTH(e, t, h);
 		fceuWrapperUnLock();
+
+		g_config->setOption("SDL.ForceGrayScale", force_grayscale);
 	}
 }
 //----------------------------------------------------
@@ -293,13 +432,15 @@ void PaletteConfDialog_t::deemphswap_Changed(int state)
 		paldeemphswap = value ? true : false;
 		FCEUI_SetNTSCTH(e, t, h);
 		fceuWrapperUnLock();
+
+		g_config->setOption("SDL.DeempBitSwap", paldeemphswap);
 	}
 }
 //----------------------------------------------------
-void PaletteConfDialog_t::use_NTSC_Changed(int state)
+void PaletteConfDialog_t::use_NTSC_Changed(bool state)
 {
 	int h, t;
-	int value = (state == Qt::Unchecked) ? 0 : 1;
+	int value = state;
 
 	g_config->setOption("SDL.NTSCpalette", value);
 	g_config->save();
@@ -347,7 +488,7 @@ void PaletteConfDialog_t::openPaletteFile(void)
 	urls << QUrl::fromLocalFile(QDir(FCEUI_GetBaseDirectory()).absolutePath());
 
 	if (exePath[0] != 0)
-	{
+	{	// This is where the windows build expects the palettes to be
 		d.setPath(QString(exePath) + "/../palettes");
 
 		if (d.exists())
@@ -355,11 +496,42 @@ void PaletteConfDialog_t::openPaletteFile(void)
 			urls << QUrl::fromLocalFile(d.absolutePath());
 			iniPath = d.absolutePath().toStdString();
 		}
+
+		#ifdef __APPLE__
+		// Search for MacOSX DragNDrop Resources
+		d.setPath(QString(exePath) + "/../Resources/palettes");
+
+		//printf("Looking for: '%s'\n", d.path().toStdString().c_str());
+
+		if (d.exists())
+		{
+			urls << QUrl::fromLocalFile(d.absolutePath());
+			iniPath = d.absolutePath().toStdString();
+		}
+		#endif
 	}
 #ifdef WIN32
 
 #else
-	d.setPath("/usr/share/fceux/palettes");
+	// Linux and MacOSX (homebrew) expect shared data folder to be relative to bin/fceux executable.
+	if (exePath[0] != 0)
+	{
+		d.setPath(QString(exePath) + "/../share/fceux/palettes");
+	}
+	else
+	{
+		d.setPath(QString("/usr/local/share/fceux/palettes"));
+	}
+	if (!d.exists())
+	{
+		d.setPath(QString("/usr/local/share/fceux/palettes"));
+	}
+	if (!d.exists())
+	{
+		d.setPath(QString("/usr/share/fceux/palettes"));
+	}
+
+	//printf("Looking for: '%s'\n", d.path().toStdString().c_str());
 
 	if (d.exists())
 	{
@@ -429,5 +601,116 @@ void PaletteConfDialog_t::openPaletteFile(void)
 	}
 
 	return;
+}
+//----------------------------------------------------
+void PaletteConfDialog_t::palResetClicked(void)
+{
+	if (fceuWrapperTryLock())
+	{
+		palnotch      = 100;
+		palsaturation = 100;
+		palsharpness  = 0;
+		palcontrast   = 100;
+		palbrightness = 50;
+		palupdate     = 1;
+
+		fceuWrapperUnLock();
+
+		notchSlider->setValue( palnotch );
+		saturationSlider->setValue( palsaturation );
+		sharpnessSlider->setValue( palsharpness );
+		contrastSlider->setValue( palcontrast );
+		brightnessSlider->setValue( palbrightness );
+	}
+}
+//----------------------------------------------------
+void PaletteConfDialog_t::palNotchChanged(int value)
+{
+	if (fceuWrapperTryLock())
+	{
+		char stmp[64];
+
+		sprintf( stmp, "Notch: %3i%%", value );
+		notchFrame->setTitle( tr(stmp) );
+
+		palnotch  = value;
+		palupdate = 1;
+
+		fceuWrapperUnLock();
+
+		g_config->setOption("SDL.PalNotch", palnotch);
+	}
+}
+//----------------------------------------------------
+void PaletteConfDialog_t::palSaturationChanged(int value)
+{
+	if (fceuWrapperTryLock())
+	{
+		char stmp[64];
+
+		sprintf( stmp, "Saturation: %3i%%", value );
+		saturationFrame->setTitle( tr(stmp) );
+
+		palsaturation  = value;
+		palupdate      = 1;
+
+		fceuWrapperUnLock();
+
+		g_config->setOption("SDL.PalSaturation", palsaturation);
+	}
+}
+//----------------------------------------------------
+void PaletteConfDialog_t::palSharpnessChanged(int value)
+{
+	if (fceuWrapperTryLock())
+	{
+		char stmp[64];
+
+		sprintf( stmp, "Sharpness: %3i%%", value*2 );
+		sharpnessFrame->setTitle( tr(stmp) );
+
+		palsharpness   = value;
+		palupdate      = 1;
+
+		fceuWrapperUnLock();
+
+		g_config->setOption("SDL.PalSharpness", palsharpness);
+	}
+}
+//----------------------------------------------------
+void PaletteConfDialog_t::palContrastChanged(int value)
+{
+	if (fceuWrapperTryLock())
+	{
+		char stmp[64];
+
+		sprintf( stmp, "Contrast: %3i%%", value );
+		contrastFrame->setTitle( tr(stmp) );
+
+		palcontrast    = value;
+		palupdate      = 1;
+
+		fceuWrapperUnLock();
+
+		g_config->setOption("SDL.PalContrast", palcontrast);
+	}
+}
+//----------------------------------------------------
+void PaletteConfDialog_t::palBrightnessChanged(int value)
+{
+	if (fceuWrapperTryLock())
+	{
+		char stmp[64];
+
+		sprintf( stmp, "Brightness: %3i%%", value );
+		brightnessFrame->setTitle( tr(stmp) );
+
+		palbrightness  = value;
+		palupdate      = 1;
+
+		fceuWrapperUnLock();
+
+		g_config->setOption("SDL.PalBrightness", palbrightness);
+	}
 }
 //----------------------------------------------------

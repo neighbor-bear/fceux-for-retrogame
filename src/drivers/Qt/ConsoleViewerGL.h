@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 
+#include <QScreen>
 #include <QOpenGLWidget>
 #include <QOpenGLFunctions>
 
@@ -16,7 +17,8 @@ class ConsoleViewGL_t : public QOpenGLWidget, protected QOpenGLFunctions
 		ConsoleViewGL_t(QWidget *parent = 0);
 		~ConsoleViewGL_t(void);
 
-		int  init( void );
+		int  init(void);
+		void reset(void);
 
 		void transfer2LocalBuffer(void);
 
@@ -35,6 +37,8 @@ class ConsoleViewGL_t : public QOpenGLWidget, protected QOpenGLFunctions
 		void   getAspectXY( double &x, double &y );
 		double getAspectRatio(void);
 
+		void   screenChanged(QScreen *scr);
+
 	protected:
 	void initializeGL(void);
 	void resizeGL(int w, int h);
@@ -45,6 +49,8 @@ class ConsoleViewGL_t : public QOpenGLWidget, protected QOpenGLFunctions
 	void buildTextures(void);
 	void calcPixRemap(void);
 	void doRemap(void);
+	void chkExtnsGL(void);
+	int  forcePwr2( int in );
 
 	double devPixRatio;
 	double aspectRatio;
@@ -58,11 +64,15 @@ class ConsoleViewGL_t : public QOpenGLWidget, protected QOpenGLFunctions
 	int  sy;
 	int  rw;
 	int  rh;
+	int  txtWidth;
+	int  txtHeight;
 	GLuint gltexture;
 	bool   linearFilter;
 	bool   forceAspect;
 	bool   autoScaleEna;
+	bool   reqPwr2;
 
+	unsigned int  textureType;
 	unsigned int  mouseButtonMask;
 
 	uint32_t  *localBuf;

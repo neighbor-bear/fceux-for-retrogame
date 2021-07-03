@@ -31,6 +31,10 @@
 #include <fstream>
 #include <iostream>
 #include <cstdlib>
+
+#include <QPixmap>
+#include <QWindow>
+#include <QScreen>
 #include <QHeaderView>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -47,7 +51,9 @@
 #include "../../file.h"
 #include "../../input.h"
 #include "../../movie.h"
+#include "../../wave.h"
 #include "../../version.h"
+#include "common/os_utils.h"
 
 #ifdef _S9XLUA_H
 #include "../../fceulua.h"
@@ -63,6 +69,7 @@
 #include "Qt/PaletteConf.h"
 #include "Qt/PaletteEditor.h"
 #include "Qt/GuiConf.h"
+#include "Qt/AviRecord.h"
 #include "Qt/MoviePlay.h"
 #include "Qt/MovieOptions.h"
 #include "Qt/TimingConf.h"
@@ -115,6 +122,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	mainMenuPauseWhenActv = false;
 
 	g_config->getOption( "SDL.PauseOnMainMenuAccess", &mainMenuPauseWhenActv );
+	g_config->getOption ("SDL.VideoDriver", &use_SDL_video);
 
 	if ( use_SDL_video )
 	{
@@ -132,6 +140,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 
 	setWindowTitle( tr(FCEU_NAME_AND_VERSION) );
 	setWindowIcon(QIcon(":fceux1.png"));
+	setAcceptDrops(true);
 
 	gameTimer  = new QTimer( this );
 #if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
@@ -139,7 +148,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 #else
 	mutex      = new QMutex( QMutex::Recursive );
 #endif
-	emulatorThread = new emulatorThread_t();
+	emulatorThread = new emulatorThread_t(this);
 
 	connect(emulatorThread, &QThread::finished, emulatorThread, &QObject::deleteLater);
 
@@ -208,6 +217,11 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 
 	// Viewport Cursor Type and Visibility
 	loadCursor();
+
+	// Create AVI Recording Disk Thread
+	aviDiskThread = new AviRecordDiskThread_t(this);
+
+	scrHandlerConnected = false;
 }
 
 consoleWin_t::~consoleWin_t(void)
@@ -218,18 +232,24 @@ consoleWin_t::~consoleWin_t(void)
 	// Save window size and image scaling parameters at app exit.
 	w = consoleWindow->size();
 
-	if ( viewport_GL != NULL )
+	// Only Save window size if not fullscreen and not maximized
+	if ( !consoleWindow->isFullScreen() && !consoleWindow->isMaximized() )
 	{
-		g_config->setOption( "SDL.XScale", viewport_GL->getScaleX() );
-		g_config->setOption( "SDL.YScale", viewport_GL->getScaleY() );
+		// Scaling is only saved when applying video settings
+		//if ( viewport_GL != NULL )
+		//{
+		//	g_config->setOption( "SDL.XScale", viewport_GL->getScaleX() );
+		//	g_config->setOption( "SDL.YScale", viewport_GL->getScaleY() );
+		//}
+		//else if ( viewport_SDL != NULL )
+		//{
+		//	g_config->setOption( "SDL.XScale", viewport_SDL->getScaleX() );
+		//	g_config->setOption( "SDL.YScale", viewport_SDL->getScaleY() );
+		//}
+
+		g_config->setOption( "SDL.WinSizeX", w.width() );
+		g_config->setOption( "SDL.WinSizeY", w.height() );
 	}
-	else if ( viewport_SDL != NULL )
-	{
-		g_config->setOption( "SDL.XScale", viewport_SDL->getScaleX() );
-		g_config->setOption( "SDL.YScale", viewport_SDL->getScaleY() );
-	}
-	g_config->setOption( "SDL.WinSizeX", w.width() );
-	g_config->setOption( "SDL.WinSizeY", w.height() );
 	g_config->save();
 
 	// Signal Emulator Thread to Stop
@@ -242,6 +262,10 @@ consoleWin_t::~consoleWin_t(void)
 	//printf("Thread Finished: %i \n", gameThread->isFinished() );
 	emulatorThread->quit();
 	emulatorThread->wait( 1000 );
+
+	aviDiskThread->requestInterruption();
+	aviDiskThread->quit();
+	aviDiskThread->wait( 10000 );
 
 	fceuWrapperLock();
 	fceuWrapperClose();
@@ -281,6 +305,74 @@ consoleWin_t::~consoleWin_t(void)
 		consoleWindow = NULL;
 	}
 
+}
+
+int consoleWin_t::videoInit(void)
+{
+	int ret = 0;
+
+	if ( viewport_SDL )
+	{
+		ret = viewport_SDL->init();
+	}
+	else if ( viewport_GL )
+	{
+		ret = viewport_GL->init();
+	}
+	return ret;
+}
+
+void consoleWin_t::videoReset(void)
+{
+	if ( viewport_SDL )
+	{
+		viewport_SDL->reset();
+	}
+	else if ( viewport_GL )
+	{
+		viewport_GL->reset();
+	}
+	return;
+}
+
+void consoleWin_t::initScreenHandler(void)
+{
+	if ( !scrHandlerConnected )
+	{
+		QWidget *w;
+		
+		w = this->window();
+
+		// This needs to be scheduled after window creation.
+		if ( w != NULL)
+		{
+			QWindow *hdl = w->windowHandle();
+
+			if (hdl != NULL)
+			{
+				//printf("Connecting to screenChanged Signal\n");
+				connect( hdl, SIGNAL(screenChanged(QScreen*)), this, SLOT(winScreenChanged(QScreen*)) );
+				scrHandlerConnected = true;
+
+				winScreenChanged( hdl->screen() );
+			}
+		}
+	}
+
+}
+
+void consoleWin_t::winScreenChanged(QScreen *scr)
+{
+	if ( scr == NULL )
+	{
+		return;
+	}
+
+	//printf("Screen Changed: %p\n", scr );
+	if ( viewport_GL != NULL )
+	{
+		viewport_GL->screenChanged( scr );
+	}
 }
 
 QSize consoleWin_t::calcRequiredSize(void)
@@ -572,6 +664,33 @@ void consoleWin_t::keyReleaseEvent(QKeyEvent *event)
 	event->accept();
 }
 
+void consoleWin_t::dragEnterEvent(QDragEnterEvent *event)
+{
+	if (event->mimeData()->hasUrls() )
+	{
+		event->acceptProposedAction();
+	}
+}
+
+void consoleWin_t::dropEvent(QDropEvent *event)
+{
+	if (event->mimeData()->hasUrls() )
+	{
+		QList<QUrl> urls = event->mimeData()->urls();
+
+		fceuWrapperLock();
+		LoadGame( urls[0].toString( QUrl::PreferLocalFile ).toStdString().c_str() );
+		fceuWrapperUnLock();
+		event->accept();
+	}
+}
+
+void consoleWin_t::showEvent(QShowEvent *event)
+{
+	//printf("Main Window Show Event\n");
+	initScreenHandler();
+}
+
 //---------------------------------------------------------------------------
 void consoleWin_t::initHotKeys(void)
 {
@@ -631,9 +750,10 @@ void consoleWin_t::initHotKeys(void)
 void consoleWin_t::createMainMenu(void)
 {
 	QAction *act;
-	QMenu *subMenu;
+	QMenu *subMenu, *aviMenu;
 	QActionGroup *group;
 	int useNativeMenuBar;
+	int customAutofireOnFrames, customAutofireOffFrames;
 	//QShortcut *shortcut;
 
 	menubar = new consoleMenuBar(this);
@@ -813,7 +933,7 @@ void consoleWin_t::createMainMenu(void)
 	//scrShotAct->setShortcut( QKeySequence(tr("F12")));
 	scrShotAct->setStatusTip(tr("Screenshot"));
 	scrShotAct->setIcon( QIcon(":icons/camera.png") );
-	connect(scrShotAct, SIGNAL(triggered()), this, SLOT(takeScreenShot()));
+	connect(scrShotAct, SIGNAL(triggered()), this, SLOT(prepareScreenShot(void)));
 	
 	fileMenu->addAction(scrShotAct);
 
@@ -926,6 +1046,7 @@ void consoleWin_t::createMainMenu(void)
 	//autoResume->setShortcut( QKeySequence(tr("Ctrl+C")));
 	autoResume->setCheckable(true);
 	autoResume->setStatusTip(tr("Auto-Resume Play"));
+	syncActionConfig( autoResume, "SDL.AutoResume" );
 	connect(autoResume, SIGNAL(triggered()), this, SLOT(toggleAutoResume(void)) );
 
 	optMenu->addAction(autoResume);
@@ -1238,17 +1359,45 @@ void consoleWin_t::createMainMenu(void)
 	// Emulation -> AutoFire Pattern
 	subMenu = emuMenu->addMenu(tr("&AutoFire Pattern"));
 	
-	// Emulation -> AutoFire Pattern -> # On Frames
-	act = new QAction(tr("# O&N Frames"), this);
-	act->setStatusTip(tr("# ON Frames"));
-	connect(act, SIGNAL(triggered()), this, SLOT(setAutoFireOnFrames(void)) );
-	
-	subMenu->addAction(act);
+	group   = new QActionGroup(this);
+	group->setExclusive(true);
 
-	// Emulation -> AutoFire Pattern -> # Off Frames
-	act = new QAction(tr("# O&FF Frames"), this);
-	act->setStatusTip(tr("# OFF Frames"));
-	connect(act, SIGNAL(triggered()), this, SLOT(setAutoFireOffFrames(void)) );
+	for (int i=1; i<6; i++)
+	{
+		char stmp[64];
+
+		for (int j=1; j<=(6-i); j++)
+		{
+			sprintf( stmp, "%i On, %i Off", i, j );
+			autoFireMenuAction *afAct = new autoFireMenuAction( i, j, tr(stmp), this);
+			afAct->setCheckable(true);
+			group->addAction(afAct);
+			subMenu->addAction(afAct);
+			afActList.push_back(afAct);
+
+			connect( afAct, SIGNAL(triggered(void)), afAct, SLOT(activateCB(void)) );
+		}
+	}
+
+	g_config->getOption("SDL.AutofireCustomOnFrames"  , &customAutofireOnFrames );
+	g_config->getOption("SDL.AutofireCustomOffFrames" , &customAutofireOffFrames);
+
+	afActCustom = new autoFireMenuAction( customAutofireOnFrames, customAutofireOffFrames, tr("Custom"), this);
+	afActCustom->setCheckable(true);
+	group->addAction(afActCustom);
+	subMenu->addAction(afActCustom);
+	//afActList.push_back(afAct);
+
+	connect( afActCustom, SIGNAL(triggered(void)), afActCustom, SLOT(activateCB(void)) );
+
+	subMenu->addSeparator();
+
+	syncAutoFirePatternMenu();
+
+	// Emulation -> AutoFire Pattern -> Set Custom Pattern
+	act = new QAction(tr("Set Custom Pattern"), this);
+	act->setStatusTip(tr("Set Custom Pattern"));
+	connect(act, SIGNAL(triggered()), this, SLOT(setCustomAutoFire(void)) );
 	
 	subMenu->addAction(act);
 
@@ -1446,6 +1595,122 @@ void consoleWin_t::createMainMenu(void)
 
 	movieMenu->addAction(recAsMovAct);
 
+	movieMenu->addSeparator();
+
+	// Movie -> Avi Recording
+	aviMenu = movieMenu->addMenu( tr("A&VI Recording") );
+
+	// Movie -> Avi Recording -> Record
+	recAviAct = new QAction(tr("&Record"), this);
+	//recAviAct->setShortcut( QKeySequence(tr("Shift+F5")));
+	recAviAct->setStatusTip(tr("AVI Record Start"));
+	recAviAct->setIcon( QIcon(":icons/media-record.png") );
+	connect(recAviAct, SIGNAL(triggered()), this, SLOT(aviRecordStart(void)) );
+	
+	Hotkeys[ HK_RECORD_AVI ].setAction( recAviAct );
+	connect( Hotkeys[ HK_RECORD_AVI ].getShortcut(), SIGNAL(activated()), this, SLOT(aviRecordStart(void)) );
+
+	aviMenu->addAction(recAviAct);
+
+	// Movie -> Avi Recording -> Record
+	recAsAviAct = new QAction(tr("Record &As"), this);
+	//recAsAviAct->setShortcut( QKeySequence(tr("Shift+F5")));
+	recAsAviAct->setStatusTip(tr("AVI Record As Start"));
+	//recAsAviAct->setIcon( QIcon(":icons/media-record.png") );
+	connect(recAsAviAct, SIGNAL(triggered()), this, SLOT(aviRecordAsStart(void)) );
+	
+	Hotkeys[ HK_RECORD_AVI_TO ].setAction( recAsAviAct );
+	connect( Hotkeys[ HK_RECORD_AVI_TO ].getShortcut(), SIGNAL(activated()), this, SLOT(aviRecordAsStart(void)) );
+
+	aviMenu->addAction(recAsAviAct);
+
+	// Movie -> Avi Recording -> Stop
+	stopAviAct = new QAction(tr("&Stop"), this);
+	//stopAviAct->setShortcut( QKeySequence(tr("Shift+F5")));
+	stopAviAct->setStatusTip(tr("AVI Record Stop"));
+	stopAviAct->setIcon( style()->standardIcon( QStyle::SP_MediaStop ) );
+	connect(stopAviAct, SIGNAL(triggered()), this, SLOT(aviRecordStop(void)) );
+	
+	Hotkeys[ HK_STOP_AVI ].setAction( stopAviAct );
+	connect( Hotkeys[ HK_STOP_AVI ].getShortcut(), SIGNAL(activated()), this, SLOT(aviRecordStop(void)) );
+
+	aviMenu->addAction(stopAviAct);
+
+	// Movie -> Avi Recording -> Video Format
+	subMenu = aviMenu->addMenu( tr("Video Format") );
+
+	{
+		std::vector <std::string> formatList;
+		group   = new QActionGroup(this);
+
+		group->setExclusive(true);
+
+		FCEUD_AviGetFormatOpts( formatList );
+
+		for (size_t i=0; i<formatList.size(); i++)
+		{
+			act = new QAction(tr( formatList[i].c_str() ), this);
+
+			//printf("%s\n", formatList[i].c_str() );
+
+	        	act->setCheckable(true);
+	        	group->addAction(act);
+			subMenu->addAction(act);
+
+			act->setChecked( aviGetSelVideoFormat() == i );
+
+			// Use Lambda Function to set callback
+			connect( act, &QAction::triggered, [ this, i ] { aviVideoFormatChanged( i ); } );
+		}
+
+	}
+
+	// Movie -> Avi Recording -> Include Audio
+	act = new QAction(tr("Include Audio"), this);
+       	act->setCheckable(true);
+	act->setChecked( aviGetAudioEnable() );
+	connect(act, SIGNAL(triggered(bool)), this, SLOT(aviAudioEnableChange(bool)) );
+	aviMenu->addAction(act);
+
+	// Movie -> WAV Recording
+	subMenu = movieMenu->addMenu( tr("&WAV Recording") );
+
+	// Movie -> Avi Recording -> Record
+	recWavAct = new QAction(tr("&Record"), this);
+	//recWavAct->setShortcut( QKeySequence(tr("Shift+F5")));
+	recWavAct->setStatusTip(tr("WAV Record Start"));
+	recWavAct->setIcon( QIcon(":icons/media-record.png") );
+	connect(recWavAct, SIGNAL(triggered()), this, SLOT(wavRecordStart(void)) );
+	
+	Hotkeys[ HK_RECORD_WAV ].setAction( recWavAct );
+	connect( Hotkeys[ HK_RECORD_WAV ].getShortcut(), SIGNAL(activated()), this, SLOT(wavRecordStart(void)) );
+
+	subMenu->addAction(recWavAct);
+
+	// Movie -> WAV Recording -> Record
+	recAsWavAct = new QAction(tr("Record &As"), this);
+	//recAsWavAct->setShortcut( QKeySequence(tr("Shift+F5")));
+	recAsWavAct->setStatusTip(tr("WAV Record As Start"));
+	//recAsWavAct->setIcon( QIcon(":icons/media-record.png") );
+	connect(recAsWavAct, SIGNAL(triggered()), this, SLOT(wavRecordAsStart(void)) );
+	
+	Hotkeys[ HK_RECORD_WAV_TO ].setAction( recAsWavAct );
+	connect( Hotkeys[ HK_RECORD_WAV_TO ].getShortcut(), SIGNAL(activated()), this, SLOT(wavRecordAsStart(void)) );
+
+	subMenu->addAction(recAsWavAct);
+
+	// Movie -> WAV Recording -> Stop
+	stopWavAct = new QAction(tr("&Stop"), this);
+	//stopWavAct->setShortcut( QKeySequence(tr("Shift+F5")));
+	stopWavAct->setStatusTip(tr("WAV Record Stop"));
+	stopWavAct->setIcon( style()->standardIcon( QStyle::SP_MediaStop ) );
+	connect(stopWavAct, SIGNAL(triggered()), this, SLOT(wavRecordStop(void)) );
+	
+	Hotkeys[ HK_STOP_WAV ].setAction( stopWavAct );
+	connect( Hotkeys[ HK_STOP_WAV ].getShortcut(), SIGNAL(activated()), this, SLOT(wavRecordStop(void)) );
+
+	subMenu->addAction(stopWavAct);
+
 	//-----------------------------------------------------------------------
 	// Help
 	helpMenu = menubar->addMenu(tr("&Help"));
@@ -1510,7 +1775,10 @@ int consoleWin_t::loadVideoDriver( int driverId )
 
 		setCentralWidget(viewport_SDL);
 
+		setViewportAspect();
+
 		viewport_SDL->init();
+
 	}
 	else
 	{  // OpenGL Driver
@@ -1532,7 +1800,15 @@ int consoleWin_t::loadVideoDriver( int driverId )
 		viewport_GL = new ConsoleViewGL_t(this);
 
 		setCentralWidget(viewport_GL);
+
+		setViewportAspect();
+
+		viewport_GL->init();
 	}
+
+	// Reload Viewport Cursor Type and Visibility
+	loadCursor();
+
 	return 0;
 }
 //---------------------------------------------------------------------------
@@ -2213,10 +2489,60 @@ void consoleWin_t::mainMenuClose(void)
 	}
 }
 
+void consoleWin_t::prepareScreenShot(void)
+{
+	// Set a timer single shot to take the screen shot. This gives time
+	// for the GUI to remove the menu from view before taking the image.
+	QTimer::singleShot( 100, Qt::CoarseTimer, this, SLOT(takeScreenShot(void)) );
+}
+
+//void consoleWin_t::takeScreenShot(void)
+//{
+//	fceuWrapperLock();
+//	FCEUI_SaveSnapshot();
+//	fceuWrapperUnLock();
+//}
+
 void consoleWin_t::takeScreenShot(void)
 {
+	int u=0;
+	QPixmap  image;
+	QScreen *screen = QGuiApplication::primaryScreen();
+
+	if (const QWindow *window = windowHandle())
+	{
+		screen = window->screen();
+	}
+
+	if (screen == NULL)
+	{
+		return;
+	}
+
 	fceuWrapperLock();
-	FCEUI_SaveSnapshot();
+
+	if ( viewport_GL )
+	{
+		image = screen->grabWindow( viewport_GL->winId() );
+	}
+	else if ( viewport_SDL )
+	{
+		image = screen->grabWindow( viewport_SDL->winId() );
+	}
+
+	for (u = 0; u < 99999; ++u)
+	{
+		FILE *pp = FCEUD_UTF8fopen( FCEU_MakeFName(FCEUMKF_SNAP,u,"png").c_str(), "rb");
+
+		if (pp == NULL)
+		{
+			break;
+		}
+		fclose(pp);
+	}
+
+	image.save( tr( FCEU_MakeFName(FCEUMKF_SNAP,u,"png").c_str() ), "png" );
+
 	fceuWrapperUnLock();
 }
 
@@ -2863,43 +3189,99 @@ void consoleWin_t::emuSetFrameAdvDelay(void)
 	}
 }
 
-void consoleWin_t::setAutoFireOnFrames(void)
+void consoleWin_t::syncAutoFirePatternMenu(void)
 {
-	int ret;
-	QInputDialog dialog(this);
+	int on, off;
 
-	dialog.setWindowTitle( tr("AutoFire Pattern ON Frames") );
-	dialog.setLabelText( tr("Specify desired number of ON frames in autofire pattern:") );
-	dialog.setOkButtonText( tr("Ok") );
-	dialog.setInputMode( QInputDialog::IntInput );
-	dialog.setIntRange( 1, 30 );
-	dialog.setIntValue( autoFireOnFrames );
-	
-	ret = dialog.exec();
-	
-	if ( QDialog::Accepted == ret )
+	GetAutoFirePattern( &on, &off );
+
+	for (size_t i=0; i<afActList.size(); i++)
 	{
-	   autoFireOnFrames = dialog.intValue();
+		if ( afActList[i]->isMatch( on, off ) )
+		{
+			afActList[i]->setChecked(true);
+			return;
+		}
 	}
+
+	// If we get here, then the custom option is selected.
+	afActCustom->setChecked(true);
+
 }
-
-void consoleWin_t::setAutoFireOffFrames(void)
+void consoleWin_t::setCustomAutoFire(void)
 {
-	int ret;
-	QInputDialog dialog(this);
+	int ret, autoFireOnFrames, autoFireOffFrames;
+	QDialog dialog(this);
+	QLabel *lbl;
+	QGridLayout *grid;
+	QVBoxLayout *vbox;
+	QSpinBox *onBox, *offBox;
+	QPushButton *okButton, *cancelButton;
 
-	dialog.setWindowTitle( tr("AutoFire Pattern OFF Frames") );
-	dialog.setLabelText( tr("Specify desired number of OFF frames in autofire pattern:") );
-	dialog.setOkButtonText( tr("Ok") );
-	dialog.setInputMode( QInputDialog::IntInput );
-	dialog.setIntRange( 1, 30 );
-	dialog.setIntValue( autoFireOffFrames );
+	autoFireOnFrames  = afActCustom->getOnValue();
+	autoFireOffFrames = afActCustom->getOffValue();
+
+	dialog.setWindowTitle( tr("Custom AutoFire Pattern") );
+
+	 onBox = new QSpinBox();
+	offBox = new QSpinBox();
+
+	 onBox->setMinimum( 1);
+	offBox->setMinimum( 1);
+	 onBox->setMaximum(30);
+	offBox->setMaximum(30);
+
+	 onBox->setValue( autoFireOnFrames  );
+	offBox->setValue( autoFireOffFrames );
+
+	vbox = new QVBoxLayout();
+	grid = new QGridLayout();
+
+	lbl = new QLabel( tr("# ON Frames") );
+
+	grid->addWidget( lbl, 0, 0 );
+
+	lbl = new QLabel( tr("# OFF Frames") );
+
+	grid->addWidget( lbl, 1, 0 );
+
+	grid->addWidget( onBox , 0, 1 );
+	grid->addWidget( offBox, 1, 1 );
+
+	    okButton = new QPushButton( tr("Ok") );
+	cancelButton = new QPushButton( tr("Cancel") );
+
+	    okButton->setIcon( style()->standardIcon( QStyle::SP_DialogApplyButton  ) );
+	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
+
+	grid->addWidget( cancelButton , 2, 0 );
+	grid->addWidget(     okButton , 2, 1 );
+
+	vbox->addLayout( grid );
+
+	dialog.setLayout( vbox );
 	
+	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
+
+	okButton->setDefault(true);
+
 	ret = dialog.exec();
 	
 	if ( QDialog::Accepted == ret )
 	{
-	   autoFireOffFrames = dialog.intValue();
+		autoFireOnFrames  =  onBox->value();
+		autoFireOffFrames = offBox->value();
+
+		afActCustom->setPattern( autoFireOnFrames, autoFireOffFrames );
+
+		if ( afActCustom->isChecked() )
+		{
+			afActCustom->activateCB();
+		}
+		g_config->setOption("SDL.AutofireCustomOnFrames"  , autoFireOnFrames );
+		g_config->setOption("SDL.AutofireCustomOffFrames" , autoFireOffFrames);
+		g_config->save();
 	}
 }
 
@@ -3082,6 +3464,243 @@ void consoleWin_t::recordMovieAs(void)
 	fceuWrapperUnLock();
 
 	return;
+}
+
+void consoleWin_t::aviRecordStart(void)
+{
+	if ( !aviRecordRunning() )
+	{
+		fceuWrapperLock();
+		aviRecordOpenFile(NULL);
+		aviDiskThread->start();
+		fceuWrapperUnLock();
+	}
+}
+
+void consoleWin_t::aviRecordAsStart(void)
+{
+	if ( aviRecordRunning() )
+	{
+		return;
+	}
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	std::string last;
+	//char dir[512];
+	const char *base;
+	QFileDialog  dialog(this, tr("Save AVI Movie for Recording") );
+	QList<QUrl> urls;
+	QDir d;
+
+	dialog.setFileMode(QFileDialog::AnyFile);
+
+	dialog.setNameFilter(tr("AVI Movies (*.avi) ;; All files (*)"));
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Save") );
+
+	base = FCEUI_GetBaseDirectory();
+
+	urls << QUrl::fromLocalFile( QDir::rootPath() );
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
+
+	if ( base )
+	{
+		urls << QUrl::fromLocalFile( QDir( base ).absolutePath() );
+
+		d.setPath( QString(base) + "/avi");
+
+		if ( d.exists() )
+		{
+			urls << QUrl::fromLocalFile( d.absolutePath() );
+		}
+
+		dialog.setDirectory( d.absolutePath() );
+	}
+	dialog.setDefaultSuffix( tr(".avi") );
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+	dialog.setSidebarUrls(urls);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return;
+	}
+	qDebug() << "selected file path : " << filename.toUtf8();
+
+	FCEUI_printf ("AVI Recording movie to %s\n", filename.toStdString().c_str() );
+
+	fceuWrapperLock();
+	aviRecordOpenFile( filename.toStdString().c_str() );
+	aviDiskThread->start();
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::aviRecordStop(void)
+{
+	if ( aviRecordRunning() )
+	{
+		fceuWrapperLock();
+		aviDiskThread->requestInterruption();
+		aviDiskThread->quit();
+		aviDiskThread->wait(10000);
+		fceuWrapperUnLock();
+	}
+}
+
+void consoleWin_t::aviAudioEnableChange(bool checked)
+{
+	aviSetAudioEnable( checked );
+
+	return;
+}
+
+void consoleWin_t::aviVideoFormatChanged(int idx)
+{
+	aviSetSelVideoFormat(idx);
+}
+
+void consoleWin_t::wavRecordStart(void)
+{
+	if ( !FCEUI_WaveRecordRunning() )
+	{
+		const char *romFile;
+		char fileName[1024];
+
+		romFile = getRomFile();
+
+		if ( romFile )
+		{
+			char base[512];
+			const char *baseDir = FCEUI_GetBaseDirectory();
+
+			getFileBaseName( romFile, base );
+
+			if ( baseDir )
+			{
+				strcpy( fileName, baseDir );
+				strcat( fileName, "/wav/" );
+			}
+			else
+			{
+				fileName[0] = 0;
+			}
+			strcat( fileName, base );
+			strcat( fileName, ".wav");
+			//printf("WAV Filepath:'%s'\n", fileName );
+		}
+		else
+		{
+			return;
+		}
+		fceuWrapperLock();
+		FCEUI_BeginWaveRecord( fileName );
+		fceuWrapperUnLock();
+	}
+}
+
+void consoleWin_t::wavRecordAsStart(void)
+{
+	if ( FCEUI_WaveRecordRunning() )
+	{
+		return;
+	}
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	std::string last;
+	//char dir[512];
+	const char *base;
+	QFileDialog  dialog(this, tr("Save WAV Movie for Recording") );
+	QList<QUrl> urls;
+	QDir d;
+
+	dialog.setFileMode(QFileDialog::AnyFile);
+
+	dialog.setNameFilter(tr("WAV Movies (*.wav) ;; All files (*)"));
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Save") );
+
+	base = FCEUI_GetBaseDirectory();
+
+	urls << QUrl::fromLocalFile( QDir::rootPath() );
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
+
+	if ( base )
+	{
+		urls << QUrl::fromLocalFile( QDir( base ).absolutePath() );
+
+		d.setPath( QString(base) + "/wav");
+
+		if ( d.exists() )
+		{
+			urls << QUrl::fromLocalFile( d.absolutePath() );
+		}
+
+		dialog.setDirectory( d.absolutePath() );
+	}
+	dialog.setDefaultSuffix( tr(".wav") );
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+	dialog.setSidebarUrls(urls);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return;
+	}
+	qDebug() << "selected file path : " << filename.toUtf8();
+
+	FCEUI_printf ("WAV Recording movie to %s\n", filename.toStdString().c_str() );
+
+	fceuWrapperLock();
+	FCEUI_BeginWaveRecord( filename.toStdString().c_str() );
+	fceuWrapperUnLock();
+}
+
+void consoleWin_t::wavRecordStop(void)
+{
+	if ( FCEUI_WaveRecordRunning() )
+	{
+		fceuWrapperLock();
+		FCEUI_EndWaveRecord();
+		fceuWrapperUnLock();
+	}
 }
 
 void consoleWin_t::aboutFCEUX(void)
@@ -3295,7 +3914,6 @@ void consoleWin_t::syncActionConfig( QAction *act, const char *property )
 
 void consoleWin_t::updatePeriodic(void)
 {
-	
 	// Process all events before attempting to render viewport
 	QCoreApplication::processEvents();
 
@@ -3343,6 +3961,15 @@ void consoleWin_t::updatePeriodic(void)
 		quickSaveAct->setEnabled( FCEU_IsValidUI( FCEUI_QUICKSAVE ) );
 		loadStateAct->setEnabled( FCEU_IsValidUI( FCEUI_LOADSTATE ) );
 		saveStateAct->setEnabled( FCEU_IsValidUI( FCEUI_SAVESTATE ) );
+		openMovAct->setEnabled( FCEU_IsValidUI( FCEUI_PLAYMOVIE ) );
+		recMovAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) );
+		recAsMovAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) );
+		recAviAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) );
+		recAsAviAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) );
+		stopAviAct->setEnabled( FCEU_IsValidUI( FCEUI_STOPAVI ) );
+		recWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );
+		recAsWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );
+		stopWavAct->setEnabled( FCEUI_WaveRecordRunning() );
 	}
 
 	if ( errorMsgValid )
@@ -3370,7 +3997,8 @@ void consoleWin_t::updatePeriodic(void)
    return;
 }
 
-emulatorThread_t::emulatorThread_t(void)
+emulatorThread_t::emulatorThread_t( QObject *parent )
+	: QThread(parent)
 {
 	#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
 	pself = 0;
@@ -3637,4 +4265,33 @@ void consoleRecentRomAction::activateCB(void)
 	fceuWrapperUnLock();
 }
 //-----------------------------------------------------------------------------
+autoFireMenuAction::autoFireMenuAction(int on, int off, QString name, QWidget *parent)
+	: QAction( name, parent)
+{
+	onFrames = on;  offFrames = off;
+}
+//-----------------------------------------------------------------------------
+autoFireMenuAction::~autoFireMenuAction(void)
+{
+
+}
+//-----------------------------------------------------------------------------
+void autoFireMenuAction::activateCB(void)
+{
+	g_config->setOption("SDL.AutofireOnFrames"  , onFrames );
+	g_config->setOption("SDL.AutofireOffFrames" , offFrames);
+	g_config->save();
+
+	SetAutoFirePattern( onFrames, offFrames );
+}
+//-----------------------------------------------------------------------------
+bool autoFireMenuAction::isMatch( int on, int off )
+{
+	return ( (on == onFrames) && (off == offFrames) );
+}
+//-----------------------------------------------------------------------------
+void autoFireMenuAction::setPattern(int on, int off)
+{
+	onFrames = on;  offFrames = off;
+}
 //-----------------------------------------------------------------------------

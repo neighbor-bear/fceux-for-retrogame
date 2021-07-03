@@ -23,6 +23,8 @@
 #include "Qt/throttle.h"
 #include "Qt/config.h"
 
+#include "fceu.h"
+#include "ppu.h"
 #include "../common/cheat.h"
 
 #include "Qt/input.h"
@@ -52,6 +54,13 @@
 #include <sys/types.h>
 #endif
 
+extern bool force_grayscale;
+extern bool palupdate;
+extern  int palnotch;
+extern  int palsaturation;
+extern  int palsharpness;
+extern  int palcontrast;
+extern  int palbrightness;
 
 int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const char **titleOut )
 {
@@ -213,6 +222,24 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 		case HK_STOP_MOVIE:
 			name = "StopMovie"; keySeq = "";
 		break;
+		case HK_RECORD_AVI:
+			name = "RecordAvi"; keySeq = "";
+		break;
+		case HK_RECORD_AVI_TO:
+			name = "RecordAviTo"; keySeq = "";
+		break;
+		case HK_STOP_AVI:
+			name = "StopAvi"; keySeq = "";
+		break;
+		case HK_RECORD_WAV:
+			name = "RecordWav"; keySeq = "";
+		break;
+		case HK_RECORD_WAV_TO:
+			name = "RecordWavTo"; keySeq = "";
+		break;
+		case HK_STOP_WAV:
+			name = "StopWav"; keySeq = "";
+		break;
 		case HK_MUTE_CAPTURE:
 			name = "MuteCapture"; keySeq = "'";
 		break;
@@ -335,22 +362,26 @@ LoadCPalette(const std::string &file)
 static void
 CreateDirs(const std::string &dir)
 {
-	const char *subs[9]={"fcs","snaps","gameinfo","sav","cheats","movies","input"};
+	const char *subs[]={"fcs","snaps","gameinfo","sav","cheats","avi","wav","movies","input", NULL };
 	std::string subdir;
-	int x;
+	int x=0;
 
 #if defined(WIN32) || defined(NEED_MINGW_HACKS)
 	mkdir(dir.c_str());
 	chmod(dir.c_str(), 755);
-	for(x = 0; x < 7; x++) {
+	while ( subs[x] != NULL )
+	{
 		subdir = dir + PSS + subs[x];
 		mkdir(subdir.c_str());
+		x++;
 	}
 #else
 	mkdir(dir.c_str(), S_IRWXU);
-	for(x = 0; x < 7; x++) {
+	while ( subs[x] != NULL )
+	{
 		subdir = dir + PSS + subs[x];
 		mkdir(subdir.c_str(), S_IRWXU);
+		x++;
 	}
 #endif
 }
@@ -423,11 +454,11 @@ InitConfig()
 	// sound options
 	config->addOption('s', "sound", "SDL.Sound", 1);
 	config->addOption("volume", "SDL.Sound.Volume", 150);
-	config->addOption("trianglevol", "SDL.Sound.TriangleVolume", 256);
-	config->addOption("square1vol", "SDL.Sound.Square1Volume", 256);
-	config->addOption("square2vol", "SDL.Sound.Square2Volume", 256);
-	config->addOption("noisevol", "SDL.Sound.NoiseVolume", 256);
-	config->addOption("pcmvol", "SDL.Sound.PCMVolume", 256);
+	config->addOption("trianglevol", "SDL.Sound.TriangleVolume", 255);
+	config->addOption("square1vol", "SDL.Sound.Square1Volume", 255);
+	config->addOption("square2vol", "SDL.Sound.Square2Volume", 255);
+	config->addOption("noisevol", "SDL.Sound.NoiseVolume", 255);
+	config->addOption("pcmvol", "SDL.Sound.PCMVolume", 255);
 	config->addOption("soundrate", "SDL.Sound.Rate", 44100);
 	config->addOption("soundq", "SDL.Sound.Quality", 1);
 	config->addOption("soundrecord", "SDL.Sound.RecordFile", "");
@@ -448,6 +479,13 @@ InitConfig()
 	config->addOption("tint", "SDL.Tint", 56);
 	config->addOption("hue", "SDL.Hue", 72);
 	config->addOption("ntsccolor", "SDL.NTSCpalette", 0);
+	config->addOption("SDL.ForceGrayScale", 0);
+	config->addOption("SDL.DeempBitSwap", 0);
+	config->addOption("SDL.PalNotch", 100);
+	config->addOption("SDL.PalSaturation", 100);
+	config->addOption("SDL.PalSharpness", 0);
+	config->addOption("SDL.PalContrast", 100);
+	config->addOption("SDL.PalBrightness", 50);
 
 	// scanline settings
 	config->addOption("SDL.ScanLineStartNTSC", 0+8);
@@ -482,6 +520,7 @@ InitConfig()
 	config->addOption("togglemenu", "SDL.ToggleMenu", 0);
 	config->addOption("cursorType", "SDL.CursorType", 0);
 	config->addOption("cursorVis" , "SDL.CursorVis", 1);
+	config->addOption("SDL.DrawInputAids", 1);
 
 	// OpenGL options
 	config->addOption("opengl", "SDL.OpenGL", 1);
@@ -506,6 +545,10 @@ InitConfig()
 	config->addOption("input4", "SDL.Input.3", "Gamepad.3");
 
 	config->addOption("autoInputPreset", "SDL.AutoInputPreset", 0);
+	config->addOption("SDL.AutofireOnFrames" , 1);
+	config->addOption("SDL.AutofireOffFrames", 1);
+	config->addOption("SDL.AutofireCustomOnFrames" , 1);
+	config->addOption("SDL.AutofireCustomOffFrames", 1);
 
 	// display input
 	config->addOption("inputdisplay", "SDL.InputDisplay", 0);
@@ -517,10 +560,14 @@ InitConfig()
 	config->addOption("pauseframe", "SDL.PauseFrame", 0);
 	config->addOption("recordhud", "SDL.RecordHUD", 1);
 	config->addOption("moviemsg", "SDL.MovieMsg", 1);
+	config->addOption("SDL.AviVideoFormat", 0);
 
 	// Hex Editor Options
 	config->addOption("hexEditBgColor", "SDL.HexEditBgColor", "#000000");
 	config->addOption("hexEditFgColor", "SDL.HexEditFgColor", "#FFFFFF");
+	config->addOption("SDL.HexEditCursorColorRC", "#000080");
+	config->addOption("SDL.HexEditAltColColor"  , "#545454");
+	config->addOption("SDL.HexEditFont"  , "");
     
 	// Debugger Options
 	config->addOption("autoLoadDebugFiles"     , "SDL.AutoLoadDebugFiles", 1);
@@ -532,6 +579,21 @@ InitConfig()
 	config->addOption("autoSaveCDL"  , "SDL.AutoSaveCDL", 1);
 	config->addOption("autoLoadCDL"  , "SDL.AutoLoadCDL", 1);
 	config->addOption("autoResumeCDL", "SDL.AutoResumeCDL", 0);
+
+	// Trace Logger Options
+	config->addOption("SDL.TraceLogRegisterState", 1);
+	config->addOption("SDL.TraceLogProcessorState", 1);
+	config->addOption("SDL.TraceLogNewInstructions", 0);
+	config->addOption("SDL.TraceLogNewData", 0);
+	config->addOption("SDL.TraceLogFrameCount", 0);
+	config->addOption("SDL.TraceLogCycleCount", 0);
+	config->addOption("SDL.TraceLogInstructionCount", 0);
+	config->addOption("SDL.TraceLogMessages", 1);
+	config->addOption("SDL.TraceLogBreakpointHits", 1);
+	config->addOption("SDL.TraceLogBankNumber", 0);
+	config->addOption("SDL.TraceLogSymbolic", 0);
+	config->addOption("SDL.TraceLogStackTabbing", 1);
+	config->addOption("SDL.TraceLogLeftDisassembly", 1);
 	
 	// overwrite the config file?
 	config->addOption("no-config", "SDL.NoConfig", 0);
@@ -609,6 +671,11 @@ InitConfig()
 	
 	// enable new PPU core
 	config->addOption("newppu", "SDL.NewPPU", 0);
+
+	// PPU Viewer Preferences
+	config->addOption("SDL.NT_TileFocusPolicy", 0);
+	config->addOption("SDL.PPU_TileFocusPolicy", 0);
+	config->addOption("SDL.OAM_TileFocusPolicy", 0);
 
 	// quit when a+b+select+start is pressed
 	config->addOption("4buttonexit", "SDL.ABStartSelectExit", 0);
@@ -785,10 +852,21 @@ UpdateEMUCore(Config *config)
 	config->getOption("SDL.Hue", &ntschue);
 	FCEUI_SetNTSCTH(ntsccol, ntsctint, ntschue);
 
+	config->getOption("SDL.ForceGrayScale", &force_grayscale);
+	config->getOption("SDL.DeempBitSwap"  , &paldeemphswap);
+	config->getOption("SDL.PalNotch"      , &palnotch);
+	config->getOption("SDL.PalSaturation" , &palsaturation);
+	config->getOption("SDL.PalSharpness"  , &palsharpness);
+	config->getOption("SDL.PalContrast"   , &palcontrast);
+	config->getOption("SDL.PalBrightness" , &palbrightness);
+	palupdate = 1;
+
 	config->getOption("SDL.Palette", &cpalette);
 	if(cpalette.size()) {
 		LoadCPalette(cpalette);
 	}
+
+	config->getOption("SDL.NewPPU", &newppu);
 
 	config->getOption("SDL.PAL", &region);
 	FCEUI_SetRegion(region);
