@@ -24,10 +24,19 @@
 #include <string.h>
 #include <string>
 
+#ifdef _S9XLUA_H
+#include <lua.h>
+#endif
+
+#ifdef _USE_X264
+#include "x264.h"
+#endif
+
 #include <QPixmap>
 #include <QUrl>
 #include <QTextEdit>
 #include <QDesktopServices>
+#include "Qt/sdl.h"
 #include "Qt/AboutWindow.h"
 #include "Qt/fceux_git_info.h"
 #include "../../version.h"
@@ -67,7 +76,7 @@ AboutWindow::AboutWindow(QWidget *parent)
 	QPushButton *closeButton;
 	char stmp[256];
 
-	pm2 = pm.scaled( 64, 64 );
+	pm2 = pm.scaled( 128, 128 );
 
 	setWindowTitle( tr("About fceuX") );
 
@@ -84,13 +93,13 @@ AboutWindow::AboutWindow(QWidget *parent)
 
 	mainLayout->addLayout( hbox1 );
 
-	hbox1 = new QHBoxLayout();
-	lbl = new QLabel( tr("fceuX") );
+	//hbox1 = new QHBoxLayout();
+	//lbl = new QLabel( tr("fceuX") );
 
-	hbox1->addWidget( lbl );
-	hbox1->setAlignment( Qt::AlignCenter );
+	//hbox1->addWidget( lbl );
+	//hbox1->setAlignment( Qt::AlignCenter );
 
-	mainLayout->addLayout( hbox1 );
+	//mainLayout->addLayout( hbox1 );
 
 	hbox1 = new QHBoxLayout();
 	lbl = new QLabel( tr(FCEU_VERSION_STRING) );
@@ -158,6 +167,30 @@ AboutWindow::AboutWindow(QWidget *parent)
 		credits->insertPlainText( Authors[i] ); i++;
 		credits->insertPlainText( "\n");
 	}
+
+	credits->insertPlainText( "\nOpen Source Dependencies:\n" );
+
+	sprintf( stmp, "	Compiled with Qt version %d.%d.%d\n", QT_VERSION_MAJOR, QT_VERSION_MINOR, QT_VERSION_PATCH );
+	credits->insertPlainText( stmp );
+
+	sprintf( stmp, "	Compiled with SDL version %d.%d.%d\n", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL );
+	credits->insertPlainText( stmp );
+
+	SDL_version v; 
+	SDL_GetVersion(&v);
+	sprintf( stmp, "	Linked with SDL version %d.%d.%d\n", v.major, v.minor, v.patch);
+	credits->insertPlainText( stmp );
+
+#ifdef _S9XLUA_H
+	sprintf( stmp, "	Compiled with %s\n", LUA_RELEASE );
+	credits->insertPlainText( stmp );
+#endif
+
+#ifdef _USE_X264
+	sprintf( stmp, "	Compiled with x264 version %s\n", X264_POINTVER );
+	credits->insertPlainText( stmp );
+#endif
+
 	credits->moveCursor(QTextCursor::Start);
 	credits->setReadOnly(true);
 

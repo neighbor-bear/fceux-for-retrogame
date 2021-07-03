@@ -23,11 +23,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <vector>
+#include <list>
 
 #include <SDL.h>
 #include <QMenu>
 #include <QMenuBar>
 #include <QAction>
+#include <QSettings>
 #include <QCloseEvent>
 #include <QFileDialog>
 #include <QColorDialog>
@@ -48,13 +51,23 @@
 #include "Qt/PaletteEditor.h"
 #include "Qt/ConsoleUtilities.h"
 
+struct colorChangeData_t
+{
+	int  palIdx;
+	QColor  oldColor;
+	QColor  newColor;
+};
+
+static std::vector <colorChangeData_t>  undoColorHistory;  
+static std::vector <colorChangeData_t>  redoColorHistory;  
 //----------------------------------------------------------------------------
 PaletteEditorDialog_t::PaletteEditorDialog_t(QWidget *parent)
 	: QDialog( parent )
 {
+	QSettings    settings;
 	QVBoxLayout *mainLayout;
 	QMenuBar *menuBar;
-	QMenu *fileMenu, *memMenu;
+	QMenu *fileMenu, *editMenu, *memMenu, *subMenu;
 	QAction *act;
 	int useNativeMenuBar;
 
@@ -92,6 +105,18 @@ PaletteEditorDialog_t::PaletteEditorDialog_t(QWidget *parent)
 
 	fileMenu->addSeparator();
 
+	// File -> Export
+	subMenu = fileMenu->addMenu( tr("E&xport As") );
+
+	act = new QAction(tr("&Adobe Color Table"), this);
+	//act->setShortcut( QKeySequence::Save );
+	act->setStatusTip(tr("Export Palette in ACT Format"));
+	connect(act, SIGNAL(triggered()), this, SLOT(exportPaletteFileDialog(void)) );
+
+	subMenu->addAction(act);
+
+	fileMenu->addSeparator();
+
 	// File -> Close
 	act = new QAction(tr("&Close"), this);
 	act->setShortcut( QKeySequence::Close );
@@ -99,6 +124,25 @@ PaletteEditorDialog_t::PaletteEditorDialog_t(QWidget *parent)
 	connect(act, SIGNAL(triggered()), this, SLOT(closeWindow(void)) );
 	
 	fileMenu->addAction(act);
+
+	// Edit
+	editMenu = menuBar->addMenu(tr("&Edit"));
+
+	// Edit -> Undo
+	undoAct = new QAction(tr("&Undo"), this);
+	undoAct->setShortcut(QKeySequence::Undo);
+	undoAct->setStatusTip(tr("Undo Last Operation"));
+	connect(undoAct, SIGNAL(triggered()), this, SLOT(undoLastOperation(void)) );
+	
+	editMenu->addAction(undoAct);
+
+	// Edit -> Redo
+	redoAct = new QAction(tr("&Redo"), this);
+	redoAct->setShortcut(QKeySequence::Redo);
+	redoAct->setStatusTip(tr("Redo Last Operation"));
+	connect(redoAct, SIGNAL(triggered()), this, SLOT(redoLastOperation(void)) );
+	
+	editMenu->addAction(redoAct);
 
 	// Memory
 	memMenu = menuBar->addMenu(tr("&Memory"));
@@ -115,6 +159,9 @@ PaletteEditorDialog_t::PaletteEditorDialog_t(QWidget *parent)
 	// End Menu 
 	//-----------------------------------------------------------------------
 
+	undoAct->setEnabled( undoColorHistory.size() > 0 );
+	redoAct->setEnabled( redoColorHistory.size() > 0 );
+
 	mainLayout = new QVBoxLayout();
 
 	mainLayout->setMenuBar( menuBar );
@@ -126,16 +173,31 @@ PaletteEditorDialog_t::PaletteEditorDialog_t(QWidget *parent)
 	mainLayout->addWidget( palView );
 
 	palView->loadActivePalette();
+
+	updateTimer = new QTimer(this);
+
+	connect(updateTimer, &QTimer::timeout, this, &PaletteEditorDialog_t::updatePeriodic);
+
+	updateTimer->start(500); // 2hz
+
+	restoreGeometry(settings.value("paletteEditor/geometry").toByteArray());
 }
 //----------------------------------------------------------------------------
 PaletteEditorDialog_t::~PaletteEditorDialog_t(void)
 {
-	printf("Destroy Palette Editor Config Window\n");
+	//printf("Destroy Palette Editor Config Window\n");
+
+	updateTimer->stop();
+
+	undoColorHistory.clear();
+	redoColorHistory.clear();
 }
 //----------------------------------------------------------------------------
 void PaletteEditorDialog_t::closeEvent(QCloseEvent *event)
 {
+	QSettings settings;
 	//printf("Palette Editor Close Window Event\n");
+	settings.setValue("paletteEditor/geometry", saveGeometry());
 	done(0);
 	deleteLater();
 	event->accept();
@@ -143,7 +205,9 @@ void PaletteEditorDialog_t::closeEvent(QCloseEvent *event)
 //----------------------------------------------------------------------------
 void PaletteEditorDialog_t::closeWindow(void)
 {
+	QSettings settings;
 	//printf("Close Window\n");
+	settings.setValue("paletteEditor/geometry", saveGeometry());
 	done(0);
 	deleteLater();
 }
@@ -151,6 +215,96 @@ void PaletteEditorDialog_t::closeWindow(void)
 void PaletteEditorDialog_t::setActivePalette(void)
 {
 	palView->setActivePalette();
+}
+//----------------------------------------------------------------------------
+void PaletteEditorDialog_t::updatePeriodic(void)
+{
+	undoAct->setEnabled( undoColorHistory.size() > 0 );
+	redoAct->setEnabled( redoColorHistory.size() > 0 );
+
+	if ( undoAct->isEnabled() )
+	{
+		char stmp[64];
+		colorChangeData_t chg;
+
+		chg = undoColorHistory.back();
+
+		sprintf( stmp, "&Undo $%02X = rgb(%3i,%3i,%3i)", chg.palIdx, 
+				chg.newColor.red(), chg.newColor.green(), chg.newColor.blue() );
+
+		undoAct->setText( tr(stmp) );
+	}
+	else
+	{
+		undoAct->setText( tr("&Undo") );
+	}
+
+	if ( redoAct->isEnabled() )
+	{
+		char stmp[64];
+		colorChangeData_t chg;
+
+		chg = redoColorHistory.back();
+
+		sprintf( stmp, "&Redo $%02X = rgb(%3i,%3i,%3i)", chg.palIdx, 
+				chg.newColor.red(), chg.newColor.green(), chg.newColor.blue() );
+
+		redoAct->setText( tr(stmp) );
+	}
+	else
+	{
+		redoAct->setText( tr("&Redo") );
+	}
+}
+//----------------------------------------------------------------------------
+void PaletteEditorDialog_t::undoLastOperation(void)
+{
+	if ( undoColorHistory.size() == 0 )
+	{
+		undoAct->setEnabled(false);
+		return;
+	}
+	colorChangeData_t chg;
+
+	chg = undoColorHistory.back();
+
+	redoColorHistory.push_back(chg);
+	undoColorHistory.pop_back();
+
+	//printf("Undo Palette Op: %02X  \n", chg.palIdx);
+	palView->color[ chg.palIdx ] = chg.oldColor;
+
+	palView->setActivePalette();
+
+	undoAct->setEnabled( undoColorHistory.size() > 0 );
+	redoAct->setEnabled( redoColorHistory.size() > 0 );
+
+	update();
+}
+//----------------------------------------------------------------------------
+void PaletteEditorDialog_t::redoLastOperation(void)
+{
+	if ( redoColorHistory.size() == 0 )
+	{
+		redoAct->setEnabled(false);
+		return;
+	}
+	colorChangeData_t chg;
+
+	chg = redoColorHistory.back();
+
+	undoColorHistory.push_back(chg);
+	redoColorHistory.pop_back();
+
+	//printf("Undo Palette Op: %02X  \n", chg.palIdx);
+	palView->color[ chg.palIdx ] = chg.newColor;
+
+	palView->setActivePalette();
+
+	undoAct->setEnabled( undoColorHistory.size() > 0 );
+	redoAct->setEnabled( redoColorHistory.size() > 0 );
+
+	update();
 }
 //----------------------------------------------------------------------------
 void PaletteEditorDialog_t::openPaletteFileDialog(void)
@@ -180,15 +334,46 @@ void PaletteEditorDialog_t::openPaletteFileDialog(void)
 			urls << QUrl::fromLocalFile( d.absolutePath() );
 			iniPath = d.absolutePath().toStdString();
 		}
+
+		#ifdef __APPLE__
+		// Search for MacOSX DragNDrop Resources
+		d.setPath(QString(exePath) + "/../Resources/palettes");
+
+		//printf("Looking for: '%s'\n", d.path().toStdString().c_str());
+
+		if (d.exists())
+		{
+			urls << QUrl::fromLocalFile(d.absolutePath());
+			iniPath = d.absolutePath().toStdString();
+		}
+		#endif
 	}
 #ifdef WIN32
 
 #else
-	d.setPath("/usr/share/fceux/palettes");
-
-	if ( d.exists() )
+	// Linux and MacOSX (homebrew) expect shared data folder to be relative to bin/fceux executable.
+	if (exePath[0] != 0)
 	{
-		urls << QUrl::fromLocalFile( d.absolutePath() );
+		d.setPath(QString(exePath) + "/../share/fceux/palettes");
+	}
+	else
+	{
+		d.setPath(QString("/usr/local/share/fceux/palettes"));
+	}
+	if (!d.exists())
+	{
+		d.setPath(QString("/usr/local/share/fceux/palettes"));
+	}
+	if (!d.exists())
+	{
+		d.setPath(QString("/usr/share/fceux/palettes"));
+	}
+
+	//printf("Looking for: '%s'\n", d.path().toStdString().c_str());
+
+	if (d.exists())
+	{
+		urls << QUrl::fromLocalFile(d.absolutePath());
 		iniPath = d.absolutePath().toStdString();
 	}
 #endif
@@ -298,7 +483,57 @@ void PaletteEditorDialog_t::savePaletteFileDialog(void)
 	palView->saveToFile( filename.toStdString().c_str() );
 }
 //----------------------------------------------------------------------------
+void PaletteEditorDialog_t::exportPaletteFileDialog(void)
+{
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	QFileDialog  dialog(this, tr("Export Palette To File") );
+	const char *home;
+
+	dialog.setFileMode(QFileDialog::AnyFile);
+
+	dialog.setNameFilter(tr("Adobe Color Table Files (*.act *.ACT) ;; All files (*)"));
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Export") );
+	dialog.setDefaultSuffix( tr(".act") );
+
+	home = ::getenv("HOME");
+
+	if ( home )
+	{
+		dialog.setDirectory( tr(home) );
+	}
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return;
+	}
+	qDebug() << "selected file path : " << filename.toUtf8();
+
+	palView->exportToFileACT( filename.toStdString().c_str() );
+}
 //----------------------------------------------------------------------------
+//---NES Color Palette Viewer
 //----------------------------------------------------------------------------
 nesPaletteView::nesPaletteView( QWidget *parent)
 	: QWidget(parent)
@@ -346,6 +581,8 @@ void nesPaletteView::loadActivePalette(void)
 		color[p].setGreen( palo[p].g );
 		color[p].setRed( palo[p].r );
 	}
+	undoColorHistory.clear();
+	redoColorHistory.clear();
 }
 //----------------------------------------------------------------------------
 void nesPaletteView::setActivePalette(void)
@@ -410,6 +647,9 @@ int  nesPaletteView::loadFromFile( const char *filepath )
 
 	::fclose(fp);
 
+	undoColorHistory.clear();
+	redoColorHistory.clear();
+
 	return 0;
 }
 
@@ -440,6 +680,41 @@ int  nesPaletteView::saveToFile( const char *filepath )
 	if ( numBytes != (3*NUM_COLORS) )
 	{
 		printf("Error Failed to Save Palette\n");
+		ret = -1;
+	}
+
+	::fclose(fp);
+
+	return ret;
+}
+//----------------------------------------------------------------------------
+int  nesPaletteView::exportToFileACT( const char *filepath )
+{
+	FILE *fp;
+	int   i=0, ret = 0, numBytes;
+	unsigned char buf[768];
+
+	fp = ::fopen( filepath, "wb");
+
+	if ( fp == NULL )
+	{
+		return -1;
+	}
+	memset( buf, 0, sizeof(buf) );
+
+	i = 0;
+
+	for (int p=0; p<NUM_COLORS; p++)
+	{
+		buf[i] = color[p].red();  i++;
+		buf[i] = color[p].green(); i++;
+		buf[i] = color[p].blue(); i++;
+	}
+	numBytes = ::fwrite( buf, 1, 768, fp );
+
+	if ( numBytes != 768 )
+	{
+		printf("Error Failed to Export Palette\n");
 		ret = -1;
 	}
 
@@ -481,17 +756,23 @@ void nesPaletteView::mouseMoveEvent(QMouseEvent *event)
 	       (cell.y() >= 0) && (cell.y() < 4) )
 	{
 		selCell = cell;
+		update();
 	}
 }
 //----------------------------------------------------------------------------
 void nesPaletteView::mousePressEvent(QMouseEvent * event)
 {
-	//QPoint cell = convPixToCell( event->pos() );
+	QPoint cell = convPixToCell( event->pos() );
 
 	if ( event->button() == Qt::LeftButton )
 	{
-		// Set Cell
-		//setSelCell( cell );
+		if ( (cell.x() >= 0) && (cell.x() < 16) &&
+		       (cell.y() >= 0) && (cell.y() < 4) )
+		{
+			selCell = cell;
+			update();
+			editSelColor();
+		}
 	}
 }
 //----------------------------------------------------------------------------
@@ -502,6 +783,17 @@ void nesPaletteView::contextMenuEvent(QContextMenuEvent *event)
 	//QMenu *subMenu;
 	//QActionGroup *group;
 	char stmp[64];
+
+	QPoint cell = convPixToCell( event->pos() );
+
+	//printf("Cell %X%X\n", cell.y(), cell.x() ); 
+
+	if ( (cell.x() >= 0) && (cell.x() < 16) &&
+	       (cell.y() >= 0) && (cell.y() < 4) )
+	{
+		selCell = cell;
+		update();
+	}
 
 	sprintf( stmp, "Edit Color %X%X", selCell.y(), selCell.x() );
 	act = new QAction(tr(stmp), &menu);
@@ -623,6 +915,18 @@ void nesPaletteView::paintEvent(QPaintEvent *event)
 		}
 		yy += h;
 	}
+
+	xx = selCell.x() * w;
+	yy = selCell.y() * h;
+
+	pen.setWidth( 5 );
+	pen.setColor( white );
+	painter.setPen( pen );
+	painter.drawRect( xx, yy, w-1, h-1 );
+	pen.setWidth( 3 );
+	pen.setColor( black );
+	painter.setPen( pen );
+	painter.drawRect( xx+1, yy+1, w-3, h-3 );
 }
 //----------------------------------------------------------------------------
 //----------------------------------------------------------------------------
@@ -656,10 +960,10 @@ nesColorPickerDialog_t::nesColorPickerDialog_t( int palIndex, QColor *c, QWidget
 
 	mainLayout->addWidget( colorDialog );
 
-	colorDialog->setCurrentColor( *c );
 	colorDialog->setWindowFlags(Qt::Widget);
 	colorDialog->setOption( QColorDialog::DontUseNativeDialog, true );
 	colorDialog->setOption( QColorDialog::NoButtons, true );
+	colorDialog->setCurrentColor( *c );
 	
 	connect( colorDialog, SIGNAL(colorSelected(const QColor &))      , this, SLOT(colorChanged( const QColor &)) );
 	connect( colorDialog, SIGNAL(currentColorChanged(const QColor &)), this, SLOT(colorChanged( const QColor &)) );
@@ -719,7 +1023,16 @@ void nesColorPickerDialog_t::colorChanged( const QColor &color )
 //----------------------------------------------------------------------------
 void nesColorPickerDialog_t::colorAccepted(void)
 {
-	//printf("nesColorPicker Accepted\n");
+	colorChangeData_t chg;
+
+	chg.palIdx   =  palIdx;
+	chg.oldColor =  origColor;
+	chg.newColor = *colorPtr;
+
+	undoColorHistory.push_back( chg );
+	redoColorHistory.clear();
+
+	//printf("nesColorPicker Accepted: %zi\n", colorChangeHistory.size() );
 	deleteLater();
 }
 //----------------------------------------------------------------------------
@@ -743,5 +1056,364 @@ void nesColorPickerDialog_t::resetColor(void)
 	colorDialog->setCurrentColor( origColor );
 
 	( (nesPaletteView*)parent())->setActivePalette();
+}
+//----------------------------------------------------------------------------
+//----------------------------------------------------------------------------
+//---NES Color Palette Viewer
+//----------------------------------------------------------------------------
+static void PalettePoke(uint32 addr, uint8 data)
+{
+	data = data & 0x3F;
+	addr = addr & 0x1F;
+	if ((addr & 3) == 0)
+	{
+		addr = (addr & 0xC) >> 2;
+		if (addr == 0)
+		{
+			PALRAM[0x00] = PALRAM[0x04] = PALRAM[0x08] = PALRAM[0x0C] = data;
+		}
+		else
+		{
+			UPALRAM[addr-1] = data;
+		}
+	}
+	else
+	{
+		PALRAM[addr] = data;
+	}
+}
+//----------------------------------------------------------------------------
+nesPalettePickerView::nesPalettePickerView( QWidget *parent)
+	: QWidget(parent)
+{
+	this->setFocusPolicy(Qt::StrongFocus);
+	this->setMouseTracking(true);
+
+	font.setFamily("Courier New");
+	font.setStyle( QFont::StyleNormal );
+	font.setStyleHint( QFont::Monospace );
+	//font.setPixelSize( boxPixSize / 3 );
+	QFontMetrics fm(font);
+
+	#if QT_VERSION > QT_VERSION_CHECK(5, 11, 0)
+	pxCharWidth = fm.horizontalAdvance(QLatin1Char('2'));
+	#else
+	pxCharWidth = fm.width(QLatin1Char('2'));
+	#endif
+	pxCharHeight = fm.height();
+
+	boxWidth  = pxCharWidth  * 4;
+  	boxHeight = pxCharHeight * 2;
+	selBox    = 0;
+
+	viewWidth = boxWidth * 16;
+	viewHeight = boxHeight * 4;
+	setMinimumWidth( viewWidth );
+	setMinimumHeight( viewHeight );
+}
+//----------------------------------------------------------------------------
+nesPalettePickerView::~nesPalettePickerView(void)
+{
+
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerView::setSelBox( int val )
+{
+	if ( val != selBox )
+	{
+
+		fceuWrapperLock();
+		PalettePoke( palAddr, val );
+		FCEUD_UpdatePPUView( -1, 1 );
+		fceuWrapperUnLock();
+
+		this->update();
+	}
+	selBox = val;
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerView::setSelBox( QPoint p )
+{
+	if ( (p.x() >= 0) && (p.x() < 16) &&
+	       (p.y() >= 0) && (p.y() < 4) )
+	{
+		setSelBox( (p.y() * 16) + p.x() );
+	}
+}
+//----------------------------------------------------------------------------
+void  nesPalettePickerView::setPalAddr( int a )
+{
+	palAddr = a;
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerView::loadActivePalette(void)
+{
+	if ( palo == NULL )
+	{
+		return;
+	}
+
+	for (int p=0; p<NUM_COLORS; p++)
+	{
+		color[p].setBlue( palo[p].b );
+		color[p].setGreen( palo[p].g );
+		color[p].setRed( palo[p].r );
+	}
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerView::resizeEvent(QResizeEvent *event)
+{
+	//viewWidth  = event->size().width();
+	//viewHeight = event->size().height();
+
+	//boxWidth  = viewWidth / 16;
+  	//boxHeight = viewHeight / 4;
+}
+//----------------------------------------------------
+void nesPalettePickerView::keyPressEvent(QKeyEvent *event)
+{
+	//printf("NES Palette View Key Press: 0x%x \n", event->key() );
+
+	//if ( event->key() == Qt::Key_E )
+	//{
+	//	openColorPicker();
+
+	//	event->accept();
+	//}
+
+	event->ignore();
+}
+//----------------------------------------------------
+void nesPalettePickerView::mouseMoveEvent(QMouseEvent *event)
+{
+	QPoint cell = convPixToCell( event->pos() );
+
+	//printf("Cell %X%X\n", cell.y(), cell.x() ); 
+
+	if ( (cell.x() >= 0) && (cell.x() < 16) &&
+	       (cell.y() >= 0) && (cell.y() < 4) )
+	{
+		selCell = cell;
+	}
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerView::mousePressEvent(QMouseEvent * event)
+{
+	QPoint cell = convPixToCell( event->pos() );
+
+	if ( event->button() == Qt::LeftButton )
+	{
+		//printf("Set
+		// Set Cell
+		setSelBox( cell );
+	}
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerView::contextMenuEvent(QContextMenuEvent *event)
+{
+//	QAction *act;
+//	QMenu menu(this);
+//	//QMenu *subMenu;
+//	//QActionGroup *group;
+//	char stmp[64];
+//
+//	sprintf( stmp, "Edit Color %X%X", selCell.y(), selCell.x() );
+//	act = new QAction(tr(stmp), &menu);
+//	act->setShortcut( QKeySequence(tr("E")));
+//	connect( act, SIGNAL(triggered(void)), this, SLOT(editSelColor(void)) );
+//	menu.addAction( act );
+//
+//	menu.exec(event->globalPos());
+}
+//----------------------------------------------------------------------------
+QPoint nesPalettePickerView::convPixToCell( QPoint p )
+{
+	int x,y;
+	QPoint c;
+
+	x = p.x();
+	y = p.y();
+
+	c.setX( x / boxWidth );
+	c.setY( y / boxHeight);
+
+	return c;
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerView::paintEvent(QPaintEvent *event)
+{
+	int x,y,w,h,xx,yy,ii,i,j;
+	QPainter painter(this);
+	QPen     pen;
+	char     c[4];
+	QColor   white(255,255,255), black(0,0,0);
+
+	pen = painter.pen();
+
+	viewWidth  = event->rect().width();
+	viewHeight = event->rect().height();
+
+	//printf("PPU nesPalettePickerView %ix%i \n", viewWidth, viewHeight );
+	
+	w = viewWidth / 16;
+  	h = viewHeight / 4;
+
+	boxWidth = w;
+	boxHeight = h;
+
+	xx = 0; yy = 0;
+
+	if ( w < h )
+	{
+	   h = w;
+	}
+	else
+	{
+	   w = h;
+	}
+
+	i = w / 4;
+	j = h / 4;
+
+	ii=0;
+	
+	// Draw Tile Pixels as rectangles
+	for (y=0; y < 4; y++)
+	{
+		xx = 0;
+	
+		for (x=0; x < 16; x++)
+		{
+			c[0] = conv2hex( (ii & 0xF0) >> 4 );
+			c[1] = conv2hex(  ii & 0x0F);
+			c[2] =  0;
+
+			painter.fillRect( xx, yy, w, h, color[ ii ] ); 
+
+			if ( qGray( color[ii].red(), color[ii].green(), color[ii].blue() ) > 128 )
+	        	{
+				painter.setPen( black );
+			}
+			else
+			{
+				painter.setPen( white );
+	        	}
+			painter.drawText( xx+i, yy+h-j, tr(c) );
+
+			if ( ii == selBox )
+			{
+				painter.setPen( black );
+				painter.drawRect( xx, yy, w-1, h-1 );
+				painter.setPen( white );
+				painter.drawRect( xx+1, yy+1, w-3, h-3 );
+			}
+			xx += w; ii++;
+		}
+		yy += h;
+	}
+}
+//----------------------------------------------------------------------------
+// NES Color Picker Dialog
+//----------------------------------------------------------------------------
+nesPalettePickerDialog::nesPalettePickerDialog( int idx, QWidget *parent)
+	: QDialog( parent )
+{
+	char stmp[128];
+	QVBoxLayout *mainLayout;
+	QHBoxLayout *hbox;
+	QPushButton *okButton, *cancelButton, *resetButton;
+
+	mainLayout = new QVBoxLayout();
+
+	//mainLayout->setMenuBar( menuBar );
+
+	setLayout( mainLayout );
+
+	palView = new nesPalettePickerView(this);
+
+	mainLayout->addWidget( palView, 10 );
+
+	palView->loadActivePalette();
+
+	palIdx  = idx;
+	palAddr = 0x3F00 + palIdx;
+
+	sprintf( stmp, "Pick Palette Color for Address $%04X", palAddr );
+	setWindowTitle( tr(stmp) );
+
+	palOrigVal = READPAL_MOTHEROFALL(palIdx & 0x1F);
+	palView->setPalAddr( palAddr );
+	palView->setSelBox( palOrigVal );
+
+//	printf("Idx:%02X  Addr:%04X  OrigVal: %02X \n", palIdx, palAddr, palOrigVal );
+
+	hbox = new QHBoxLayout();
+	okButton     = new QPushButton( tr("Ok") );
+	resetButton  = new QPushButton( tr("Reset") );
+	cancelButton = new QPushButton( tr("Cancel") );
+
+	hbox->addWidget( cancelButton, 1 );
+	hbox->addWidget( resetButton , 1 );
+	hbox->addStretch( 5 ); 
+	hbox->addWidget( okButton    , 1 );
+
+	mainLayout->addLayout( hbox, 1 );
+
+	connect(     okButton, SIGNAL(clicked(void)), this, SLOT(    okButtonClicked(void)) );
+	connect(  resetButton, SIGNAL(clicked(void)), this, SLOT( resetButtonClicked(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), this, SLOT(cancelButtonClicked(void)) );
+}
+//----------------------------------------------------------------------------
+nesPalettePickerDialog::~nesPalettePickerDialog(void)
+{
+	printf("Destroy Palette Editor Config Window\n");
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerDialog::closeEvent(QCloseEvent *event)
+{
+	//printf("Palette Editor Close Window Event\n");
+	done(0);
+	deleteLater();
+	event->accept();
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerDialog::closeWindow(void)
+{
+	//printf("Close Window\n");
+	done(0);
+	deleteLater();
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerDialog::resetButtonClicked(void)
+{
+	fceuWrapperLock();
+	palView->setSelBox( palOrigVal );
+	PalettePoke( palAddr, palOrigVal );
+	FCEUD_UpdatePPUView( -1, 1 );
+	fceuWrapperUnLock();
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerDialog::cancelButtonClicked(void)
+{	
+	fceuWrapperLock();
+	PalettePoke( palAddr, palOrigVal );
+	FCEUD_UpdatePPUView( -1, 1 );
+	fceuWrapperUnLock();
+
+	//printf("Close Window\n");
+	done(0);
+	deleteLater();
+}
+//----------------------------------------------------------------------------
+void nesPalettePickerDialog::okButtonClicked(void)
+{
+	fceuWrapperLock();
+	PalettePoke( palAddr, palView->getSelBox() );
+	FCEUD_UpdatePPUView( -1, 1 );
+	fceuWrapperUnLock();
+
+	//printf("Close Window\n");
+	done(0);
+	deleteLater();
 }
 //----------------------------------------------------------------------------

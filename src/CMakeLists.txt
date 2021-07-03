@@ -34,7 +34,8 @@ if(WIN32)
      include_directories( ${CMAKE_CURRENT_SOURCE_DIR}/drivers/win/zlib )
      set( OPENGL_LDFLAGS  OpenGL::GL )
      set( SDL2_LDFLAGS  ${SDL_INSTALL_PREFIX}/SDL2/lib/x64/SDL2.lib )
-     set( SYS_LIBS  wsock32 ws2_32 )
+     set( SYS_LIBS  wsock32 ws2_32 vfw32 )
+     set(APP_ICON_RESOURCES_WINDOWS  ${CMAKE_SOURCE_DIR}/icons/fceux.rc )
 else(WIN32)
   # Non Windows System
   # UNIX (Linux or Mac OSX)
@@ -75,6 +76,13 @@ else(WIN32)
 	  add_definitions( -D_SYSTEM_MINIZIP ${MINIZIP_CFLAGS} )
   endif()
 
+  pkg_check_modules( X264 x264)
+
+  if ( ${X264_FOUND} )
+	  message( STATUS "Using System X264 Encoder Library ${X264_VERSION}" )
+	  add_definitions( -D_USE_X264 ${X264_CFLAGS} )
+  endif()
+
   #pkg_check_modules( GL gl) # Use built in find package instead for OpenGL
 
   # Check for OpenGL
@@ -93,7 +101,6 @@ else(WIN32)
   pkg_search_module( LUA lua5.1 lua-5.1 )
 
   add_definitions( -DHAVE_ASPRINTF ) # What system wouldn't have this?
-  #add_definitions( -DCREATE_AVI    ) 
 
   if(APPLE)
 	set( OPENGL_LDFLAGS  "-framework OpenGL" )
@@ -436,8 +443,6 @@ set(SRC_DRIVERS_COMMON
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/vidblit.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/os_utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nes_ntsc.c
-  #${CMAKE_CURRENT_SOURCE_DIR}/drivers/videolog/nesvideos-piece.cpp
-  #${CMAKE_CURRENT_SOURCE_DIR}/drivers/videolog/rgbtorgb.cpp
 )
 
 set(SRC_DRIVERS_SDL
@@ -483,6 +488,10 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/sdl-joystick.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/sdl-throttle.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/unix-netplay.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/AviRecord.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/avi-utils.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/fileio.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/gwavi.cpp
 )
 
 set(SOURCES ${SRC_CORE} ${SRC_DRIVERS_COMMON} ${SRC_DRIVERS_SDL})
@@ -509,9 +518,12 @@ set_source_files_properties( ${APP_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION "Res
 
 add_executable(  ${APP_NAME}  MACOSX_BUNDLE ${APP_ICON} ${SOURCES} ../resources.qrc 
 	${CMAKE_CURRENT_BINARY_DIR}/fceux_git_info.cpp)
+elseif (WIN32)
 
+add_executable(  ${APP_NAME}  ${SOURCES} ../resources.qrc 
+	${CMAKE_CURRENT_BINARY_DIR}/fceux_git_info.cpp
+	${APP_ICON_RESOURCES_WINDOWS} )
 else()
-
 add_executable(  ${APP_NAME}  ${SOURCES} ../resources.qrc 
 	${CMAKE_CURRENT_BINARY_DIR}/fceux_git_info.cpp)
 endif()
@@ -523,7 +535,7 @@ target_link_libraries( ${APP_NAME}
    ${OPENGL_LDFLAGS}  
  	${SDL2_LDFLAGS}
 	${MINIZIP_LDFLAGS} ${ZLIB_LIBRARIES}
-	${LUA_LDFLAGS}
+	${LUA_LDFLAGS} ${X264_LDFLAGS}
  	${SYS_LIBS}
 )
 
@@ -542,8 +554,11 @@ install( TARGETS  ${APP_NAME}
 # Use \$ to defer expansion until install script is called; CPack will call it with its own CMAKE_INSTALL_PREFIX
 set(APP \${CMAKE_INSTALL_PREFIX}/${APP_NAME}.app)
 
+install( DIRECTORY ${CMAKE_SOURCE_DIR}/output/.
+	DESTINATION ${APP_NAME}.app/Contents/Resources COMPONENT Extra )
+
 set(CPACK_PACKAGE_ICON ${CMAKE_SOURCE_DIR}/fceux.icns )
-set(CPACK_GENERATOR "DRAGNDROP")
+set(CPACK_GENERATOR "DragNDrop")
 include(CPACK)
 
 # macdeployqt tool that comes with Qt: https://doc.qt.io/qt-5/macos-deployment.html#macdeploy

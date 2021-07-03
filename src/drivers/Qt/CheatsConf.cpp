@@ -29,6 +29,7 @@
 #include <QFileDialog>
 #include <QScreen>
 #include <QGuiApplication>
+#include <QSettings>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -69,6 +70,7 @@ void updateCheatDialog(void)
 GuiCheatsDialog_t::GuiCheatsDialog_t(QWidget *parent)
 	: QDialog(parent, Qt::Window)
 {
+	QSettings    settings;
 	QHBoxLayout *mainLayout, *hbox, *hbox1;
 	QVBoxLayout *vbox, *vbox1, *vbox2, *vbox3;
 	QTreeWidgetItem *item;
@@ -448,6 +450,8 @@ GuiCheatsDialog_t::GuiCheatsDialog_t(QWidget *parent)
 	connect(exportCheatFileBtn, SIGNAL(clicked(void)), this, SLOT(saveCheatFile(void)));
 
 	showActiveCheatList(true);
+
+	restoreGeometry(settings.value("cheatsWindow/geometry").toByteArray());
 }
 //----------------------------------------------------------------------------
 GuiCheatsDialog_t::~GuiCheatsDialog_t(void)
@@ -460,12 +464,14 @@ GuiCheatsDialog_t::~GuiCheatsDialog_t(void)
 	wasPausedByCheats = false;
 
 	win = NULL;
-	printf("Destroy Cheat Window Event\n");
+	//printf("Destroy Cheat Window Event\n");
 }
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("Cheat Close Window Event\n");
+	QSettings settings;
+	//printf("Cheat Close Window Event\n");
+	settings.setValue("cheatsWindow/geometry", saveGeometry());
 	done(0);
 	deleteLater();
 	event->accept();
@@ -473,7 +479,9 @@ void GuiCheatsDialog_t::closeEvent(QCloseEvent *event)
 //----------------------------------------------------------------------------
 void GuiCheatsDialog_t::closeWindow(void)
 {
+	QSettings settings;
 	//printf("Close Window\n");
+	settings.setValue("cheatsWindow/geometry", saveGeometry());
 	done(0);
 	deleteLater();
 }
@@ -559,9 +567,9 @@ void GuiCheatsDialog_t::knownValueCallback(void)
 	//printf("Cheat Search Known!\n");
 	fceuWrapperLock();
 
-	//printf("%s\n", knownValEntry->text().toStdString().c_str() );
+	//printf("'%s'\n", knownValEntry->displayText().toStdString().c_str() );
 
-	value = strtol(knownValEntry->text().toStdString().c_str(), NULL, 16);
+	value = strtol(knownValEntry->displayText().toStdString().c_str(), NULL, 16);
 
 	FCEUI_CheatSearchEnd(FCEU_SEARCH_NEWVAL_KNOWN, value, 0);
 
@@ -592,7 +600,7 @@ void GuiCheatsDialog_t::notEqualValueCallback(void)
 
 	if (checked)
 	{
-		value = strtol(neValEntry->text().toStdString().c_str(), NULL, 16);
+		value = strtol(neValEntry->displayText().toStdString().c_str(), NULL, 16);
 
 		FCEUI_CheatSearchEnd(FCEU_SEARCH_PUERLY_RELATIVE_CHANGE, 0, value);
 	}
@@ -616,7 +624,7 @@ void GuiCheatsDialog_t::greaterThanValueCallback(void)
 
 	if (checked)
 	{
-		value = strtol(grValEntry->text().toStdString().c_str(), NULL, 16);
+		value = strtol(grValEntry->displayText().toStdString().c_str(), NULL, 16);
 
 		FCEUI_CheatSearchEnd(FCEU_SEARCH_NEWVAL_GT_KNOWN, 0, value);
 	}
@@ -640,7 +648,7 @@ void GuiCheatsDialog_t::lessThanValueCallback(void)
 
 	if (checked)
 	{
-		value = strtol(ltValEntry->text().toStdString().c_str(), NULL, 16);
+		value = strtol(ltValEntry->displayText().toStdString().c_str(), NULL, 16);
 
 		FCEUI_CheatSearchEnd(FCEU_SEARCH_NEWVAL_LT_KNOWN, 0, value);
 	}
@@ -857,13 +865,13 @@ void GuiCheatsDialog_t::addActvCheat(void)
 	int c = -1;
 	std::string name, cmpStr;
 
-	a = strtoul(cheatAddrEntry->text().toStdString().c_str(), NULL, 16);
+	a = strtoul(cheatAddrEntry->displayText().toStdString().c_str(), NULL, 16);
 
-	v = strtoul(cheatValEntry->text().toStdString().c_str(), NULL, 16);
+	v = strtoul(cheatValEntry->displayText().toStdString().c_str(), NULL, 16);
 
-	cmpStr = cheatCmpEntry->text().toStdString();
+	cmpStr = cheatCmpEntry->displayText().toStdString();
 
-	if (isdigit(cmpStr[0]))
+	if (isxdigit(cmpStr[0]))
 	{
 		c = strtoul(cmpStr.c_str(), NULL, 16);
 	}
@@ -931,13 +939,15 @@ void GuiCheatsDialog_t::updateCheatParameters(void)
 	}
 	//printf("Row: %i \n", row );
 
-	a = strtoul(cheatAddrEntry->text().toStdString().c_str(), NULL, 16);
+	a = strtoul(cheatAddrEntry->displayText().toStdString().c_str(), NULL, 16);
 
-	v = strtoul(cheatValEntry->text().toStdString().c_str(), NULL, 16);
+	v = strtoul(cheatValEntry->displayText().toStdString().c_str(), NULL, 16);
 
-	cmpStr = cheatCmpEntry->text().toStdString();
+	cmpStr = cheatCmpEntry->displayText().toStdString();
 
-	if (isdigit(cmpStr[0]))
+	//printf("CMP: '%s' \n", cmpStr.c_str() );
+
+	if (isxdigit(cmpStr[0]))
 	{
 		c = strtoul(cmpStr.c_str(), NULL, 16);
 	}
@@ -945,6 +955,7 @@ void GuiCheatsDialog_t::updateCheatParameters(void)
 	{
 		c = -1;
 	}
+	//printf("CMP: '%i' 0x%X\n", c, c );
 
 	name = cheatNameEntry->text().toStdString();
 

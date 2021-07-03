@@ -29,6 +29,7 @@
 #include <QMenu>
 #include <QAction>
 #include <QPainter>
+#include <QSpinBox>
 #include <QHeaderView>
 #include <QCloseEvent>
 #include <QGridLayout>
@@ -39,6 +40,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QGuiApplication>
+#include <QSettings>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -76,6 +78,7 @@ static std::list <ConsoleDebugger*> dbgWinList;
 
 static void DeleteBreak(int sel);
 static bool waitingAtBp = false;
+static bool bpDebugEnable = true;
 static int  lastBpIdx   = 0;
 //----------------------------------------------------------------------------
 ConsoleDebugger::ConsoleDebugger(QWidget *parent)
@@ -89,13 +92,14 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	QFrame      *frame;
 	QLabel      *lbl;
 	QMenuBar    *menuBar;
-	QMenu       *fileMenu, *debugMenu, *optMenu, *subMenu;
+	QMenu       *fileMenu, *debugMenu, *optMenu, *symMenu, *subMenu;
 	QActionGroup *actGroup;
 	QAction     *act;
 	float fontCharWidth;
 	QTreeWidgetItem * item;
 	int opt, useNativeMenuBar;
 	fceuDecIntValidtor *validator;
+	QSettings settings;
 
 	font.setFamily("Courier New");
 	font.setStyle( QFont::StyleNormal );
@@ -121,6 +125,14 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	// File
 	fileMenu = menuBar->addMenu(tr("&File"));
 
+	// File -> Go to Address
+	act = new QAction(tr("&Go to Address"), this);
+	act->setShortcut( QKeySequence(tr("Ctrl+A") ));
+	act->setStatusTip(tr("&Go to Address"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openGotoAddrDialog(void)) );
+	
+	fileMenu->addAction(act);
+
 	// File -> Close
 	act = new QAction(tr("&Close"), this);
 	act->setShortcut(QKeySequence::Close);
@@ -137,7 +149,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	act->setShortcut(QKeySequence( tr("F5") ) );
 	act->setStatusTip(tr("Run"));
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunCB(void)) );
-	
+
 	debugMenu->addAction(act);
 
 	// Debug -> Step Into
@@ -145,7 +157,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	act->setShortcut(QKeySequence( tr("F11") ) );
 	act->setStatusTip(tr("Step Into"));
 	connect( act, SIGNAL(triggered()), this, SLOT(debugStepIntoCB(void)) );
-	
+
 	debugMenu->addAction(act);
 
 	// Debug -> Step Out
@@ -153,7 +165,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	act->setShortcut(QKeySequence( tr("Shift+F11") ) );
 	act->setStatusTip(tr("Step Out"));
 	connect( act, SIGNAL(triggered()), this, SLOT(debugStepOutCB(void)) );
-	
+
 	debugMenu->addAction(act);
 
 	// Debug -> Step Over
@@ -161,7 +173,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	act->setShortcut(QKeySequence( tr("F10") ) );
 	act->setStatusTip(tr("Step Over"));
 	connect( act, SIGNAL(triggered()), this, SLOT(debugStepOverCB(void)) );
-	
+
 	debugMenu->addAction(act);
 
 	// Debug -> Run to Selected Line
@@ -169,7 +181,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	act->setShortcut(QKeySequence( tr("F1") ) );
 	act->setStatusTip(tr("Run to Selected Line"));
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunToCursorCB(void)) );
-	
+
 	debugMenu->addAction(act);
 
 	// Debug -> Run Line
@@ -177,7 +189,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	act->setShortcut(QKeySequence( tr("F6") ) );
 	act->setStatusTip(tr("Run Line"));
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunLineCB(void)) );
-	
+
 	debugMenu->addAction(act);
 
 	// Debug -> Run 128 Lines
@@ -185,11 +197,78 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Run 128 Lines"));
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunLine128CB(void)) );
-	
+
+	debugMenu->addAction(act);
+
+	debugMenu->addSeparator();
+
+	// Debug -> Break on Bad Opcodes
+	act = new QAction(tr("Break on Bad &Opcodes"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Break on Bad Opcodes"));
+	act->setCheckable(true);
+	act->setChecked( FCEUI_Debugger().badopbreak );
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(breakOnBadOpcodeCB(bool)) );
+
+	debugMenu->addAction(act);
+
+	// Debug -> Break on Unlogged Code
+	act = new QAction(tr("Break on Unlogged &Code"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Break on Unlogged Code"));
+	act->setCheckable(true);
+	act->setChecked( break_on_unlogged_code );
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(breakOnNewCodeCB(bool)) );
+
+	debugMenu->addAction(act);
+
+	// Debug -> Break on Unlogged Data
+	act = new QAction(tr("Break on Unlogged &Data"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Break on Unlogged Data"));
+	act->setCheckable(true);
+	act->setChecked( break_on_unlogged_data );
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(breakOnNewDataCB(bool)) );
+
+	debugMenu->addAction(act);
+
+	// Debug -> Reset Counters
+	act = new QAction(tr("Reset &Counters"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Reset Counters"));
+	act->setCheckable(false);
+	connect( act, SIGNAL(triggered(void)), this, SLOT(resetCountersCB(void)) );
+
 	debugMenu->addAction(act);
 
 	// Options
 	optMenu = menuBar->addMenu(tr("&Options"));
+
+	// Options -> Open Debugger on ROM Load
+	g_config->getOption( "SDL.AutoOpenDebugger", &opt );
+
+	act = new QAction(tr("&Open Debugger on ROM Load"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("&Reload"));
+	act->setCheckable(true);
+	act->setChecked( opt ? true : false );
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(autoOpenDebugCB(bool)) );
+
+	optMenu->addAction(act);
+
+	// Options -> Load .DEB
+	g_config->getOption( "SDL.AutoLoadDebugFiles", &opt );
+
+	act = new QAction(tr("&Load .DEB on ROM Load"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("&Load .DEB on ROM Load"));
+	act->setCheckable(true);
+	act->setChecked( opt ? true : false );
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(debFileAutoLoadCB(bool)) );
+
+	optMenu->addAction(act);
+
+	optMenu->addSeparator();
 
 	// Options -> PC Position
 	subMenu  = optMenu->addMenu(tr("&PC Line Positioning"));
@@ -252,6 +331,51 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceCustom(void)) );
 	actGroup->addAction(act);
 	subMenu->addAction(act);
+
+	// Symbols
+	symMenu = menuBar->addMenu(tr("&Symbols"));
+
+	// Symbols -> Reload
+	act = new QAction(tr("&Reload"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("&Reload"));
+	//act->setCheckable(true);
+	//act->setChecked( break_on_unlogged_data );
+	connect( act, SIGNAL(triggered(void)), this, SLOT(reloadSymbolsCB(void)) );
+
+	symMenu->addAction(act);
+
+	symMenu->addSeparator();
+
+	// Symbols -> Display ROM Offsets
+	act = new QAction(tr("Show ROM &Offsets"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Show ROM &Offsets"));
+	act->setCheckable(true);
+	act->setChecked(false);
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(displayROMoffsetCB(bool)) );
+
+	symMenu->addAction(act);
+
+	// Symbols -> Symbolic Debug
+	act = new QAction(tr("&Symbolic Debug"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("&Symbolic Debug"));
+	act->setCheckable(true);
+	act->setChecked(true);
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(symbolDebugEnableCB(bool)) );
+
+	symMenu->addAction(act);
+
+	// Symbols -> Symbolic Debug
+	act = new QAction(tr("&Register Names"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("&Register Names"));
+	act->setCheckable(true);
+	act->setChecked(true);
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(registerNameEnableCB(bool)) );
+
+	symMenu->addAction(act);
 
 	//-----------------------------------------------------------------------
 	// Menu End
@@ -335,7 +459,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	seekEntry->setFont( font );
 	seekEntry->setText("0000");
 	seekEntry->setMaxLength( 4 );
-	seekEntry->setInputMask( ">HHHH;" );
+	seekEntry->setInputMask( ">HHHH;0" );
 	seekEntry->setAlignment(Qt::AlignCenter);
 	seekEntry->setMaximumWidth( 6 * fontCharWidth );
 	grid->addWidget( seekEntry, 3, 1, Qt::AlignLeft );
@@ -345,7 +469,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	pcEntry = new QLineEdit();
 	pcEntry->setFont( font );
 	pcEntry->setMaxLength( 4 );
-	pcEntry->setInputMask( ">HHHH;" );
+	pcEntry->setInputMask( ">HHHH;0" );
 	pcEntry->setAlignment(Qt::AlignCenter);
 	pcEntry->setMaximumWidth( 6 * fontCharWidth );
 	hbox->addWidget( lbl );
@@ -361,7 +485,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	regAEntry = new QLineEdit();
 	regAEntry->setFont( font );
 	regAEntry->setMaxLength( 2 );
-	regAEntry->setInputMask( ">HH;" );
+	regAEntry->setInputMask( ">HH;0" );
 	regAEntry->setAlignment(Qt::AlignCenter);
 	regAEntry->setMaximumWidth( 4 * fontCharWidth );
 	hbox->addWidget( lbl );
@@ -370,7 +494,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	regXEntry = new QLineEdit();
 	regXEntry->setFont( font );
 	regXEntry->setMaxLength( 2 );
-	regXEntry->setInputMask( ">HH;" );
+	regXEntry->setInputMask( ">HH;0" );
 	regXEntry->setAlignment(Qt::AlignCenter);
 	regXEntry->setMaximumWidth( 4 * fontCharWidth );
 	hbox->addWidget( lbl );
@@ -379,7 +503,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	regYEntry = new QLineEdit();
 	regYEntry->setFont( font );
 	regYEntry->setMaxLength( 2 );
-	regYEntry->setInputMask( ">HH;" );
+	regYEntry->setInputMask( ">HH;0" );
 	regYEntry->setAlignment(Qt::AlignCenter);
 	regYEntry->setMaximumWidth( 4 * fontCharWidth );
 	hbox->addWidget( lbl );
@@ -440,13 +564,8 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	hbox->addWidget( button );
 	connect( button, SIGNAL(clicked(void)), this, SLOT(edit_BP_CB(void)) );
 
-	brkBadOpsCbox = new QCheckBox( tr("Break on Bad Opcodes") );
-	brkBadOpsCbox->setChecked( FCEUI_Debugger().badopbreak );
-	connect( brkBadOpsCbox, SIGNAL(stateChanged(int)), this, SLOT(breakOnBadOpcodeCB(int)) );
-
 	vbox->addWidget( bpTree );
 	vbox->addLayout( hbox   );
-	vbox->addWidget( brkBadOpsCbox );
 	bpFrame->setLayout( vbox );
 
 	sfFrame = new QGroupBox(tr("Status Flags"));
@@ -565,7 +684,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 
 	bmTree->setHeaderItem( item );
 
-	bmTree->header()->setSectionResizeMode( QHeaderView::ResizeToContents );
+	//bmTree->header()->setSectionResizeMode( QHeaderView::ResizeToContents );
 
 	connect( bmTree, SIGNAL(itemClicked(QTreeWidgetItem*, int)),
 			   this, SLOT(bmItemClicked( QTreeWidgetItem*, int)) );
@@ -587,76 +706,24 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	vbox->addWidget( button );
 	connect( button, SIGNAL(clicked(void)), this, SLOT(edit_BM_CB(void)) );
 
-	hbox->addWidget( bmTree );
-	hbox->addLayout( vbox   );
+	hbox->addWidget( bmTree, 10 );
+	hbox->addLayout( vbox  ,  1 );
 	bmFrame->setLayout( hbox );
 	hbox3->addWidget( bmFrame );
 	vbox1->addLayout( hbox3 );
 
-	frame        = new QFrame();
-	vbox         = new QVBoxLayout();
-	button       = new QPushButton( tr("Reset Counters") );
-	connect( button, SIGNAL(clicked(void)), this, SLOT(resetCountersCB(void)) );
-	vbox->addWidget( button );
-	vbox->addWidget( frame  );
-	hbox3->addLayout( vbox  );
-
-	vbox         = new QVBoxLayout();
-	romOfsChkBox = new QCheckBox( tr("ROM Offsets") );
-	symDbgChkBox = new QCheckBox( tr("Symbolic Debug") );
-	regNamChkBox = new QCheckBox( tr("Register Names") );
-	vbox->addWidget( romOfsChkBox );
-	vbox->addWidget( symDbgChkBox );
-	vbox->addWidget( regNamChkBox );
-
-	symDbgChkBox->setChecked(true);
-	regNamChkBox->setChecked(true);
-
-	connect( romOfsChkBox, SIGNAL(stateChanged(int)), this, SLOT(displayROMoffsetCB(int)) );
-	connect( symDbgChkBox, SIGNAL(stateChanged(int)), this, SLOT(symbolDebugEnableCB(int)) );
-	connect( regNamChkBox, SIGNAL(stateChanged(int)), this, SLOT(registerNameEnableCB(int)) );
-
-
-	button       = new QPushButton( tr("Reload Symbols") );
-	vbox->addWidget( button );
-	connect( button, SIGNAL(clicked(void)), this, SLOT(reloadSymbolsCB(void)) );
-
-	button       = new QPushButton( tr("ROM Patcher") );
-	vbox->addWidget( button );
-	button->setEnabled(false); // TODO
-
-	frame->setLayout( vbox );
-	frame->setFrameShape( QFrame::Box );
-
-	hbox      = new QHBoxLayout();
-	vbox1->addLayout( hbox );
-
-	button         = new QPushButton( tr("Default Window Size") );
-	autoOpenChkBox = new QCheckBox( tr("Auto-Open") );
-	debFileChkBox  = new QCheckBox( tr("DEB Files") );
-	idaFontChkBox  = new QCheckBox( tr("IDA Font") );
-	hbox->addWidget( button );
-	hbox->addWidget( autoOpenChkBox );
-	hbox->addWidget( debFileChkBox  );
-	hbox->addWidget( idaFontChkBox  );
-
-	g_config->getOption( "SDL.AutoOpenDebugger", &opt );
-	autoOpenChkBox->setChecked( opt );
-
-	g_config->getOption( "SDL.AutoLoadDebugFiles", &opt );
-	debFileChkBox->setChecked( opt );
-
-	connect( autoOpenChkBox, SIGNAL(stateChanged(int)), this, SLOT(autoOpenDebugCB(int)) );
-	connect( debFileChkBox , SIGNAL(stateChanged(int)), this, SLOT(debFileAutoLoadCB(int)) );
-
-	button->setEnabled(false); // TODO
+	//frame        = new QFrame();
+	//vbox         = new QVBoxLayout();
+	//button       = new QPushButton( tr("Reset Counters") );
+	//connect( button, SIGNAL(clicked(void)), this, SLOT(resetCountersCB(void)) );
+	//vbox->addWidget( button );
+	//vbox->addWidget( frame  );
+	//hbox3->addLayout( vbox  );
 
 	// IDA font is just a monospace font, we are forcing this anyway. It is just easier to read the assembly.
 	// If a different font is desired, my thought is to open a QFontDialog and let the user pick a new font,
 	// rather than use a checkbox that selects between two. But for the moment, I have more important things
 	// to do.
-	idaFontChkBox->setEnabled(false); 
-	idaFontChkBox->setChecked(true); 
 
 	setLayout( mainLayout );
 
@@ -686,13 +753,15 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 			loadGameDebugBreakpoints();
 		}
 	}
+
+	restoreGeometry(settings.value("debugger/geometry").toByteArray());
 }
 //----------------------------------------------------------------------------
 ConsoleDebugger::~ConsoleDebugger(void)
 {
 	std::list <ConsoleDebugger*>::iterator it;
 
-	printf("Destroy Debugger Window\n");
+	//printf("Destroy Debugger Window\n");
 	periodicTimer->stop();
 
 	for (it = dbgWinList.begin(); it != dbgWinList.end(); it++)
@@ -700,7 +769,7 @@ ConsoleDebugger::~ConsoleDebugger(void)
 		if ( (*it) == this )
 		{
 			dbgWinList.erase(it);
-			printf("Removing Debugger Window\n");
+			//printf("Removing Debugger Window\n");
 			break;
 		}
 	}
@@ -714,16 +783,20 @@ ConsoleDebugger::~ConsoleDebugger(void)
 //----------------------------------------------------------------------------
 void ConsoleDebugger::closeEvent(QCloseEvent *event)
 {
-   printf("Debugger Close Window Event\n");
-   done(0);
+	QSettings settings;
+	//printf("Debugger Close Window Event\n");
+	settings.setValue("debugger/geometry", saveGeometry());
+	done(0);
 	deleteLater();
-   event->accept();
+	event->accept();
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::closeWindow(void)
 {
-   //printf("Close Window\n");
-   done(0);
+	QSettings settings;
+	//printf("Close Window\n");
+	settings.setValue("debugger/geometry", saveGeometry());
+	done(0);
 	deleteLater();
 }
 //----------------------------------------------------------------------------
@@ -1417,10 +1490,22 @@ void ConsoleDebugger::delete_BP_CB(void)
 	//bpListUpdate( true );
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::breakOnBadOpcodeCB(int value)
+void ConsoleDebugger::breakOnBadOpcodeCB(bool value)
 {
 	//printf("Value:%i\n", value);
-	FCEUI_Debugger().badopbreak = (value != Qt::Unchecked);
+	FCEUI_Debugger().badopbreak = value;
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::breakOnNewCodeCB(bool value)
+{
+	//printf("Code Value:%i\n", value);
+	break_on_unlogged_code = value;
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::breakOnNewDataCB(bool value)
+{
+	//printf("Data Value:%i\n", value);
+	break_on_unlogged_data = value;
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::breakOnCyclesCB( int value )
@@ -1483,29 +1568,29 @@ void ConsoleDebugger::instructionsThresChanged(const QString &txt)
 	}
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::displayROMoffsetCB( int value )
+void ConsoleDebugger::displayROMoffsetCB( bool value )
 {
-	asmView->setDisplayROMoffsets(value != Qt::Unchecked);
+	asmView->setDisplayROMoffsets(value);
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::symbolDebugEnableCB( int value )
+void ConsoleDebugger::symbolDebugEnableCB( bool value )
 {
-	asmView->setSymbolDebugEnable(value != Qt::Unchecked);
+	asmView->setSymbolDebugEnable(value);
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::registerNameEnableCB( int value )
+void ConsoleDebugger::registerNameEnableCB( bool value )
 {
-	asmView->setRegisterNameEnable(value != Qt::Unchecked);
+	asmView->setRegisterNameEnable(value);
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::autoOpenDebugCB( int value )
+void ConsoleDebugger::autoOpenDebugCB( bool value )
 {
-	g_config->setOption( "SDL.AutoOpenDebugger", value != Qt::Unchecked);
+	g_config->setOption( "SDL.AutoOpenDebugger", value);
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::debFileAutoLoadCB( int value )
+void ConsoleDebugger::debFileAutoLoadCB( bool value )
 {
-	int autoLoadDebug = value != Qt::Unchecked;
+	int autoLoadDebug = value;
 
 	g_config->setOption("SDL.AutoLoadDebugFiles", autoLoadDebug);
 
@@ -1695,7 +1780,7 @@ void ConsoleDebugger::seekToCB (void)
 {
 	std::string s;
 
-	s = seekEntry->text().toStdString();
+	s = seekEntry->displayText().toStdString();
 
 	//printf("Seek To: '%s'\n", s.c_str() );
 
@@ -1721,6 +1806,66 @@ void ConsoleDebugger::seekPCCB (void)
 	}
 	windowUpdateReq = true;
 	//asmView->scrollToPC();
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::openGotoAddrDialog(void)
+{
+	int ret;
+	QDialog dialog(this);
+	QLabel *lbl;
+	QSpinBox *sbox;
+	QVBoxLayout *vbox;
+	QHBoxLayout *hbox;
+	QPushButton *okButton, *cancelButton;
+
+	vbox = new QVBoxLayout();
+	hbox = new QHBoxLayout();
+	lbl  = new QLabel( tr("Specify Address [ 0x0000 -> 0xFFFF ]") );
+
+	okButton     = new QPushButton( tr("Go") );
+	cancelButton = new QPushButton( tr("Cancel") );
+
+	okButton->setIcon( style()->standardIcon( QStyle::SP_DialogApplyButton ) );
+	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
+
+	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+
+	sbox = new QSpinBox();
+	sbox->setRange(0x0000, 0xFFFF);
+	sbox->setDisplayIntegerBase(16);
+	sbox->setValue( X.PC );
+
+	QFont font = sbox->font();
+	font.setCapitalization(QFont::AllUppercase);
+	sbox->setFont(font);
+
+	hbox->addWidget( cancelButton );
+	hbox->addWidget(     okButton );
+
+	vbox->addWidget( lbl  );
+	vbox->addWidget( sbox );
+	vbox->addLayout( hbox );
+
+	dialog.setLayout( vbox );
+
+	dialog.setWindowTitle( tr("Goto Address") );
+
+	okButton->setDefault(true);
+
+	ret = dialog.exec();
+
+	if ( QDialog::Accepted == ret )
+	{
+		int addr, line;
+	
+		addr = sbox->value();
+	
+		line = asmView->getAsmLineFromAddr(addr);
+
+		asmView->setLine( line );
+		vbar->setValue( line );
+	}
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::resetCountersCB (void)
@@ -2052,6 +2197,36 @@ void  QAsmView::updateAssemblyView(void)
 
 		a = new dbg_asm_entry_t;
 
+		if (cdloggerdataSize)
+		{
+			uint8_t cdl_data;
+			instruction_addr = GetNesFileAddress(addr) - 16;
+			if ( (instruction_addr >= 0) && (instruction_addr < cdloggerdataSize) )
+			{
+				cdl_data = cdloggerdata[instruction_addr] & 3;
+				if (cdl_data == 3)
+				{
+					line.append("cd ");	// both Code and Data
+				}
+				else if (cdl_data == 2)
+				{
+					line.append(" d ");	// Data
+				}
+				else if (cdl_data == 1)
+				{
+					line.append("c  ");	// Code
+				}
+				else
+				{
+					line.append("   ");	// not logged
+				}
+			}
+			else
+			{
+				line.append("   ");	// cannot be logged
+			}
+		}
+
 		instruction_addr = addr;
 
 		if ( !pc_found )
@@ -2059,23 +2234,23 @@ void  QAsmView::updateAssemblyView(void)
 			if (addr > X.PC)
 			{
 				asmPC = a;
-				line.assign(">");
+				line.append(">");
 				pc_found = 1;
 			}
 			else if (addr == X.PC)
 			{
 				asmPC = a;
-				line.assign(">");
+				line.append(">");
 				pc_found = 1;
 			} 
 			else
 			{
-				line.assign(" ");
+				line.append(" ");
 			}
 		}
 		else 
 		{
-			line.assign(" ");
+			line.append(" ");
 		}
 		a->addr = addr;
 
@@ -2104,7 +2279,8 @@ void  QAsmView::updateAssemblyView(void)
 		{
 			sprintf(chr, "%02X        UNDEFINED", GetMem(addr++));
 			line.append(chr);
-		} else
+		}
+		else
 		{
 			if ((addr + size) > 0xFFFF)
 			{
@@ -2113,6 +2289,7 @@ void  QAsmView::updateAssemblyView(void)
 					sprintf(chr, "%02X        OVERFLOW\n", GetMem(addr++));
 					line.append(chr);
 				}
+				delete a;
 				break;
 			}
 			for (int j = 0; j < size; j++)
@@ -2237,7 +2414,8 @@ void ConsoleDebugger::setRegsFromEntry(void)
 	std::string s;
 	long int i;
 
-	s = pcEntry->text().toStdString();
+	s = pcEntry->displayText().toStdString();
+
 	if ( s.size() > 0 )
 	{
 		i = strtol( s.c_str(), NULL, 16 );
@@ -2249,7 +2427,8 @@ void ConsoleDebugger::setRegsFromEntry(void)
 	X.PC = i;
 	//printf("Set PC: '%s'  %04X\n", s.c_str(), X.PC );
 
-	s = regAEntry->text().toStdString();
+	s = regAEntry->displayText().toStdString();
+
 	if ( s.size() > 0 )
 	{
 		i = strtol( s.c_str(), NULL, 16 );
@@ -2261,7 +2440,8 @@ void ConsoleDebugger::setRegsFromEntry(void)
 	X.A  = i;
 	//printf("Set A: '%s'  %02X\n", s.c_str(), X.A );
 
-	s = regXEntry->text().toStdString();
+	s = regXEntry->displayText().toStdString();
+
 	if ( s.size() > 0 )
 	{
 		i = strtol( s.c_str(), NULL, 16 );
@@ -2273,7 +2453,8 @@ void ConsoleDebugger::setRegsFromEntry(void)
 	X.X  = i;
 	//printf("Set X: '%s'  %02X\n", s.c_str(), X.X );
 
-	s = regYEntry->text().toStdString();
+	s = regYEntry->displayText().toStdString();
+
 	if ( s.size() > 0 )
 	{
 		i = strtol( s.c_str(), NULL, 16 );
@@ -2563,11 +2744,16 @@ void ConsoleDebugger::vbarChanged(int value)
 	asmView->setLine( value );
 }
 //----------------------------------------------------------------------------
+void bpDebugSetEnable(bool val)
+{
+	bpDebugEnable = val;
+}
+//----------------------------------------------------------------------------
 void FCEUD_DebugBreakpoint( int bpNum )
 {
 	std::list <ConsoleDebugger*>::iterator it;
 
-	if ( !nes_shm->runEmulator )
+	if ( !nes_shm->runEmulator || !bpDebugEnable )
 	{
 		return;
 	}
@@ -2583,7 +2769,8 @@ void FCEUD_DebugBreakpoint( int bpNum )
 		(*it)->breakPointNotify( bpNum );
 	}
 
-	while ( nes_shm->runEmulator && FCEUI_EmulationPaused() && !FCEUI_EmulationFrameStepped())
+	while ( nes_shm->runEmulator && bpDebugEnable &&
+			FCEUI_EmulationPaused() && !FCEUI_EmulationFrameStepped())
 	{
 		// HACK: break when Frame Advance is pressed
 		extern bool frameAdvanceRequested;
@@ -2613,6 +2800,11 @@ void FCEUD_DebugBreakpoint( int bpNum )
 bool debuggerWindowIsOpen(void)
 {
 	return (dbgWinList.size() > 0);
+}
+//----------------------------------------------------------------------------
+bool debuggerWaitingAtBreakpoint(void)
+{
+	return waitingAtBp;
 }
 //----------------------------------------------------------------------------
 void updateAllDebuggerWindows( void )
@@ -3845,6 +4037,7 @@ void QAsmView::paintEvent(QPaintEvent *event)
 	QColor hlgtFG("white"), hlgtBG("blue");
 	bool forceDarkColor = false;
 	bool txtHlgtSet = false;
+	QPen pen;
 
 	painter.setFont(font);
 	viewWidth  = event->rect().width();
@@ -3989,6 +4182,12 @@ void QAsmView::paintEvent(QPaintEvent *event)
 			y += pxLineSpacing;
 		}
 	}
+	l = (int)(2.5*pxCharWidth) - pxLineXScroll;
+	pen = painter.pen();
+	pen.setWidth(3);
+	pen.setColor( this->palette().color(QPalette::WindowText));
+	painter.setPen( pen );
+	painter.drawLine( l, 0, l, viewHeight );
 }
 //----------------------------------------------------------------------------
 // Bookmark Manager Methods

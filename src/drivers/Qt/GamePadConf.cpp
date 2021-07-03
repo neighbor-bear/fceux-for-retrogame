@@ -118,6 +118,7 @@ GamePadConfDialog_t::GamePadConfDialog_t(QWidget *parent)
 	QMenu *fileMenu, *extMenu;
 	QAction *act;
 	QTreeWidgetItem *item;
+	const char *guid;
 
 	style = this->style();
 
@@ -229,7 +230,11 @@ GamePadConfDialog_t::GamePadConfDialog_t(QWidget *parent)
 	grid1->addWidget(label, 2, 0);
 	grid1->addWidget(guidLbl, 2, 1);
 
-	guidLbl->setText(GamePad[portNum].getGUID());
+	guid = GamePad[portNum].getGUID();
+	if ( guid )
+	{
+		guidLbl->setText(guid);
+	}
 
 	frame1 = new QGroupBox(tr("Mapping Profile:"));
 	//grid   = new QGridLayout();
@@ -449,7 +454,7 @@ GamePadConfDialog_t::GamePadConfDialog_t(QWidget *parent)
 	connect(editKeyBindBtn, SIGNAL(clicked()), this, SLOT(editKeyBindingCallback(void)));
 	connect( delKeyBindBtn, SIGNAL(clicked()), this, SLOT(delKeyBindingCallback(void)));
 
-	if (useScroll)
+	if (useScroll && (scroll != NULL) )
 	{
 		scroll->setWidget(mainWidget);
 		scroll->setWidgetResizable(true);
@@ -460,7 +465,7 @@ GamePadConfDialog_t::GamePadConfDialog_t(QWidget *parent)
 
 	QHBoxLayout *dialogLayout = new QHBoxLayout();
 
-	if (useScroll)
+	if (useScroll && (scroll != NULL) )
 	{
 		dialogLayout->addWidget(scroll);
 	}
@@ -480,7 +485,11 @@ GamePadConfDialog_t::GamePadConfDialog_t(QWidget *parent)
 
 		g_config->getOption(prefix + "Profile", &lcl[i].profile);
 
-		lcl[i].guid.assign(GamePad[i].getGUID());
+		guid = GamePad[i].getGUID();
+		if ( guid )
+		{
+			lcl[i].guid.assign(guid);
+		}
 	}
 
 	loadMapList();
@@ -718,6 +727,7 @@ void GamePadConfDialog_t::updateCntrlrDpy(void)
 //----------------------------------------------------
 void GamePadConfDialog_t::portSelect(int index)
 {
+	const char *guid;
 	//printf("Port Number:%i \n", index);
 	portNum = index;
 	updateCntrlrDpy();
@@ -729,7 +739,12 @@ void GamePadConfDialog_t::portSelect(int index)
 			devSel->setCurrentIndex(i);
 		}
 	}
-	guidLbl->setText(GamePad[portNum].getGUID());
+	guid = GamePad[portNum].getGUID();
+
+	if ( guid )
+	{
+		guidLbl->setText(guid);
+	}
 
 	loadMapList();
 }
@@ -737,6 +752,7 @@ void GamePadConfDialog_t::portSelect(int index)
 void GamePadConfDialog_t::deviceSelect(int index)
 {
 	jsDev_t *js;
+	const char *guid;
 	int devIdx = devSel->itemData(index).toInt();
 
 	js = getJoystickDevice(devIdx);
@@ -754,7 +770,11 @@ void GamePadConfDialog_t::deviceSelect(int index)
 	}
 	GamePad[portNum].setDeviceIndex(devIdx);
 
-	lcl[portNum].guid.assign(GamePad[portNum].getGUID());
+	guid = GamePad[portNum].getGUID();
+	if ( guid )
+	{
+		lcl[portNum].guid.assign(guid);
+	}
 	lcl[portNum].profile.assign("default");
 
 	loadMapList();
@@ -975,6 +995,7 @@ void GamePadConfDialog_t::saveConfig(void)
 {
 	int i;
 	char stmp[256];
+	const char *guid;
 	std::string prefix, mapName;
 
 	sprintf(stmp, "SDL.Input.GamePad.%u.", portNum);
@@ -982,7 +1003,12 @@ void GamePadConfDialog_t::saveConfig(void)
 
 	mapName = mapSel->currentText().toStdString();
 
-	g_config->setOption(prefix + "DeviceGUID", GamePad[portNum].getGUID());
+	guid = GamePad[portNum].getGUID();
+
+	if ( guid )
+	{
+		g_config->setOption(prefix + "DeviceGUID", guid);
+	}
 	g_config->setOption(prefix + "Profile", mapName.c_str());
 
 	for (i = 0; i < GAMEPAD_NUM_BUTTONS; i++)
@@ -1162,7 +1188,8 @@ void GamePadConfDialog_t::promptToSave(void)
 			}
 		}
 	}
-	msg.append(".");
+	msg.append(".\n");
+	msg.append("Mappings will not persist on emulator restart unless saved.");
 
 	msgBox.setIcon(QMessageBox::Warning);
 	msgBox.setText(tr(msg.c_str()));
@@ -1240,6 +1267,56 @@ void GamePadConfDialog_t::delKeyBindingCallback(void)
 //----------------------------------------------------
 void GamePadConfDialog_t::updatePeriodic(void)
 {
+	char jsFound[ MAX_JOYSTICKS ];
+
+	memset( jsFound, 0, sizeof(jsFound) );
+
+	for (int i = 0; i < devSel->count(); i++)
+	{
+		int devIdx = devSel->itemData(i).toInt();
+
+		if ( devIdx >= 0 )
+		{
+			jsDev_t *js = getJoystickDevice(devIdx);
+
+			if (js != NULL)
+			{
+				if (!js->isConnected())
+				{
+					//printf("Removing Disconnected JS\n");
+					devSel->removeItem(i);
+					deviceSelect( devSel->currentIndex() );
+				}
+			}
+			else
+			{
+				//printf("Removing NULL JS\n");
+				devSel->removeItem(i);
+				deviceSelect( devSel->currentIndex() );
+			}
+			jsFound[ devIdx ] = 1;
+		}
+	}
+
+	for (int i = 0; i < MAX_JOYSTICKS; i++)
+	{
+		jsDev_t *js = getJoystickDevice(i);
+
+		if (js != NULL)
+		{
+			if (js->isConnected())
+			{
+				if ( !jsFound[i] )
+				{
+					char stmp[256];
+					//printf("Adding Newly Connected JS\n");
+					sprintf(stmp, "%i: %s", i, js->getName());
+					devSel->addItem(tr(stmp), i);
+				}
+			}
+		}
+	}
+
 	for (int i = 0; i < GAMEPAD_NUM_BUTTONS; i++)
 	{
 		//const char *txt, *style;
@@ -1861,14 +1938,76 @@ void GamePadFuncConfigDialog::changeButton1(void)
 //----------------------------------------------------
 void GamePadFuncConfigDialog::changeKeySeq0(void)
 {
-	hk[0]->setCaptureState(true);
-	hk[0]->setStyleSheet("background-color: green; color: white;");
+	int ret;
+	HotKeySelectDialog_t hkd;
+
+	ret = hkd.exec();
+
+	if ( ret == QDialog::Accepted )
+	{
+		hotkey_t *hkp;
+		char keyName[128];
+
+		//printf("Accepted Hot Key: %i\n", hkd.getSelHotKey() );
+		k->hk[0] = hkd.getSelHotKey();
+
+		hkp = &Hotkeys[ k->hk[0] ];
+
+		hkp->getString(keyName);
+
+		k->keySeq[0].key      = hkp->qkey.value;
+		k->keySeq[0].modifier = hkp->qkey.modifier;
+		k->keySeq[0].name.assign(hkp->getConfigName());
+
+		if ( keySeqLbl[0] )
+		{
+			keySeqLbl[0]->setText( tr(hkp->getConfigName()) );
+		}
+	}
+	//else
+	//{
+	//	printf("Rejected Hot Key\n");
+	//}
+
+	//hk[0]->setCaptureState(true);
+	//hk[0]->setStyleSheet("background-color: green; color: white;");
 }
 //----------------------------------------------------
 void GamePadFuncConfigDialog::changeKeySeq1(void)
 {
-	hk[1]->setCaptureState(true);
-	hk[1]->setStyleSheet("background-color: green; color: white;");
+	int ret;
+	HotKeySelectDialog_t hkd;
+
+	ret = hkd.exec();
+
+	if ( ret == QDialog::Accepted )
+	{
+		hotkey_t *hkp;
+		char keyName[128];
+
+		//printf("Accepted Hot Key: %i\n", hkd.getSelHotKey() );
+		k->hk[1] = hkd.getSelHotKey();
+
+		hkp = &Hotkeys[ k->hk[1] ];
+
+		hkp->getString(keyName);
+
+		k->keySeq[1].key      = hkp->qkey.value;
+		k->keySeq[1].modifier = hkp->qkey.modifier;
+		k->keySeq[1].name.assign(hkp->getConfigName());
+
+		if ( keySeqLbl[1] )
+		{
+			keySeqLbl[1]->setText( tr(hkp->getConfigName()) );
+		}
+	}
+	//else
+	//{
+	//	printf("Rejected Hot Key\n");
+	//}
+
+	//hk[1]->setCaptureState(true);
+	//hk[1]->setStyleSheet("background-color: green; color: white;");
 }
 //----------------------------------------------------
 void GamePadFuncConfigDialog::clearButton0(void)
@@ -1896,6 +2035,9 @@ void GamePadFuncConfigDialog::clearButton2(void)
 	k->keySeq[0].key = 0;
 	k->keySeq[0].modifier = 0;
 	k->keySeq[0].name.clear();
+	k->hk[0] = -1;
+
+	keySeqLbl[0]->clear();
 }
 //----------------------------------------------------
 void GamePadFuncConfigDialog::clearButton3(void)
@@ -1903,6 +2045,9 @@ void GamePadFuncConfigDialog::clearButton3(void)
 	k->keySeq[1].key = 0;
 	k->keySeq[1].modifier = 0;
 	k->keySeq[1].name.clear();
+	k->hk[1] = -1;
+
+	keySeqLbl[1]->clear();
 }
 //----------------------------------------------------
 GamePadConfigHotKey_t::GamePadConfigHotKey_t(int idxIn, gamepad_function_key_t *fk)
@@ -1952,5 +2097,125 @@ void GamePadConfigHotKey_t::keyPressEvent(QKeyEvent *event)
 void GamePadConfigHotKey_t::keyReleaseEvent(QKeyEvent *event)
 {
 	//printf("GamePad Hot Key Release: 0x%x \n", event->key() );
+}
+//----------------------------------------------------
+// Hot Key Selection Dialog
+//----------------------------------------------------
+HotKeySelectDialog_t::HotKeySelectDialog_t( QWidget *parent )
+	: QDialog(parent)
+{
+	QVBoxLayout *mainLayout;
+	QHBoxLayout *hbox;
+	QTreeWidgetItem *item;
+	std::string prefix = "SDL.Hotkeys.";
+
+	hotKeyIdx = -1;
+
+	setWindowTitle("Hotkey Select");
+
+	resize(512, 512);
+
+	mainLayout = new QVBoxLayout();
+
+	tree = new QTreeWidget(this);
+
+	tree->setColumnCount(2);
+	tree->setSelectionMode( QAbstractItemView::SingleSelection );
+
+	item = new QTreeWidgetItem();
+	item->setText(0, QString::fromStdString("Command"));
+	item->setText(1, QString::fromStdString("Key"));
+	item->setTextAlignment(0, Qt::AlignLeft);
+	item->setTextAlignment(1, Qt::AlignCenter);
+
+	tree->setHeaderItem(item);
+
+	tree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+
+	for (int i = 0; i < HK_MAX; i++)
+	{
+		char keyName[128];
+		std::string optionName = prefix + Hotkeys[i].getConfigName();
+
+		//g_config->getOption (optionName.c_str (), &keycode);
+		Hotkeys[i].getString(keyName);
+
+		item = new QTreeWidgetItem();
+
+		tree->addTopLevelItem(item);
+
+		//item->setFlags( Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable | Qt::ItemNeverHasChildren );
+		//item->setCheckState( 0, Qt::Checked );
+
+		item->setText(0, QString::fromStdString(optionName));
+		item->setText(1, QString::fromStdString(keyName));
+
+		item->setTextAlignment(0, Qt::AlignLeft);
+		item->setTextAlignment(1, Qt::AlignCenter);
+
+	}
+
+	connect( tree, SIGNAL(itemClicked(QTreeWidgetItem *, int)),
+			this, SLOT(hotkeyItemClicked(QTreeWidgetItem *, int)));
+
+	mainLayout->addWidget(tree);
+
+	okButton = new QPushButton( tr("Ok") );
+	okButton->setIcon(style()->standardIcon(QStyle::SP_DialogOkButton));
+	okButton->setEnabled(false);
+	connect(okButton, SIGNAL(clicked(void)), this, SLOT(acceptCB(void)));
+
+	cancelButton = new QPushButton( tr("Cancel") );
+	cancelButton->setIcon(style()->standardIcon(QStyle::SP_DialogCancelButton));
+	connect(cancelButton, SIGNAL(clicked(void)), this, SLOT(rejectCB(void)));
+
+	hbox = new QHBoxLayout();
+	hbox->addWidget( cancelButton, 1 );
+	hbox->addStretch(5);
+	hbox->addWidget( okButton, 1 );
+	mainLayout->addLayout( hbox );
+
+	setLayout(mainLayout);
+}
+//----------------------------------------------------
+HotKeySelectDialog_t::~HotKeySelectDialog_t(void)
+{
+
+}
+//----------------------------------------------------
+void HotKeySelectDialog_t::hotkeyItemClicked(QTreeWidgetItem *item, int column)
+{
+	int row = tree->indexOfTopLevelItem(item);
+
+	if ( (row >= 0) && (row < HK_MAX) )
+	{
+		hotKeyIdx = row;
+		okButton->setEnabled(true);
+	}
+}
+//----------------------------------------------------
+void HotKeySelectDialog_t::closeEvent(QCloseEvent *event)
+{
+	done( result() );
+	deleteLater();
+	event->accept();
+}
+//----------------------------------------------------
+void HotKeySelectDialog_t::acceptCB(void)
+{
+	done( QDialog::Accepted );
+	deleteLater();
+}
+//----------------------------------------------------
+void HotKeySelectDialog_t::rejectCB(void)
+{
+	done( QDialog::Rejected );
+	deleteLater();
+}
+//----------------------------------------------------
+void HotKeySelectDialog_t::closeWindow(void)
+{
+	done( result() );
+	deleteLater();
 }
 //----------------------------------------------------

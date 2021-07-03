@@ -20,6 +20,7 @@
 // CodeDataLogger.cpp
 //
 #include <QDir>
+#include <QSettings>
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QMessageBox>
@@ -47,6 +48,7 @@
 static int autoSaveCDL = true;
 static int autoLoadCDL = true;
 static int autoResumeCDL = false;
+static bool autoSaveArmedCDL = false;
 static char loadedcdfile[512] = {0};
 
 static int getDefaultCDLFile(char *filepath);
@@ -54,6 +56,7 @@ static int getDefaultCDLFile(char *filepath);
 CodeDataLoggerDialog_t::CodeDataLoggerDialog_t(QWidget *parent)
 	: QDialog(parent, Qt::Window)
 {
+	QSettings    settings;
 	QVBoxLayout *mainLayout, *vbox1, *vbox;
 	QHBoxLayout *hbox;
 	QGridLayout *grid;
@@ -260,18 +263,22 @@ CodeDataLoggerDialog_t::CodeDataLoggerDialog_t(QWidget *parent)
 		getDefaultCDLFile(nameo);
 		LoadCDLog(nameo);
 	}
+
+	restoreGeometry(settings.value("cdLogger/geometry").toByteArray());
 }
 //----------------------------------------------------
 CodeDataLoggerDialog_t::~CodeDataLoggerDialog_t(void)
 {
 	updateTimer->stop();
 
-	printf("Code Data Logger Window Deleted\n");
+	//printf("Code Data Logger Window Deleted\n");
 }
 //----------------------------------------------------
 void CodeDataLoggerDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("Code Data Logger Close Window Event\n");
+	QSettings settings;
+	//printf("Code Data Logger Close Window Event\n");
+	settings.setValue("cdLogger/geometry", saveGeometry());
 	done(0);
 	deleteLater();
 	event->accept();
@@ -279,7 +286,9 @@ void CodeDataLoggerDialog_t::closeEvent(QCloseEvent *event)
 //----------------------------------------------------
 void CodeDataLoggerDialog_t::closeWindow(void)
 {
-	printf("Code Data Logger Close Window\n");
+	QSettings settings;
+	//printf("Code Data Logger Close Window\n");
+	settings.setValue("cdLogger/geometry", saveGeometry());
 	done(0);
 	deleteLater();
 }
@@ -640,16 +649,23 @@ void CodeDataLoggerDialog_t::SaveStrippedROM(int invert)
 
 		fwrite(&cdlhead, 1, 16, fp);
 
+		int rom_sel = 0;
+		if (GameInfo->type == GIT_FDS)
+		{
+			rom_sel = 1;
+		}
+		cdloggerdataSize = PRGsize[rom_sel];
+
 		for (i = 0; i < (int)cdloggerdataSize; i++)
 		{
 			unsigned char pchar;
 			if (cdloggerdata[i] & 3)
 			{
-				pchar = invert ? 0 : PRGptr[0][i];
+				pchar = invert ? 0 : PRGptr[rom_sel][i];
 			}
 			else
 			{
-				pchar = invert ? PRGptr[0][i] : 0;
+				pchar = invert ? PRGptr[rom_sel][i] : 0;
 			}
 			fputc(pchar, fp);
 		}
@@ -735,8 +751,14 @@ void FreeCDLog(void)
 //----------------------------------------------------
 void InitCDLog(void)
 {
+	int rom_sel = 0;
+
 	fceuWrapperLock();
-	cdloggerdataSize = PRGsize[0];
+	if (GameInfo->type == GIT_FDS)
+	{
+		rom_sel = 1;
+	}
+	cdloggerdataSize = PRGsize[rom_sel];
 	cdloggerdata = (unsigned char *)malloc(cdloggerdataSize);
 	if (!CHRram[0] || (CHRptr[0] == PRGptr[0]))
 	{ // Some kind of workaround for my OneBus VRAM hack, will remove it if I find another solution for that
@@ -843,6 +865,7 @@ void StartCDLogging(void)
 	FCEUI_SetLoggingCD(1);
 	//EnableTracerMenuItems();
 	//SetDlgItemText(hCDLogger, BTN_CDLOGGER_START_PAUSE, "Pause");
+	autoSaveArmedCDL = true;
 	fceuWrapperUnLock();
 }
 //----------------------------------------------------
@@ -864,10 +887,17 @@ bool PauseCDLogging(void)
 //----------------------------------------------------
 void CDLoggerROMClosed(void)
 {
+	g_config->getOption("SDL.AutoSaveCDL", &autoSaveCDL);
+
 	PauseCDLogging();
-	if (autoSaveCDL)
+
+	// Only auto save CDL file if the logger has actually been started at least once.
+	if (autoSaveCDL && autoSaveArmedCDL)
 	{
+		//printf("Auto Saving CDL\n");
 		SaveCDLogFile();
+
+		autoSaveArmedCDL = false;
 	}
 }
 //----------------------------------------------------

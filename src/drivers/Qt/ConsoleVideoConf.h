@@ -12,6 +12,7 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QLineEdit>
+#include <QSpinBox>
 #include <QLabel>
 #include <QSlider>
 #include <QFrame>
@@ -45,15 +46,16 @@ class ConsoleVideoConfDialog_t : public QDialog
 		QCheckBox   *autoScaleCbx;
 		QCheckBox   *aspectCbx;
 		QCheckBox   *cursorVisCbx;
+		QCheckBox   *drawInputAidsCbx;
 		QDoubleSpinBox *xScaleBox;
 		QDoubleSpinBox *yScaleBox;
 		QLabel         *aspectSelectLabel;
 		QLabel         *xScaleLabel;
 		QLabel         *yScaleLabel;
-		QLineEdit      *ntsc_start;
-		QLineEdit      *ntsc_end;
-		QLineEdit      *pal_start;
-		QLineEdit      *pal_end;
+		QSpinBox       *ntsc_start;
+		QSpinBox       *ntsc_end;
+		QSpinBox       *pal_start;
+		QSpinBox       *pal_end;
 		QLineEdit      *winSizeReadout;
 		QLineEdit      *vpSizeReadout;
 
@@ -74,7 +76,7 @@ class ConsoleVideoConfDialog_t : public QDialog
 		void  openGL_linearFilterChanged( int value );
 		void  autoScaleChanged( int value );
 		void  aspectEnableChanged( int value );
-		void  use_new_PPU_changed( int value );
+		void  use_new_PPU_changed( bool value );
 		void  frameskip_changed( int value );
 		void  useSpriteLimitChanged( int value );
 		void  clipSidesChanged( int value );
@@ -85,11 +87,12 @@ class ConsoleVideoConfDialog_t : public QDialog
 		void  scalerChanged(int index);
 		void  cursorShapeChanged(int index);
 		void  cursorVisChanged(int value);
+		void  drawInputAidsChanged(int value);
 		void  applyChanges( void );
-		void  ntscStartScanLineChanged(const QString &);
-		void  ntscEndScanLineChanged(const QString &);
-		void  palStartScanLineChanged(const QString &);
-		void  palEndScanLineChanged(const QString &);
+		void  ntscStartScanLineChanged(int value);
+		void  ntscEndScanLineChanged(int value);
+		void  palStartScanLineChanged(int value);
+		void  palEndScanLineChanged(int value);
 
 };
 

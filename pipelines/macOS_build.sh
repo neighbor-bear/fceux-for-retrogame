@@ -9,7 +9,7 @@ sw_vers
 QT_MAJOR=5;
 QT_PKGNAME=qt$QT_MAJOR;
 FCEUX_VERSION_MAJOR=2
-FCEUX_VERSION_MINOR=3
+FCEUX_VERSION_MINOR=4
 FCEUX_VERSION_PATCH=0
 SDL2_VERSION=2.0.14
 
@@ -19,6 +19,13 @@ NPROC=`getconf _NPROCESSORS_ONLN`;
 echo "Number of Processors: $NPROC";
 
 INSTALL_PREFIX=/tmp/fceux
+
+# Clean build and packaging directories
+sudo rm -rf build;
+sudo rm -rf $INSTALL_PREFIX/fceux.app;
+
+# Remove windows specific DLLs so that they don't get installed
+find output -name *.dll -exec rm -f {} \;
 
 gcc --version
 
@@ -54,6 +61,11 @@ echo '****************************************'
 echo 'Install Dependency minizip'
 echo '****************************************'
 brew  install  minizip
+
+echo '****************************************'
+echo 'Install Optional Dependency x264'
+echo '****************************************'
+brew  install  x264
 
 #brew  install  zlib  # Already installed in appveyor macOS
 
