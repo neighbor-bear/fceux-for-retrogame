@@ -227,20 +227,28 @@ SDL_LIBS    := $(shell $(SDL_CONFIG) --libs)
 INCLUDEDIR=$(TOOLCHAIN)/include
 CFLAGS = -I$(INCLUDEDIR) -I$(SRC)
 CFLAGS_ONLY = -std=gnu11
-CXXFLAGS = -I$(INCLUDEDIR) -std=gnu++11 -fpermissive
+CXXFLAGS = -I$(INCLUDEDIR) -std=gnu++11
 
 W_OPTS= -Wno-write-strings -Wno-sign-compare -Wno-shift-overflow
 
-F_OPTS = -fomit-frame-pointer -fno-builtin -fno-common
+F_OPTS = -fomit-frame-pointer -fno-builtin -fno-common -fpermissive
+
+DEVICE = gcw0
 
 DEBUG=no
 ifeq ($(DEBUG),yes)
     LDFLAGS =
-    OPTIMIZE =  -O0 -g3 -mips32r2
+    OPTIMIZE =  -O0 -g3
 else
     LDFLAGS = -s
-    OPTIMIZE =  -O3 -mips32r2
+    OPTIMIZE =  -O3 -flto
 endif
+ifeq ($(DEVICE),retrofw)
+    OPTIMIZE += -mips32
+else
+    OPTIMIZE += -mips32r2
+endif
+OPTIMIZE += -ffast-math -ftree-vectorize -fno-strict-aliasing
 
 CC_OPTS	= $(F_OPTS) $(W_OPTS) $(OPTIMIZE)
 
@@ -252,6 +260,9 @@ CFLAGS += -DDINGUX \
 	  -DFRAMESKIP \
 	  -D_REENTRANT \
 	  $(SDL_CFLAGS) -D_GNU_SOURCE=1 -D_REENTRANT
+ifeq ($(DEVICE),retrofw)
+CFLAGS += -DRETROFW
+endif
 CXXFLAGS += $(CFLAGS)
 LDFLAGS  += $(CC_OPTS)
 ifdef STATIC
@@ -261,18 +272,25 @@ LIBS = $(SDL_LIBS) -lz -lm
 
 TARGET = fceux_od
 
-RELEASE = 2.3.0
+RELEASE = 2.4.0
 RELEASE_DATE = $(shell date +%F)
 OPK_TARGET = $(TARGET)-$(RELEASE)-$(RELEASE_DATE)
+SKELETON_DESKTOP = opk/default.$(DEVICE).desktop
+SYSTEM_DESKTOP = bin/default.$(DEVICE).desktop
 
 all: $(TARGET).opk
 
-$(TARGET).opk: $(TARGET)
+$(SYSTEM_DESKTOP): $(SKELETON_DESKTOP)
+	@cp $(SKELETON_DESKTOP) $(SYSTEM_DESKTOP)
+	@sed -i "s/RELEASE/${RELEASE}/g" $(SYSTEM_DESKTOP)
+	@sed -i "s/TARGET/${TARGET}/g" $(SYSTEM_DESKTOP)
+
+$(TARGET).opk: $(TARGET) $(SYSTEM_DESKTOP)
 	@echo Creating bin/$(OPK_TARGET).opk...
 ifeq ($(DEBUG),no)
 	@$(BINDIR)/mipsel-linux-strip bin/$(TARGET)
 endif
-	@mksquashfs bin/$(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png opk/default.gcw0.desktop bin/$(OPK_TARGET).opk -all-root -no-xattrs -noappend -no-exports
+	@mksquashfs bin/$(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png $(SYSTEM_DESKTOP) bin/$(OPK_TARGET).opk -all-root -no-xattrs -noappend -no-exports
 
 $(TARGET): $(OBJS)
 	@mkdir -p bin/
@@ -298,4 +316,4 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CDEFS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) bin/$(TARGET) bin/$(TARGET).opk
+	rm -f $(OBJS) bin/$(TARGET) bin/$(TARGET).opk $(SYSTEM_DESKTOP)

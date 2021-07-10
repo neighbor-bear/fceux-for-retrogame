@@ -800,6 +800,29 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 	CallRegisteredLuaFunctions(LUACALL_AFTEREMULATION);
 #endif
 
+#ifdef FRAMESKIP
+	//Solve stuttering for RetroFW
+	//
+	//With upstream commit 08c602a calls to FCEU_PutImage() has been moved
+	//to here from FCEUPPU_Loop() and FCEUX_PPU_Loop().
+	//
+	//Previosly, the calls to FCEU_PutImage() from FCEUPPU_Loop() was only
+	//executed if not skip was stablished, in other case FCEU_PutImageDummy()
+	//was called.
+	//This last call is still done in FCEUPPU_Loop if skip is stablished.
+	//
+	//For new PPU FCEUX_PPU_Loop() is used, and in this case there was no
+	//logic to call to FCEU_PutImage().
+	//
+	//On RetroFW I have noted some stuttering that dissapear if the previous
+	//logic is used and don't call FCEU_PutImage() if skip is stablished.
+	//This change don't have negative effect for OpenDingux (stock or beta).
+	//
+	//https://github.com/TASVideos/fceux/commit/08c602a3f2c1a92364231ff55e7de497da59b79e
+	//
+	//Don't call FCEU_PutImage() if skip is stablished or new PPU is used.
+	if ( !skip && !((newppu) && (GameInfo->type != GIT_NSF)) )
+#endif
 	FCEU_PutImage();
 
 #ifdef __WIN_DRIVER__
