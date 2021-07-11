@@ -277,20 +277,53 @@ RELEASE_DATE = $(shell date +%F)
 OPK_TARGET = $(TARGET)-$(RELEASE)-$(RELEASE_DATE)
 SKELETON_DESKTOP = opk/default.$(DEVICE).desktop
 SYSTEM_DESKTOP = bin/default.$(DEVICE).desktop
+DIST_MANUAL = opk/fceux.man.txt
+MANUAL = bin/$(TARGET).man.txt
 
-all: $(TARGET).opk
+ifeq ($(DEVICE),retrofw)
+all: $(OPK_TARGET).opk $(OPK_TARGET).ipk
+else
+all: $(OPK_TARGET).opk
+endif
 
-$(SYSTEM_DESKTOP): $(SKELETON_DESKTOP)
+$(SYSTEM_DESKTOP): $(SKELETON_DESKTOP) $(MANUAL)
 	@cp $(SKELETON_DESKTOP) $(SYSTEM_DESKTOP)
 	@sed -i "s/RELEASE/${RELEASE}/g" $(SYSTEM_DESKTOP)
 	@sed -i "s/TARGET/${TARGET}/g" $(SYSTEM_DESKTOP)
+	@sed -i "s/MANUAL/${TARGET}.man.txt/g" $(SYSTEM_DESKTOP)
 
-$(TARGET).opk: $(TARGET) $(SYSTEM_DESKTOP)
+$(MANUAL): $(DIST_MANUAL)
+	@cp $(DIST_MANUAL) $(MANUAL)
+	@sed -i "s/RELEASE_DATE/${RELEASE_DATE}/g" $(MANUAL)
+
+$(OPK_TARGET).opk: $(TARGET) $(SYSTEM_DESKTOP) $(MANUAL)
 	@echo Creating bin/$(OPK_TARGET).opk...
 ifeq ($(DEBUG),no)
 	@$(BINDIR)/mipsel-linux-strip bin/$(TARGET)
 endif
-	@mksquashfs bin/$(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png $(SYSTEM_DESKTOP) bin/$(OPK_TARGET).opk -all-root -no-xattrs -noappend -no-exports
+	@mksquashfs bin/$(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png $(MANUAL) $(SYSTEM_DESKTOP) bin/$(OPK_TARGET).opk -all-root -no-xattrs -noappend -no-exports
+
+$(OPK_TARGET).ipk: $(TARGET) $(SYSTEM_DESKTOP)
+	@echo Creating bin/$(OPK_TARGET).ipk...
+	@rm -rf /tmp/.fceux-ipk/ && mkdir -p /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE) /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators.systems
+	@cp src/drivers/dingux-sdl/gui/*.bmp $(MANUAL) /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE)
+	@cp bin/$(TARGET) /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE)/$(TARGET).dge
+	@cp opk/fceux.png /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE)/$(TARGET).png
+	@cp opk/fceux.lnk /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators/fceux_$(RELEASE).lnk
+	@sed -i "s/RELEASE/$(RELEASE)/g" /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators/fceux_$(RELEASE).lnk
+	@sed -i "s/TARGET/$(TARGET)/g" /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators/fceux_$(RELEASE).lnk
+	@cp opk/nes.fceux.lnk /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators.systems/nes.fceux_$(RELEASE).lnk
+	@sed -i "s/RELEASE/$(RELEASE)/g" /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators.systems/nes.fceux_$(RELEASE).lnk
+	@sed -i "s/TARGET/$(TARGET)/g" /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators.systems/nes.fceux_$(RELEASE).lnk
+	@cp opk/control /tmp/.fceux-ipk/control
+	@sed -i "s/RELEASE/$(RELEASE)/g" /tmp/.fceux-ipk/control
+	@sed -i "s/^Version:.*/Version: $(RELEASE) $$(date +%Y%m%d)/" /tmp/.fceux-ipk/control
+	@cp opk/conffiles /tmp/.fceux-ipk/
+	@sed -i "s/RELEASE/$(RELEASE)/g" /tmp/.fceux-ipk/conffiles
+	@tar --owner=0 --group=0 -czvf /tmp/.fceux-ipk/control.tar.gz -C /tmp/.fceux-ipk/ control conffiles
+	@tar --owner=0 --group=0 -czvf /tmp/.fceux-ipk/data.tar.gz -C /tmp/.fceux-ipk/root/ .
+	@echo 2.0 > /tmp/.fceux-ipk/debian-binary
+	@ar r bin/$(OPK_TARGET).ipk /tmp/.fceux-ipk/control.tar.gz /tmp/.fceux-ipk/data.tar.gz /tmp/.fceux-ipk/debian-binary
 
 $(TARGET): $(OBJS)
 	@mkdir -p bin/
@@ -316,4 +349,7 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CDEFS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) bin/$(TARGET) bin/$(TARGET).opk $(SYSTEM_DESKTOP)
+	@rm -f $(OBJS) bin/$(TARGET) bin/$(OPK_TARGET).opk $(SYSTEM_DESKTOP) $(MANUAL)
+ifeq ($(DEVICE),retrofw)
+	@rm -f bin/$(OPK_TARGET).ipk
+endif
