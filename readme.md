@@ -1,6 +1,6 @@
 # FCEUX 2.4.0 for OpenDingux/RetroFW 2
 
-  - Based on soarquin's work and upgraded to upstream 2.4.0 version with
+  - Based on soarqin's work and upgraded to upstream 2.4.0 version with
     additions based on gameblabla and pingflood versions.
   - Fixed the exit option from main menu 
   - Load rom: pagination with left and right cursors changed to scroll
