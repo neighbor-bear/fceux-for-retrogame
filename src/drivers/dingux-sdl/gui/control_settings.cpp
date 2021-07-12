@@ -1,7 +1,12 @@
 // Externals
 extern Config *g_config;
 
+static int menu_displacement = 0;
+#ifdef RETROFW
+#define CONTROL_MENUSIZE 9
+#else
 #define CONTROL_MENUSIZE 8
+#endif
 
 /* MENU COMMANDS */
 
@@ -87,8 +92,25 @@ static void resetMappings(unsigned long key)
 	g_config->setOption("SDL.MergeControls", 0);
 	g_config->setOption("SDL.AnalogStick", 0);
 	g_config->setOption("SDL.AutoFirePattern", 0);
+#ifdef RETROFW
+	g_config->setOption("SDL.InputMenu", 0);
+#endif
 	UpdateInput(g_config);
 }
+
+#ifdef RETROFW
+static void InputMenu(unsigned long key)
+{
+	int val;
+	g_config->getOption("SDL.InputMenu", &val);
+
+	if (key == DINGOO_RIGHT) val = val < 2 ? val + 1 : 2;
+	if (key == DINGOO_LEFT) val = val > 0 ? val - 1 : 0;
+
+	g_config->setOption("SDL.InputMenu", val);
+	UpdateInput(g_config);
+}
+#endif
 /* CONTROL SETTING MENU */
 
 static SettingEntry cm_menu[] = 
@@ -100,6 +122,9 @@ static SettingEntry cm_menu[] =
 	{"Merge P1/P2", "Control both players at once", "SDL.MergeControls", MergeControls},
 	{"Analog Stick", "Analog Stick for Directions", "SDL.AnalogStick", setAnalogStick},
 	{"Auto-fire Pattern", "Set auto-fire pattern", "SDL.AutoFirePattern", setAutoFirePattern},
+#ifdef RETROFW
+	{"Menu", "Input to open the menu", "SDL.InputMenu", InputMenu},
+#endif
 	{"Reset defaults", "Reset default control mappings", "", resetMappings},
 };
 
@@ -189,13 +214,21 @@ int RunControlSettings()
 			}
 
 			if (parsekey(DINGOO_LEFT, 1)) {
+#ifdef RETROFW
+				if (index >= 4 && index <= 7) {
+#else
 				if (index >= 4 && index <= 6) {
+#endif
 					cm_menu[index].update(g_key);
 				}
 			}
 
 			if (parsekey(DINGOO_RIGHT, 1)) {
+#ifdef RETROFW
+			    	if (index >= 4 && index <= 7) {
+#else
 				if (index >= 4 && index <= 6) {
+#endif
 					cm_menu[index].update(g_key);
 				}
 			}
@@ -240,28 +273,40 @@ int RunControlSettings()
 				DrawText(gui_screen, cm_menu[i].name, 60, y);
 				
 				g_config->getOption(cm_menu[i].option, &iBtnVal);
-				
+
+#ifdef RETROFW
+				menu_displacement = 1;
+#endif
 				if (i == CONTROL_MENUSIZE-1)
 					cBtn[0] = 0;
-				else if (i == CONTROL_MENUSIZE-2)
+				else if (i == CONTROL_MENUSIZE-2 - menu_displacement)
 				{
 					int value;
 					const char *autofire_text[3] = {"1 on/1 off", "2 on/2 off", "1 on/3 off"};
 					g_config->getOption("SDL.AutoFirePattern", &value);
 					sprintf(cBtn, "%s", autofire_text[value]);
 				}
-				else if (i == CONTROL_MENUSIZE-3)
+				else if (i == CONTROL_MENUSIZE-3 - menu_displacement)
 				{
 					int value;
 					g_config->getOption("SDL.AnalogStick", &value);
 					sprintf(cBtn, "%s", value ? "on" : "off");
 				}
-				else if (i == CONTROL_MENUSIZE-4)
+				else if (i == CONTROL_MENUSIZE-4 - menu_displacement)
 				{
 					int mergeValue;
 					g_config->getOption("SDL.MergeControls", &mergeValue);
 					sprintf(cBtn, "%s", mergeValue ? "on" : "off");
 				}
+#ifdef RETROFW
+				else if (i == CONTROL_MENUSIZE- 1 - menu_displacement)
+				{
+					int inputMenuValue;
+					const char *menu_button[3] = {"Pwr/Sel+Strt","Power","Select+Start"};
+					g_config->getOption("SDL.InputMenu", &inputMenuValue);
+					sprintf(cBtn, "%s", menu_button[inputMenuValue]);
+				}
+#endif
 				else if (iBtnVal == DefaultGamePad[0][0])
 					sprintf(cBtn, "%s", "A");
 				else if (iBtnVal == DefaultGamePad[0][1])

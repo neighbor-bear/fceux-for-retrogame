@@ -48,6 +48,9 @@
 int NoWaiting = 0;
 extern Config *g_config;
 extern bool bindSavestate, frameAdvanceLagSkip, lagCounterDisplay;
+#ifdef RETROFW
+int inputmenu = 0;
+#endif
 
 /* UsrInputType[] is user-specified.  InputType[] is current
  (game loading can override user settings)
@@ -591,6 +594,10 @@ static void UpdatePhysicalInput()
 {
 	SDL_Event event;
 
+#ifdef RETROFW
+	g_config->getOption("SDL.InputMenu", &inputmenu);
+#endif
+
 	// loop, handling all pending events
 	while(SDL_PollEvent(&event)) {
 		switch(event.type) {
@@ -608,7 +615,12 @@ static void UpdatePhysicalInput()
 			}
 			break;
 		case SDL_KEYDOWN:
+#ifdef RETROFW
+			if ( ((inputmenu == 0 || inputmenu == 1) && event.key.keysym.sym == DINGOO_MENU) ||
+			     ((inputmenu == 0 || inputmenu == 2) && (g_keyState[DINGOO_SELECT] && event.key.keysym.sym == DINGOO_START)) )
+#else
 			if (event.key.keysym.sym == DINGOO_MENU)
+#endif
 				// Because a KEYUP is sent straight after the KEYDOWN for the
 				// Power switch, SDL_GetKeyState will not ever see this.
 				// Keep a record of it.
