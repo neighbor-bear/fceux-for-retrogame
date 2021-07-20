@@ -200,8 +200,21 @@ int LoadGame(const char *path) {
 	ParseGIInput(GameInfo);
 	RefreshThrottleFPS();
 
+	// 20210721 FIX
+        // Fix for save settings per game and auto change video region.
+	// In FCEUD_VideoRegionSave we have enabled the video region (SDL.PAL)
+	// This is so because we have called FCEUI_LoadGame with parameter
+	// OverwriteVidMode=1 that automatically will set the PAL/NTSC region.
+	// Recover here the value stablished then reload the game config and
+	// set again the value for video region.
+	int pal=0;
+	g_config->getOption("SDL.PAL", &pal);
+
 	// Reload game config or default config
 	g_config->reload(FCEU_MakeFName(FCEUMKF_CFG, 0, 0));
+
+	// Set video mode.
+	g_config->setOption("SDL.PAL", pal);
 
 #ifdef FRAMESKIP
 	// Update frameskip value
@@ -349,8 +362,11 @@ int FCEUD_VideoRegionSave(int pal) {
 	if (g_config->setOption("SDL.PAL", val))
 	    return 0;
 
+	// 20200720 FIX
+	// Do not save config here, this breaks the save settings per game.
+	// See function LoadGame
 	// Save game config file
-	g_config->save(FCEU_MakeFName(FCEUMKF_CFG, 0, 0));
+	// g_config->save(FCEU_MakeFName(FCEUMKF_CFG, 0, 0));
 	return 1;
 }
 
