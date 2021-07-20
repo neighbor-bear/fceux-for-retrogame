@@ -8,6 +8,11 @@ This is a build for OpenDingux and RetroFW based on soarqin's
 fork with additions from gameblabla and pingflood's works and updated
 to the upstream version 2.4.0 (Released 24 June 2021).
 
+Bios file
+---------
+To load FDS files bios file `disksys.rom` is needed. It must be placed
+at `$HOME/.fceux` directory or in the game directory.
+
 Controls
 --------
  
@@ -35,7 +40,7 @@ Controls
  R1 + START    Pause emulation
  L1            Toggle throttling
 
- Controls in menu
+ Controls in menus
  --------------------------------------------------------
  Up/Down           Move to select a submenu or option
  A                 Enter submenu
@@ -62,14 +67,15 @@ Controls
 What's new
 ----------
 
- XX July 2021
+ 20 July 2021
+  - Fixed save settings per game
   - RetroFW: Add Start+Select combo to open menu. Configurable in Control
     option. (taken from pingflood's RetroFW port).
   - RetroFW. Add ipk build for RetroFW 1 devices.
   - Add manual to opk/ipk and updated the Readme.
 
  10 July 2021
-  - Based on soarquin's fork and upgraded to upstream FCEUX 2.4.0 version with
+  - Based on soarqin's fork and upgraded to upstream FCEUX 2.4.0 version with
     additions from gameblabla and pingflood's versions.
   - Changes to Makefile for beta OD and RetroFW 2 compilation
   - Fixed the exit from main menu
@@ -94,8 +100,8 @@ Use 'make' to compile. If your toolchain is not in /opt/gcw0-toolchain
 pass your path in the variable TOOLCHAIN.
 Executable and opk files can be named with TARGET variable. By default the name
 is 'fuse_od'. Upstream version and build date will be added to opk name.
-To compile for RetroFW pass 'retrofw' to DEVICE variable. It will create opk
-and ipk.
+To compile for RetroFW pass 'retrofw' to DEVICE variable. For RetroFW opk
+and ipk files will be created.
 
 Examples:
 make TOOLCHAIN=/opt/retrofw2-toolchain TARGET=fceux_retrofw DEVICE=retrofw -f Makefile
@@ -103,4 +109,4 @@ make TOOLCHAIN=/opt/opendingux-toolchain TARGET=fceux_od_beta -f Makefile
 
 ----
 
-Thanks go to all people who worked on each incarnation of FCEUX: the_gama, ValdikSS and DiegoSLTS, Steward-fu, gameblabla, pingflood.
+Thanks go to all people who worked on each incarnation of FCEUX: the_gama, ValdikSS and DiegoSLTS, Steward-fu, soarqin, gameblabla, pingflood.
