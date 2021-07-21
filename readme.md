@@ -68,6 +68,8 @@ Use `make` to compile. If your toolchain is not in `/opt/gcw0-toolchain` pass yo
 
 Executable and opk base filenames can be changed with **TARGET** variable. By default the base filename is *fuse_od*. Upstream version and build date will be added to opk name.
 
+For 2014 OpenDingux (Stock firmware o Rogue) pass the variable ODVERSION=2014
+
 To compile for RetroFW pass *retrofw* value to **DEVICE** variable. For RetroFW opk and ipk files will be created.
 
 Examples:
@@ -80,11 +82,12 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
-#### 20 July 2021
+#### 21 July 2021
 
   - Fixed save settings per game that was not working since introduction of authomatic selection of video region.
   - RetroFW: Add Start+Select combo to open menu. Configurable in Control option. (taken from pingflood's RetroFW port).
   - RetroFW. Add ipk build for RetroFW 1 devices.
+  - OpenDingux: For hardware scaling in OpenDingux 2014 (stock firmware or Rogue), the full screen is forced by disabling the aspect ratio
   - Add manual to opk/ipk and updated the Readme.
 
 #### 10 July 2021

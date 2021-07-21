@@ -162,6 +162,19 @@ int InitVideo(FCEUGI *gi) {
 		int w, h;
 		if (s_fullscreen == 1) {
 			w = 256; h = PAL ? 240 : 224;
+#ifdef OD2014
+		        FILE* integer_scaling_file = fopen("/sys/class/graphics/fb0/device/integer_scaling", "w");
+		        if (integer_scaling_file) {
+			        fwrite("N", 1, 1, integer_scaling_file);
+			        fclose(integer_scaling_file);
+		        }
+
+		        FILE* keep_aspect_ratio_file = fopen("/sys/class/graphics/fb0/device/keep_aspect_ratio", "w");
+		        if (keep_aspect_ratio_file) {
+			        fwrite("N", 1, 1, keep_aspect_ratio_file);
+			        fclose(keep_aspect_ratio_file);
+		        }
+#endif
 		} else {
 			w = 320; h = 240;
 		}

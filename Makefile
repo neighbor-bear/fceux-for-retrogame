@@ -234,6 +234,7 @@ W_OPTS= -Wno-write-strings -Wno-sign-compare -Wno-shift-overflow
 F_OPTS = -fomit-frame-pointer -fno-builtin -fno-common -fpermissive
 
 DEVICE = gcw0
+ODVERSION =
 
 DEBUG=no
 ifeq ($(DEBUG),yes)
@@ -262,6 +263,8 @@ CFLAGS += -DDINGUX \
 	  $(SDL_CFLAGS) -D_GNU_SOURCE=1 -D_REENTRANT
 ifeq ($(DEVICE),retrofw)
 CFLAGS += -DRETROFW
+else ifeq ($(ODVERSION),2014)
+CFLAGS += -DOD2014
 endif
 CXXFLAGS += $(CFLAGS)
 LDFLAGS  += $(CC_OPTS)
