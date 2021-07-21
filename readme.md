@@ -78,16 +78,20 @@ Examples:
 
 `make TOOLCHAIN=/opt/opendingux-toolchain TARGET=fceux_od_beta -f Makefile`
 
+`make TOOLCHAIN=/opt/gcw0-toolchain TARGET=fceux_gcw0 ODVERSION=2014 -f Makefile`
+
 Build files are created in the `bin`directory.
 
 ## What's new
 
 #### 21 July 2021
 
+  - The screenshot menu option now saves directly when the A button is pressed. Until now you had to press the A button and then exit from menu to emulator for the screenshot to be saved.
+> Screenshots are saved at `$HOME/.fceux/snaps` directory. Filenames follow the scheme `<rom name>-<sequential number>.png`.
   - Fixed a bug in the automatic video region change that caused the save settings per game to not work.
   - RetroFW: Add Start+Select combo to open menu. Configurable in Control option. (taken from pingflood's RetroFW port).
   - RetroFW. Add ipk build for RetroFW 1 devices.
-  - OpenDingux: For hardware scaling in OpenDingux 2014 (stock firmware or Rogue), the full screen is forced by disabling the aspect ratio
+  - OpenDingux: For hardware scaling in OpenDingux 2014 versions (stock firmware or Rogue), the full screen is forced by disabling the aspect ratio
   - Add manual to opk/ipk and updated the Readme.
 
 #### 10 July 2021

@@ -251,7 +251,7 @@ static int load_state() {
 
 static int save_screenshot() {
 	FCEUI_SaveSnapshot();
-	return 0;
+	return 1;
 }
 
 static int cmd_settings_menu() {
