@@ -84,7 +84,7 @@ Build files are created in the `bin`directory.
 
 #### 21 July 2021
 
-  - Fixed save settings per game that was not working since introduction of authomatic selection of video region.
+  - Fixed a bug in the automatic video region change that caused the save settings per game to not work.
   - RetroFW: Add Start+Select combo to open menu. Configurable in Control option. (taken from pingflood's RetroFW port).
   - RetroFW. Add ipk build for RetroFW 1 devices.
   - OpenDingux: For hardware scaling in OpenDingux 2014 (stock firmware or Rogue), the full screen is forced by disabling the aspect ratio
