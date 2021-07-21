@@ -568,6 +568,11 @@ InitConfig()
 	config->addOption("SDL.HexEditCursorColorRC", "#000080");
 	config->addOption("SDL.HexEditAltColColor"  , "#545454");
 	config->addOption("SDL.HexEditFont"  , "");
+	config->addOption("SDL.HexEditActivityHlgt", true);
+	config->addOption("SDL.HexEditReverseVideo", true);
+	config->addOption("SDL.HexEditRowColumnHlgt", false);
+	config->addOption("SDL.HexEditAltnColumnColor", false);
+	config->addOption("SDL.HexEditRefreshRate", 10);
     
 	// Debugger Options
 	config->addOption("autoLoadDebugFiles"     , "SDL.AutoLoadDebugFiles", 1);
@@ -577,12 +582,12 @@ InitConfig()
 	config->addOption("SDL.DebuggerAsmFont"        , "");
 	config->addOption("SDL.DebuggerStackFont"      , "");
 	config->addOption("SDL.DebuggerCpuStatusFont"  , "");
-	config->addOption("SDL.DebuggerSyntaxColorOpcode", "");
-	config->addOption("SDL.DebuggerSyntaxColorAddress", "");
-	config->addOption("SDL.DebuggerSyntaxColorImmediate", "");
-	config->addOption("SDL.DebuggerSyntaxColorLabel", "");
-	config->addOption("SDL.DebuggerSyntaxColorComment", "");
-	config->addOption("SDL.DebuggerSyntaxColorPC", "");
+	config->addOption("SDL.AsmSyntaxColorOpcode", "");
+	config->addOption("SDL.AsmSyntaxColorAddress", "");
+	config->addOption("SDL.AsmSyntaxColorImmediate", "");
+	config->addOption("SDL.AsmSyntaxColorLabel", "");
+	config->addOption("SDL.AsmSyntaxColorComment", "");
+	config->addOption("SDL.AsmSyntaxColorPC", "");
 
 	// Code Data Logger Options
 	config->addOption("autoSaveCDL"  , "SDL.AutoSaveCDL", 1);
@@ -657,6 +662,7 @@ InitConfig()
 	config->addOption("_useNativeFileDialog", "SDL.UseNativeFileDialog", false);
 	config->addOption("_useNativeMenuBar"   , "SDL.UseNativeMenuBar", false);
 	config->addOption("SDL.PauseOnMainMenuAccess", false);
+	config->addOption("SDL.ContextMenuEnable", true);
 	config->addOption("SDL.GuiStyle", "");
 	config->addOption("SDL.QtStyleSheet", "");
 	config->addOption("SDL.QPaletteFile", "");
@@ -685,6 +691,8 @@ InitConfig()
 	config->addOption("SDL.NT_TileFocusPolicy", 0);
 	config->addOption("SDL.PPU_TileFocusPolicy", 0);
 	config->addOption("SDL.OAM_TileFocusPolicy", 0);
+	config->addOption("SDL.PPU_MaskUnused", 0);
+	config->addOption("SDL.PPU_InvertMask", 0);
 
 	// quit when a+b+select+start is pressed
 	config->addOption("4buttonexit", "SDL.ABStartSelectExit", 0);

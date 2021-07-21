@@ -24,10 +24,17 @@
 #include <QPlainTextEdit>
 #include <QClipboard>
 #include <QScrollBar>
+#include <QTabBar>
+#include <QTabWidget>
+#include <QSplitter>
 #include <QToolBar>
+#include <QMenuBar>
+#include <QDropEvent>
+#include <QDragEnterEvent>
 
 #include "Qt/main.h"
 #include "Qt/SymbolicDebug.h"
+#include "Qt/ConsoleUtilities.h"
 #include "Qt/ColorMenu.h"
 #include "../../debug.h"
 
@@ -60,6 +67,16 @@ struct dbg_asm_entry_t
 		{
 			opcode[i] = 0;
 		}
+	}
+};
+
+struct dbg_nav_entry_t
+{
+	int  addr;
+
+	dbg_nav_entry_t(void)
+	{
+		addr = 0;
 	}
 };
 
@@ -109,9 +126,16 @@ class QAsmView : public QWidget
 		void updateAssemblyView(void);
 		void asmClear(void);
 		int  getAsmLineFromAddr(int addr);
+		int  getAsmAddrFromLine(int line);
 		void setLine(int lineNum);
 		void setXScroll(int value);
 		void scrollToPC(void);
+		void scrollToLine( int line );
+		void scrollToAddr( int addr );
+		void gotoLine( int line );
+		void gotoAddr( int addr );
+		void gotoPC(void);
+		void setSelAddrToLine( int line );
 		void setDisplayROMoffsets( bool value );
 		void setSymbolDebugEnable( bool value );
 		void setRegisterNameEnable( bool value );
@@ -124,6 +148,9 @@ class QAsmView : public QWidget
 		int  isBreakpointAtAddr( int addr );
 		void determineLineBreakpoints(void);
 		void setFont( const QFont &font );
+		void pushAddrHist(void);
+		void navHistBack(void);
+		void navHistForward(void);
 
 		QColor  opcodeColor;
 		QColor  addressColor;
@@ -134,15 +161,16 @@ class QAsmView : public QWidget
 
 	protected:
 		bool event(QEvent *event) override;
-		void paintEvent(QPaintEvent *event);
-		void keyPressEvent(QKeyEvent *event);
-		void keyReleaseEvent(QKeyEvent *event);
-		void mousePressEvent(QMouseEvent * event);
-		void mouseReleaseEvent(QMouseEvent * event);
-		void mouseMoveEvent(QMouseEvent * event);
-		void resizeEvent(QResizeEvent *event);
-		void wheelEvent(QWheelEvent *event);
-		void contextMenuEvent(QContextMenuEvent *event);
+		void paintEvent(QPaintEvent *event) override;
+		void keyPressEvent(QKeyEvent *event) override;
+		void keyReleaseEvent(QKeyEvent *event) override;
+		void mousePressEvent(QMouseEvent * event) override;
+		void mouseReleaseEvent(QMouseEvent * event) override;
+		void mouseMoveEvent(QMouseEvent * event) override;
+		void mouseDoubleClickEvent(QMouseEvent * event) override;
+		void resizeEvent(QResizeEvent *event) override;
+		void wheelEvent(QWheelEvent *event) override;
+		void contextMenuEvent(QContextMenuEvent *event) override;
 		void loadHighlightToClipboard(void);
 		void toggleBreakpoint(int line);
 
@@ -157,6 +185,7 @@ class QAsmView : public QWidget
 		void drawAsmLine( QPainter *painter, int x, int y, const char *txt );
 		void drawLabelLine( QPainter *painter, int x, int y, const char *txt );
 		void drawCommentLine( QPainter *painter, int x, int y, const char *txt );
+		void drawPointerPC( QPainter *painter, int xl, int yl );
 
 	private:
 		ConsoleDebugger *parent;
@@ -164,6 +193,10 @@ class QAsmView : public QWidget
 		QScrollBar *vbar;
 		QScrollBar *hbar;
 		QClipboard *clipboard;
+
+		std::vector <dbg_nav_entry_t> navBckHist;
+		std::vector <dbg_nav_entry_t> navFwdHist;
+		dbg_nav_entry_t  curNavLoc;
 
 		int ctxMenuAddr;
 		int maxLineLen;
@@ -221,29 +254,106 @@ class DebuggerStackDisplay : public QPlainTextEdit
    Q_OBJECT
 
 	public:
-	DebuggerStackDisplay(QWidget *parent = 0);
-	~DebuggerStackDisplay(void);
+		DebuggerStackDisplay(QWidget *parent = 0);
+		~DebuggerStackDisplay(void);
 
-      void updateText(void);
-      void setFont( const QFont &font );
+		void updateText(void);
+		void setFont( const QFont &font );
 
-   protected:
-      void keyPressEvent(QKeyEvent *event);
-      void contextMenuEvent(QContextMenuEvent *event);
-      void recalcCharsPerLine(void);
-
-      int  pxCharWidth;
-      int  pxLineSpacing;
-      int  charsPerLine;
-      int  stackBytesPerLine;
-      bool showAddrs;
+	protected:
+		void keyPressEvent(QKeyEvent *event) override;
+		void contextMenuEvent(QContextMenuEvent *event) override;
+		void recalcCharsPerLine(void);
+		
+		int  pxCharWidth;
+		int  pxLineSpacing;
+		int  charsPerLine;
+		int  stackBytesPerLine;
+		bool showAddrs;
 
 	public slots:
-      void toggleShowAddr(void);
-      void sel1BytePerLine(void);
-      void sel2BytesPerLine(void);
-      void sel3BytesPerLine(void);
-      void sel4BytesPerLine(void);
+		void toggleShowAddr(void);
+		void sel1BytePerLine(void);
+		void sel2BytesPerLine(void);
+		void sel3BytesPerLine(void);
+		void sel4BytesPerLine(void);
+};
+
+class ppuRegPopup : public fceuCustomToolTip
+{
+   Q_OBJECT
+	public:
+	   ppuRegPopup( QWidget *parent = nullptr );
+	   ~ppuRegPopup(void);
+
+	private:
+};
+
+class ppuCtrlRegDpy : public QLineEdit
+{
+   Q_OBJECT
+
+	public:
+	   ppuCtrlRegDpy( QWidget *parent = nullptr );
+	   ~ppuCtrlRegDpy(void);
+
+	protected:
+		bool event(QEvent *event) override;
+
+	private:
+		ppuRegPopup  *popup;
+
+	public slots:
+};
+
+class DebuggerTabBar : public QTabBar
+{
+	Q_OBJECT
+
+	public:
+		DebuggerTabBar( QWidget *parent = nullptr );
+		~DebuggerTabBar( void );
+
+	public slots:
+
+	signals:
+		void beginDragOut(int);
+	protected:
+		void mousePressEvent(QMouseEvent * event) override;
+		void mouseReleaseEvent(QMouseEvent * event) override;
+		void mouseMoveEvent(QMouseEvent * event) override;
+		void contextMenuEvent(QContextMenuEvent *event) override;
+	private:
+		bool theDragPress;
+		bool theDragOut;
+
+	private slots:
+};
+
+class DebuggerTabWidget : public QTabWidget
+{
+   Q_OBJECT
+
+	public:
+		DebuggerTabWidget( int row, int col, QWidget *parent = nullptr );
+		~DebuggerTabWidget( void );
+
+		void popPage(QWidget *page);
+		bool indexValid(int idx);
+
+		void buildContextMenu(QContextMenuEvent *event);
+
+		int  row(void){ return _row; }
+		int  col(void){ return _col; }
+	protected:
+		void mouseMoveEvent(QMouseEvent * event) override;
+		void dragEnterEvent(QDragEnterEvent *event) override;
+		void dropEvent(QDropEvent *event) override;
+		void contextMenuEvent(QContextMenuEvent *event) override;
+	private:
+		DebuggerTabBar  *bar;
+		int  _row;
+		int  _col;
 };
 
 class ConsoleDebugger : public QDialog
@@ -256,6 +366,7 @@ class ConsoleDebugger : public QDialog
 
 		void updateWindowData(void);
 		void updateRegisterView(void);
+		void updateTabVisibility(void);
 		void breakPointNotify(int bpNum);
 		void openBpEditWindow(int editIdx = -1, watchpointinfo *wp = NULL, bool forceAccept = false );
 		void openDebugSymbolEditWindow( int addr );
@@ -268,9 +379,9 @@ class ConsoleDebugger : public QDialog
 
 		void setCpuStatusFont( const QFont &font );
 	protected:
-		void closeEvent(QCloseEvent *event);
-		//void keyPressEvent(QKeyEvent *event);
-		//void keyReleaseEvent(QKeyEvent *event);
+		void closeEvent(QCloseEvent *event) override;
+		//void keyPressEvent(QKeyEvent *event) override;
+		//void keyReleaseEvent(QKeyEvent *event) override;
 
 		//QTreeWidget *tree;
 		QToolBar    *toolBar;
@@ -289,13 +400,19 @@ class ConsoleDebugger : public QDialog
 		QLineEdit *selBmAddr;
 		QLineEdit *cpuCyclesVal;
 		QLineEdit *cpuInstrsVal;
-		QGroupBox *cpuFrame;
+		QLineEdit *ppuBgAddr;
+		QLineEdit *ppuSprAddr;
+		QFrame    *cpuFrame;
+		QFrame    *ppuFrame;
 		QGroupBox *stackFrame;
-		QGroupBox *bpFrame;
+		QFrame    *bpFrame;
 		QGroupBox *sfFrame;
-		QGroupBox *bmFrame;
+		QFrame    *bmFrame;
 		QTreeWidget *bpTree;
 		QTreeWidget *bmTree;
+		QPushButton *bpAddBtn;
+		QPushButton *bpEditBtn;
+		QPushButton *bpDelBtn;
 		QCheckBox *N_chkbox;
 		QCheckBox *V_chkbox;
 		QCheckBox *U_chkbox;
@@ -304,19 +421,38 @@ class ConsoleDebugger : public QDialog
 		QCheckBox *I_chkbox;
 		QCheckBox *Z_chkbox;
 		QCheckBox *C_chkbox;
-		//QCheckBox *brkCpuCycExd;
-		//QCheckBox *brkInstrsExd;
+
+		QCheckBox *bgEnabled_cbox;
+		QCheckBox *sprites_cbox;
+		QCheckBox *drawLeftBg_cbox;
+		QCheckBox *drawLeftFg_cbox;
+		QCheckBox *vwrite_cbox;
+		QCheckBox *nmiBlank_cbox;
+		QCheckBox *sprite8x16_cbox;
+		QCheckBox *grayscale_cbox;
+		QCheckBox *iRed_cbox;
+		QCheckBox *iGrn_cbox;
+		QCheckBox *iBlu_cbox;
+
+		DebuggerTabWidget *tabView[2][4];
+		QWidget   *asmViewContainerWidget;
+		QWidget   *bpTreeContainerWidget;
+		QWidget   *bmTreeContainerWidget;
+		QWidget   *ppuStatContainerWidget;
 		QLabel    *emuStatLbl;
 		QLabel    *ppuLbl;
 		QLabel    *spriteLbl;
 		QLabel    *scanLineLbl;
 		QLabel    *pixLbl;
 		QLabel    *cpuCyclesLbl1;
-		//QLabel    *cpuCyclesLbl2;
 		QLabel    *cpuInstrsLbl1;
-		//QLabel    *cpuInstrsLbl2;
 		QTimer    *periodicTimer;
 		QFont      font;
+
+		QVBoxLayout   *mainLayoutv;
+		QSplitter     *mainLayouth;
+		QSplitter     *vsplitter[2];
+		QVBoxLayout   *asmDpyVbox;
 
 		ColorMenuItem *opcodeColorAct;
 		ColorMenuItem *addressColorAct;
@@ -332,14 +468,26 @@ class ConsoleDebugger : public QDialog
 		void setRegsFromEntry(void);
 		void bpListUpdate( bool reset = false );
 		void bmListUpdate( bool reset = false );
+		void buildAsmViewDisplay(void);
+		void buildCpuListDisplay(void);
+		void buildPpuListDisplay(void);
+		void buildBpListDisplay(void);
+		void buildBmListDisplay(void);
+		void loadDisplayViews(void);
+		void saveDisplayViews(void);
+
+		QMenuBar *buildMenuBar(void);
+		QToolBar *buildToolBar(void);
 
 	public slots:
 		void closeWindow(void);
+		void asmViewCtxMenuGoTo(void);
 		void asmViewCtxMenuAddBP(void);
 		void asmViewCtxMenuAddBM(void);
 		void asmViewCtxMenuAddSym(void);
 		void asmViewCtxMenuOpenHexEdit(void);
 		void asmViewCtxMenuRunToCursor(void);
+		void moveTab( QWidget *w, int row, int column);
 	private slots:
 		void updatePeriodic(void);
 		void hbarChanged(int value);
@@ -361,6 +509,8 @@ class ConsoleDebugger : public QDialog
 		void add_BM_CB(void);
 		void edit_BM_CB(void);
 		void delete_BM_CB(void);
+		void setLayoutOption(int layout);
+		void resizeToMinimumSizeHint(void);
 		void resetCountersCB (void);
 		void reloadSymbolsCB(void);
 		void displayByteCodesCB(bool value);
@@ -389,6 +539,8 @@ class ConsoleDebugger : public QDialog
 		void changeAsmFontCB(void);
 		void changeStackFontCB(void);
 		void changeCpuFontCB(void);
+		void navHistBackCB(void);
+		void navHistForwardCB(void);
 
 };
 

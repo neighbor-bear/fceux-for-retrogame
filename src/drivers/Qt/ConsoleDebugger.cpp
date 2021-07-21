@@ -41,9 +41,14 @@
 #include <QMenu>
 #include <QAction>
 #include <QActionGroup>
+#include <QApplication>
 #include <QGuiApplication>
 #include <QSettings>
 #include <QToolTip>
+#include <QWindow>
+#include <QScreen>
+#include <QMimeData>
+#include <QDrag>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -88,23 +93,7 @@ static int  lastBpIdx   = 0;
 ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	: QDialog( parent, Qt::Window )
 {
-	QVBoxLayout *mainLayoutv;
-	QHBoxLayout *mainLayouth;
-	QVBoxLayout *vbox, *vbox1, *vbox2, /* *vbox3,*/ *vbox4;
-	QHBoxLayout *hbox, *hbox1, *hbox2, *hbox3;
-	QGridLayout *grid;
-	QPushButton *button;
-	QFrame      *frame;
-	QLabel      *lbl;
 	QMenuBar    *menuBar;
-	QMenu       *fileMenu, *viewMenu, *debugMenu,
-		    *optMenu, *symMenu, *subMenu;
-	QActionGroup *actGroup;
-	QAction     *act;
-	float fontCharWidth;
-	QTreeWidgetItem * item;
-	int opt, useNativeMenuBar;
-	//fceuDecIntValidtor *validator;
 	QSettings settings;
 	QFont cpuFont;
 	std::string fontString;
@@ -127,14 +116,143 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	font.setStyleHint( QFont::Monospace );
 	QFontMetrics fm(font);
 
-	fontCharWidth = fm.averageCharWidth();
-
 	setWindowTitle("6502 Debugger");
 
-	//resize( 512, 512 );
-	
-	menuBar = new QMenuBar(this);
-	toolBar = new QToolBar(this);
+	menuBar = buildMenuBar();
+	toolBar = buildToolBar();
+
+	mainLayoutv = new QVBoxLayout();
+	mainLayouth = new QSplitter( Qt::Horizontal );
+	mainLayouth->setOpaqueResize(true);
+
+	mainLayoutv->setMenuBar( menuBar );
+	mainLayoutv->addWidget( toolBar );
+	mainLayoutv->addWidget( mainLayouth );
+
+
+	for (int i=0; i<2; i++)
+	{
+		vsplitter[i] = new QSplitter( Qt::Vertical );
+
+		for (int j=0; j<4; j++)
+		{
+			char stmp[64];
+
+			tabView[i][j] = new DebuggerTabWidget(i,j);
+
+			sprintf( stmp, "debuggerTabView%i%i\n", i+1, j+1 );
+
+			tabView[i][j]->setObjectName( tr(stmp) );
+
+			vsplitter[i]->addWidget( tabView[i][j] );
+		}
+	}
+
+	buildAsmViewDisplay();
+	buildCpuListDisplay();
+	buildPpuListDisplay();
+	buildBpListDisplay();
+	buildBmListDisplay();
+
+	mainLayouth->addWidget(  asmViewContainerWidget );
+	mainLayouth->addWidget( vsplitter[0] );
+	mainLayouth->addWidget( vsplitter[1] );
+
+	setLayout( mainLayoutv );
+
+	loadDisplayViews();
+
+	windowUpdateReq   = true;
+
+	dbgWin = this;
+
+	periodicTimer  = new QTimer( this );
+
+	connect( periodicTimer, &QTimer::timeout, this, &ConsoleDebugger::updatePeriodic );
+	connect( hbar, SIGNAL(valueChanged(int)), this, SLOT(hbarChanged(int)) );
+	connect( vbar, SIGNAL(valueChanged(int)), this, SLOT(vbarChanged(int)) );
+
+	bpListUpdate( false );
+
+	periodicTimer->start( 100 ); // 10hz
+
+	// If this is the first debug window to open, load breakpoints fresh
+	{ 
+		int autoLoadDebug;
+
+		g_config->getOption( "SDL.AutoLoadDebugFiles", &autoLoadDebug );
+
+		if ( autoLoadDebug )
+		{
+			loadGameDebugBreakpoints();
+		}
+	}
+
+	//restoreGeometry(settings.value("debugger/geometry").toByteArray());
+
+	setCpuStatusFont( cpuFont );
+
+	   opcodeColorAct->connectColor( &asmView->opcodeColor );
+	  addressColorAct->connectColor( &asmView->addressColor );
+	immediateColorAct->connectColor( &asmView->immediateColor );
+	    labelColorAct->connectColor( &asmView->labelColor  );
+	  commentColorAct->connectColor( &asmView->commentColor);
+	       pcColorAct->connectColor( &asmView->pcBgColor);
+}
+//----------------------------------------------------------------------------
+ConsoleDebugger::~ConsoleDebugger(void)
+{
+	std::list <ConsoleDebugger*>::iterator it;
+
+	//printf("Destroy Debugger Window\n");
+	periodicTimer->stop();
+
+	saveDisplayViews();
+
+	if ( dbgWin == this )
+	{
+		dbgWin = NULL;
+	}
+
+	if ( dbgWin == NULL )
+	{
+		saveGameDebugBreakpoints();
+		debuggerClearAllBreakpoints();
+		debuggerClearAllBookmarks();
+
+		if ( waitingAtBp )
+		{
+			FCEUI_SetEmulationPaused(0);
+		}
+	}
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::closeEvent(QCloseEvent *event)
+{
+	//printf("Debugger Close Window Event\n");
+	saveDisplayViews();
+	done(0);
+	deleteLater();
+	event->accept();
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::closeWindow(void)
+{
+	saveDisplayViews();
+	//printf("Close Window\n");
+	done(0);
+	deleteLater();
+}
+//----------------------------------------------------------------------------
+QMenuBar *ConsoleDebugger::buildMenuBar(void)
+{
+	QMenu       *fileMenu, *viewMenu, *debugMenu,
+		    *optMenu, *symMenu, *subMenu, *visMenu;
+	QActionGroup *actGroup;
+	QAction     *act;
+	int opt, useNativeMenuBar=0;
+
+	QMenuBar *menuBar = new QMenuBar(this);
 
 	// This is needed for menu bar to show up on MacOS
 	g_config->getOption( "SDL.UseNativeMenuBar", &useNativeMenuBar );
@@ -183,6 +301,210 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	act->setStatusTip(tr("&Change PC"));
 	//act->setIcon( QIcon(":icons/JumpTarget.png") );
 	connect(act, SIGNAL(triggered()), this, SLOT(openChangePcDialog(void)) );
+
+	viewMenu->addAction(act);
+
+	viewMenu->addSeparator();
+
+	// View -> Navigate Back
+	act = new QAction(tr("Navigate &Back"), this);
+	act->setShortcut( QKeySequence(tr("Ctrl+Left") ));
+	act->setStatusTip(tr("Navigate Back"));
+	//act->setIcon( QIcon(":icons/JumpTarget.png") );
+	connect(act, SIGNAL(triggered()), this, SLOT(navHistBackCB(void)) );
+
+	viewMenu->addAction(act);
+
+	// View -> Navigate Forward
+	act = new QAction(tr("Navigate &Forward"), this);
+	act->setShortcut( QKeySequence(tr("Ctrl+Right") ));
+	act->setStatusTip(tr("Navigate Forward"));
+	//act->setIcon( QIcon(":icons/JumpTarget.png") );
+	connect(act, SIGNAL(triggered()), this, SLOT(navHistForwardCB(void)) );
+
+	viewMenu->addAction(act);
+
+	viewMenu->addSeparator();
+
+	// View -> Layout
+	visMenu = viewMenu->addMenu( tr("&Layout Presets") );
+
+	g_config->getOption( "SDL.DebuggerLayoutOpt", &opt );
+
+	actGroup = new QActionGroup(this);
+	actGroup->setExclusive(true);
+
+	// View -> Layout -> Compact
+	act = new QAction(tr("&Compact"), this);
+	//act->setStatusTip(tr("Compact"));
+	connect( act, &QAction::triggered, [this]{ setLayoutOption(1); } );
+	actGroup->addAction(act);
+	visMenu->addAction(act);
+
+	// View -> Layout -> Compact Split
+	act = new QAction(tr("Compact &Split"), this);
+	//act->setStatusTip(tr("1 Tabbed Vertical Column with 2 Sections"));
+	connect( act, &QAction::triggered, [this]{ setLayoutOption(2); } );
+	actGroup->addAction(act);
+	visMenu->addAction(act);
+
+	// View -> Layout -> Wide
+	act = new QAction(tr("&Wide"), this);
+	//act->setStatusTip(tr("2 Tabbed Vertical Columns with 3 Sections"));
+	connect( act, &QAction::triggered, [this]{ setLayoutOption(3); } );
+	actGroup->addAction(act);
+	visMenu->addAction(act);
+
+	// View -> Layout -> Wide Quad
+	act = new QAction(tr("Wide &Quad"), this);
+	//act->setStatusTip(tr("2 Tabbed Vertical Columns with 4 Sections"));
+	connect( act, &QAction::triggered, [this]{ setLayoutOption(4); } );
+	actGroup->addAction(act);
+	visMenu->addAction(act);
+
+	// View -> Font Selection
+	subMenu  = viewMenu->addMenu(tr("&Font Selection"));
+
+	// Options -> Font Selection -> Assembly View
+	act = new QAction(tr("&Assembly View"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Set Assembly View Font"));
+	connect( act, SIGNAL(triggered(void)), this, SLOT(changeAsmFontCB(void)) );
+
+	subMenu->addAction(act);
+
+	// View -> Font Selection -> Stack View
+	act = new QAction(tr("&Stack View"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Set Stack View Font"));
+	connect( act, SIGNAL(triggered(void)), this, SLOT(changeStackFontCB(void)) );
+
+	subMenu->addAction(act);
+
+	// View -> Font Selection -> CPU Data View
+	act = new QAction(tr("&CPU Data View"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Set CPU View Font"));
+	connect( act, SIGNAL(triggered(void)), this, SLOT(changeCpuFontCB(void)) );
+
+	subMenu->addAction(act);
+
+	// View -> Color Selection
+	subMenu  = viewMenu->addMenu(tr("&Color Selection"));
+
+	// View -> Color Selection -> Opcodes
+	opcodeColorAct = new ColorMenuItem( tr("&Opcodes"), "SDL.AsmSyntaxColorOpcode", this);
+
+	subMenu->addAction(opcodeColorAct);
+
+	// View -> Color Selection -> Address Values
+	addressColorAct = new ColorMenuItem( tr("&Address Values"), "SDL.AsmSyntaxColorAddress", this);
+
+	subMenu->addAction(addressColorAct);
+
+	// View -> Color Selection -> Immediate Values
+	immediateColorAct = new ColorMenuItem( tr("&Immediate Values"), "SDL.AsmSyntaxColorImmediate", this);
+
+	subMenu->addAction(immediateColorAct);
+
+	// View -> Color Selection -> Labels
+	labelColorAct = new ColorMenuItem( tr("&Labels"), "SDL.AsmSyntaxColorLabel", this);
+
+	subMenu->addAction(labelColorAct);
+
+	// View -> Color Selection -> Comments
+	commentColorAct = new ColorMenuItem( tr("&Comments"), "SDL.AsmSyntaxColorComment", this);
+
+	subMenu->addAction(commentColorAct);
+
+	subMenu->addSeparator();
+
+	// View -> Color Selection -> (PC) Active Statement
+	pcColorAct = new ColorMenuItem( tr("(&PC) Active Statement BG"), "SDL.AsmSyntaxColorPC", this);
+
+	subMenu->addAction(pcColorAct);
+
+	viewMenu->addSeparator();
+
+	// View -> PC Position
+	subMenu  = viewMenu->addMenu(tr("&PC Line Positioning"));
+	actGroup = new QActionGroup(this);
+
+	actGroup->setExclusive(true);
+
+	g_config->getOption( "SDL.DebuggerPCPlacement", &opt );
+
+	// View -> PC Position -> Top Line
+	act = new QAction(tr("&Top Line"), this);
+	act->setStatusTip(tr("Top Line"));
+	act->setCheckable(true);
+	act->setChecked( opt == 0 );
+	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceTop(void)) );
+	actGroup->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> PC Position -> Upper Mid-Line
+	act = new QAction(tr("&Upper Mid-Line"), this);
+	act->setStatusTip(tr("Upper Mid-Line"));
+	act->setCheckable(true);
+	act->setChecked( opt == 1 );
+	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceUpperMid(void)) );
+	actGroup->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> PC Position -> Center Line
+	act = new QAction(tr("&Center Line"), this);
+	act->setStatusTip(tr("Center Line"));
+	act->setCheckable(true);
+	act->setChecked( opt == 2 );
+	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceCenter(void)) );
+	actGroup->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> PC Position -> Lower Mid-Line
+	act = new QAction(tr("&Lower Mid-Line"), this);
+	act->setStatusTip(tr("Lower Mid-Line"));
+	act->setCheckable(true);
+	act->setChecked( opt == 3 );
+	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceLowerMid(void)) );
+	actGroup->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> PC Position -> Bottom
+	act = new QAction(tr("&Bottom Line"), this);
+	act->setStatusTip(tr("Bottom Line"));
+	act->setCheckable(true);
+	act->setChecked( opt == 4 );
+	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceBottom(void)) );
+	actGroup->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> PC Position -> Custom Line 
+	act = new QAction(tr("Custom Line &Offset"), this);
+	act->setStatusTip(tr("Custom Line Offset"));
+	act->setChecked( opt == 5 );
+	act->setCheckable(true);
+	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceCustom(void)) );
+	actGroup->addAction(act);
+	subMenu->addAction(act);
+
+	// View -> Show Byte Codes
+	act = new QAction(tr("Show &Byte Codes"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Show &Byte Codes"));
+	act->setCheckable(true);
+	act->setChecked(false);
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(displayByteCodesCB(bool)) );
+
+	viewMenu->addAction(act);
+
+	// View -> Display ROM Offsets
+	act = new QAction(tr("Show ROM &Offsets"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Show ROM &Offsets"));
+	act->setCheckable(true);
+	act->setChecked(false);
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(displayROMoffsetCB(bool)) );
 
 	viewMenu->addAction(act);
 
@@ -324,134 +646,6 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 
 	optMenu->addSeparator();
 
-	// Options -> PC Position
-	subMenu  = optMenu->addMenu(tr("&PC Line Positioning"));
-	actGroup = new QActionGroup(this);
-
-	actGroup->setExclusive(true);
-
-	g_config->getOption( "SDL.DebuggerPCPlacement", &opt );
-
-	// Options -> PC Position -> Top Line
-	act = new QAction(tr("&Top Line"), this);
-	act->setStatusTip(tr("Top Line"));
-	act->setCheckable(true);
-	act->setChecked( opt == 0 );
-	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceTop(void)) );
-	actGroup->addAction(act);
-	subMenu->addAction(act);
-
-	// Options -> PC Position -> Upper Mid-Line
-	act = new QAction(tr("&Upper Mid-Line"), this);
-	act->setStatusTip(tr("Upper Mid-Line"));
-	act->setCheckable(true);
-	act->setChecked( opt == 1 );
-	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceUpperMid(void)) );
-	actGroup->addAction(act);
-	subMenu->addAction(act);
-
-	// Options -> PC Position -> Center Line
-	act = new QAction(tr("&Center Line"), this);
-	act->setStatusTip(tr("Center Line"));
-	act->setCheckable(true);
-	act->setChecked( opt == 2 );
-	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceCenter(void)) );
-	actGroup->addAction(act);
-	subMenu->addAction(act);
-
-	// Options -> PC Position -> Lower Mid-Line
-	act = new QAction(tr("&Lower Mid-Line"), this);
-	act->setStatusTip(tr("Lower Mid-Line"));
-	act->setCheckable(true);
-	act->setChecked( opt == 3 );
-	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceLowerMid(void)) );
-	actGroup->addAction(act);
-	subMenu->addAction(act);
-
-	// Options -> PC Position -> Bottom
-	act = new QAction(tr("&Bottom Line"), this);
-	act->setStatusTip(tr("Bottom Line"));
-	act->setCheckable(true);
-	act->setChecked( opt == 4 );
-	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceBottom(void)) );
-	actGroup->addAction(act);
-	subMenu->addAction(act);
-
-	// Options -> PC Position -> Custom Line 
-	act = new QAction(tr("Custom Line &Offset"), this);
-	act->setStatusTip(tr("Custom Line Offset"));
-	act->setChecked( opt == 5 );
-	act->setCheckable(true);
-	connect( act, SIGNAL(triggered()), this, SLOT(pcSetPlaceCustom(void)) );
-	actGroup->addAction(act);
-	subMenu->addAction(act);
-
-	optMenu->addSeparator();
-
-	// Options -> Font Selection
-	subMenu  = optMenu->addMenu(tr("&Font Selection"));
-
-	// Options -> Font Selection -> Assembly View
-	act = new QAction(tr("&Assembly View"), this);
-	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("Set Assembly View Font"));
-	connect( act, SIGNAL(triggered(void)), this, SLOT(changeAsmFontCB(void)) );
-
-	subMenu->addAction(act);
-
-	// Options -> Font Selection -> Stack View
-	act = new QAction(tr("&Stack View"), this);
-	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("Set Stack View Font"));
-	connect( act, SIGNAL(triggered(void)), this, SLOT(changeStackFontCB(void)) );
-
-	subMenu->addAction(act);
-
-	// Options -> Font Selection -> CPU Data View
-	act = new QAction(tr("&CPU Data View"), this);
-	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("Set CPU View Font"));
-	connect( act, SIGNAL(triggered(void)), this, SLOT(changeCpuFontCB(void)) );
-
-	subMenu->addAction(act);
-
-	// Options -> Color Selection
-	subMenu  = optMenu->addMenu(tr("&Color Selection"));
-
-	// Options -> Color Selection -> Opcodes
-	opcodeColorAct = new ColorMenuItem( tr("&Opcodes"), "SDL.DebuggerSyntaxColorOpcode", this);
-
-	subMenu->addAction(opcodeColorAct);
-
-	// Options -> Color Selection -> Address Values
-	addressColorAct = new ColorMenuItem( tr("&Address Values"), "SDL.DebuggerSyntaxColorAddress", this);
-
-	subMenu->addAction(addressColorAct);
-
-	// Options -> Color Selection -> Immediate Values
-	immediateColorAct = new ColorMenuItem( tr("&Immediate Values"), "SDL.DebuggerSyntaxColorImmediate", this);
-
-	subMenu->addAction(immediateColorAct);
-
-	// Options -> Color Selection -> Labels
-	labelColorAct = new ColorMenuItem( tr("&Labels"), "SDL.DebuggerSyntaxColorLabel", this);
-
-	subMenu->addAction(labelColorAct);
-
-	// Options -> Color Selection -> Comments
-	commentColorAct = new ColorMenuItem( tr("&Comments"), "SDL.DebuggerSyntaxColorComment", this);
-
-	subMenu->addAction(commentColorAct);
-
-	subMenu->addSeparator();
-
-	// Options -> Color Selection -> (PC) Active Statement
-	pcColorAct = new ColorMenuItem( tr("(&PC) Active Statement BG"), "SDL.DebuggerSyntaxColorPC", this);
-
-	subMenu->addAction(pcColorAct);
-
-	optMenu->addSeparator();
-
 	// Symbols
 	symMenu = menuBar->addMenu(tr("&Symbols"));
 
@@ -466,26 +660,6 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	symMenu->addAction(act);
 
 	symMenu->addSeparator();
-
-	// Symbols -> Show Byte Codes
-	act = new QAction(tr("Show &Byte Codes"), this);
-	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("Show &Byte Codes"));
-	act->setCheckable(true);
-	act->setChecked(false);
-	connect( act, SIGNAL(triggered(bool)), this, SLOT(displayByteCodesCB(bool)) );
-
-	symMenu->addAction(act);
-
-	// Symbols -> Display ROM Offsets
-	act = new QAction(tr("Show ROM &Offsets"), this);
-	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("Show ROM &Offsets"));
-	act->setCheckable(true);
-	act->setChecked(false);
-	connect( act, SIGNAL(triggered(bool)), this, SLOT(displayROMoffsetCB(bool)) );
-
-	symMenu->addAction(act);
 
 	// Symbols -> Symbolic Debug
 	act = new QAction(tr("&Symbolic Debug"), this);
@@ -511,6 +685,15 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	// Menu End
 	//-----------------------------------------------------------------------
 	
+	return menuBar;
+}
+//----------------------------------------------------------------------------
+QToolBar *ConsoleDebugger::buildToolBar(void)
+{
+	QAction     *act;
+
+	QToolBar *toolBar = new QToolBar(this);
+
 	//-----------------------------------------------------------------------
 	// Tool Bar Setup Start
 	//-----------------------------------------------------------------------
@@ -601,14 +784,13 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	// Tool Bar Setup End
 	//-----------------------------------------------------------------------
 	
-	mainLayoutv = new QVBoxLayout();
-	mainLayouth = new QHBoxLayout();
+	return toolBar;
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::buildAsmViewDisplay(void)
+{
+	QGridLayout *grid;
 
-	mainLayoutv->setMenuBar( menuBar );
-	mainLayoutv->addWidget( toolBar );
-	mainLayoutv->addLayout( mainLayouth );
-
-	vbox4      = new QVBoxLayout();
 	grid       = new QGridLayout();
 	asmView    = new QAsmView(this);
 	vbar       = new QScrollBar( Qt::Vertical, this );
@@ -624,40 +806,70 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	grid->addWidget( vbar   , 0, 1 );
 	grid->addWidget( hbar   , 1, 0 );
 
-	vbox1   = new QVBoxLayout();
-	vbox2   = new QVBoxLayout();
-	hbox1   = new QHBoxLayout();
+	 asmDpyVbox   = new QVBoxLayout();
 
 	hbar->setMinimum(0);
 	hbar->setMaximum(100);
 	vbar->setMinimum(0);
 	vbar->setMaximum( 0x10000 );
 
-	vbox4->addLayout( grid, 100 );
-	vbox4->addWidget( asmLineSelLbl, 1 );
-	vbox4->addWidget( emuStatLbl   , 1 );
-	//asmText->setFont(font);
-	//asmText->setReadOnly(true);
-	//asmText->setOverwriteMode(true);
-	//asmText->setMinimumWidth( 20 * fontCharWidth );
-	//asmText->setLineWrapMode( QPlainTextEdit::NoWrap );
+	asmDpyVbox->addLayout( grid, 100 );
+	asmDpyVbox->addWidget( asmLineSelLbl, 1 );
+	asmDpyVbox->addWidget( emuStatLbl   , 1 );
+	
+	asmViewContainerWidget = new QWidget();
+	asmViewContainerWidget->setLayout( asmDpyVbox );
 
-	mainLayouth->addLayout( vbox4, 5 );
-	mainLayouth->addLayout( vbox1, 4 );
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::buildCpuListDisplay(void)
+{
+	QVBoxLayout *vbox, *vbox1;
+	QHBoxLayout *hbox, *hbox1;
+	QGridLayout *grid;
+	QLabel      *lbl;
+	QFont        cpuFont;
+	std::string  fontString;
+	int          fontCharWidth;
 
-	cpuFrame = new QGroupBox( tr("CPU Status") );
+	g_config->getOption("SDL.DebuggerCpuStatusFont", &fontString);
+
+	if ( fontString.size() > 0 )
+	{
+		cpuFont.fromString( QString::fromStdString( fontString ) );
+	}
+	else
+	{
+		cpuFont.setFamily("Courier New");
+		cpuFont.setStyle( QFont::StyleNormal );
+		cpuFont.setStyleHint( QFont::Monospace );
+	}
+
+	QFontMetrics fm(cpuFont);
+
+	fontCharWidth = fm.averageCharWidth();
+
+	vbox    = new QVBoxLayout();
+	vbox1   = new QVBoxLayout();
+	hbox1   = new QHBoxLayout();
+
+	cpuFrame = new QFrame();
 	grid     = new QGridLayout();
 
-	vbox1->addWidget( cpuFrame );
-	hbox1->addLayout( vbox2, 1 );
-	vbox2->addLayout( grid  );
-	cpuFrame->setLayout( hbox1 );
+	cpuFrame->setObjectName( tr("debuggerStatusCPU") );
+	cpuFrame->setSizePolicy( QSizePolicy::Maximum, QSizePolicy::Maximum );
+
+	hbox1->addLayout( vbox, 1 );
+	vbox->addLayout( grid  );
+	vbox1->addLayout( hbox1, 1 );
+	vbox1->addStretch( 10 );
+	cpuFrame->setLayout( vbox1 );
 
 	hbox = new QHBoxLayout();
 	lbl  = new QLabel( tr("PC:") );
 	lbl->setToolTip( tr("Program Counter Register") );
 	pcEntry = new QLineEdit();
-	pcEntry->setFont( font );
+	pcEntry->setFont( cpuFont );
 	pcEntry->setMaxLength( 4 );
 	pcEntry->setInputMask( ">HHHH;0" );
 	pcEntry->setAlignment(Qt::AlignCenter);
@@ -676,7 +888,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	lbl  = new QLabel( tr("A:") );
 	lbl->setToolTip( tr("Accumulator Register") );
 	regAEntry = new QLineEdit();
-	regAEntry->setFont( font );
+	regAEntry->setFont( cpuFont );
 	regAEntry->setMaxLength( 2 );
 	regAEntry->setInputMask( ">HH;0" );
 	regAEntry->setAlignment(Qt::AlignCenter);
@@ -691,7 +903,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	lbl  = new QLabel( tr("X:") );
 	lbl->setToolTip( tr("X Index Register") );
 	regXEntry = new QLineEdit();
-	regXEntry->setFont( font );
+	regXEntry->setFont( cpuFont );
 	regXEntry->setMaxLength( 2 );
 	regXEntry->setInputMask( ">HH;0" );
 	regXEntry->setAlignment(Qt::AlignCenter);
@@ -706,7 +918,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	lbl  = new QLabel( tr("Y:") );
 	lbl->setToolTip( tr("Y Index Register") );
 	regYEntry = new QLineEdit();
-	regYEntry->setFont( font );
+	regYEntry->setFont( cpuFont );
 	regYEntry->setMaxLength( 2 );
 	regYEntry->setInputMask( ">HH;0" );
 	regYEntry->setAlignment(Qt::AlignCenter);
@@ -721,7 +933,7 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	lbl  = new QLabel( tr("P:") );
 	lbl->setToolTip( tr("Status Register") );
 	regPEntry = new QLineEdit();
-	regPEntry->setFont( font );
+	regPEntry->setFont( cpuFont );
 	regPEntry->setMaxLength( 2 );
 	regPEntry->setInputMask( ">HH;0" );
 	regPEntry->setAlignment(Qt::AlignCenter);
@@ -743,10 +955,10 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	//cpuCycExdVal  = new QLineEdit( tr("0") );
 	//instrExdVal   = new QLineEdit( tr("0") );
 
-	cpuCyclesVal->setFont(font);
+	cpuCyclesVal->setFont(cpuFont);
 	cpuCyclesVal->setReadOnly(true);
 	cpuCyclesVal->setMinimumWidth( 24 * fontCharWidth );
-	cpuInstrsVal->setFont(font);
+	cpuInstrsVal->setFont(cpuFont);
 	cpuInstrsVal->setReadOnly(true);
 	cpuInstrsVal->setMinimumWidth( 24 * fontCharWidth );
 
@@ -776,56 +988,12 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	stackText->setWordWrapMode( QTextOption::NoWrap );
 	//stackText->setHorizontalScrollBarPolicy( Qt::ScrollBarAlwaysOff );
 	//stackText->setMaximumWidth( 16 * fontCharWidth );
-
-	bpFrame = new QGroupBox(tr("Breakpoints"));
-	//vbox3   = new QVBoxLayout();
-	vbox    = new QVBoxLayout();
-	bpTree  = new QTreeWidget();
-
-	bpTree->setColumnCount(2);
-	bpTree->setSelectionMode( QAbstractItemView::SingleSelection );
-
-	item = new QTreeWidgetItem();
-	item->setFont( 0, font );
-	item->setFont( 1, font );
-	item->setFont( 2, font );
-	item->setFont( 3, font );
-	item->setText( 0, QString::fromStdString( "Addr" ) );
-	item->setText( 1, QString::fromStdString( "Flags" ) );
-	item->setText( 2, QString::fromStdString( "Cond" ) );
-	item->setText( 3, QString::fromStdString( "Desc" ) );
-	item->setTextAlignment( 0, Qt::AlignCenter);
-	item->setTextAlignment( 1, Qt::AlignCenter);
-	item->setTextAlignment( 2, Qt::AlignCenter);
-	item->setTextAlignment( 3, Qt::AlignCenter);
-
-	bpTree->setHeaderItem( item );
-
-	bpTree->header()->setSectionResizeMode( QHeaderView::ResizeToContents );
-
-	connect( bpTree, SIGNAL(itemClicked(QTreeWidgetItem*, int)),
-			   this, SLOT(bpItemClicked( QTreeWidgetItem*, int)) );
-
-	hbox   = new QHBoxLayout();
-	button = new QPushButton( tr("Add") );
-	hbox->addWidget( button );
-	connect( button, SIGNAL(clicked(void)), this, SLOT(add_BP_CB(void)) );
-
-	button = new QPushButton( tr("Delete") );
-	hbox->addWidget( button );
-	connect( button, SIGNAL(clicked(void)), this, SLOT(delete_BP_CB(void)) );
-
-	button = new QPushButton( tr("Edit") );
-	hbox->addWidget( button );
-	connect( button, SIGNAL(clicked(void)), this, SLOT(edit_BP_CB(void)) );
-
-	vbox->addWidget( bpTree );
-	vbox->addLayout( hbox   );
-	bpFrame->setLayout( vbox );
+	stackFrame->setSizePolicy( QSizePolicy::Maximum, QSizePolicy::Maximum );
 
 	sfFrame = new QGroupBox(tr("Status Flags"));
 	grid    = new QGridLayout();
 	sfFrame->setLayout( grid );
+	sfFrame->setSizePolicy( QSizePolicy::Maximum, QSizePolicy::Maximum );
 
 	N_chkbox = new QCheckBox( tr("N") );
 	V_chkbox = new QCheckBox( tr("V") );
@@ -855,89 +1023,197 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	grid->addWidget( Z_chkbox, 1, 3, Qt::AlignLeft );
 	grid->addWidget( C_chkbox, 1, 4, Qt::AlignLeft );
 
-	vbox1->addWidget( bpFrame);
-	vbox2->addWidget( sfFrame);
-	//hbox1->addLayout( vbox3  );
+	vbox->addWidget( sfFrame);
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::buildPpuListDisplay(void)
+{
+	QVBoxLayout *vbox, *vbox1;
+	QHBoxLayout /**hbox,*/ *hbox1;
+	QGridLayout *grid, *grid1;
+	QGroupBox   *ctlFrame;
+	QLabel      *bgAddrLbl, *sprAddrLbl;
+	QFont        lblFont;
 
-	hbox2       = new QHBoxLayout();
+	ppuStatContainerWidget = new QWidget(this);
+	ppuStatContainerWidget->setSizePolicy( QSizePolicy::Maximum, QSizePolicy::Maximum );
+
 	vbox        = new QVBoxLayout();
-	frame       = new QFrame();
+	hbox1       = new QHBoxLayout();
+	ppuFrame    = new QFrame();
 	ppuLbl      = new QLabel( tr("PPU:") );
 	spriteLbl   = new QLabel( tr("Sprite:") );
 	scanLineLbl = new QLabel( tr("Scanline:") );
 	pixLbl      = new QLabel( tr("Pixel:") );
+
+	ppuFrame->setObjectName( tr("debuggerStatusPPU") );
+
+	hbox1->addLayout( vbox );
 	vbox->addWidget( ppuLbl );
 	vbox->addWidget( spriteLbl );
 	vbox->addWidget( scanLineLbl );
 	vbox->addWidget( pixLbl );
-	vbox1->addLayout( hbox2 );
-	hbox2->addWidget( frame );
-	frame->setLayout( vbox  );
-	frame->setFrameShape( QFrame::Box );
 
-	//vbox          = new QVBoxLayout();
-	//cpuCyclesLbl1 = new QLabel( tr("CPU Cycles:") );
-	//cpuCyclesLbl2 = new QLabel( tr("(+0):") );
-	//cpuInstrsLbl1 = new QLabel( tr("Instructions:") );
-	//cpuInstrsLbl2 = new QLabel( tr("(+0):") );
-	//brkCpuCycExd  = new QCheckBox( tr("Break when Exceed") );
-	//brkInstrsExd  = new QCheckBox( tr("Break when Exceed") );
-	//cpuCycExdVal  = new QLineEdit( tr("0") );
-	//instrExdVal   = new QLineEdit( tr("0") );
-	//hbox          = new QHBoxLayout();
-	//vbox->addLayout( hbox );
-	//hbox->addWidget( cpuCyclesLbl1 );
-	//hbox->addWidget( cpuCyclesLbl2 );
-	//hbox         = new QHBoxLayout();
-	//vbox->addLayout( hbox );
-	//hbox->addWidget( brkCpuCycExd );
-	//hbox->addWidget( cpuCycExdVal, 1, Qt::AlignLeft );
+	 bgAddrLbl = new QLabel( tr("BG Addr") );
+	sprAddrLbl = new QLabel( tr("Spr Addr") );
 
-	//hbox         = new QHBoxLayout();
-	//vbox->addLayout( hbox );
-	//hbox->addWidget( cpuInstrsLbl1 );
-	//hbox->addWidget( cpuInstrsLbl2 );
-	//hbox         = new QHBoxLayout();
-	//vbox->addLayout( hbox );
-	//hbox->addWidget( brkInstrsExd );
-	//hbox->addWidget( instrExdVal, 1, Qt::AlignLeft );
-	//hbox2->addLayout( vbox );
+	ctlFrame = new QGroupBox( tr("Control / Mask") );
+	grid1    = new QGridLayout();
+	grid     = new QGridLayout();
 
-	//validator = new fceuDecIntValidtor( 0, 0x3FFFFFFF, this );
-	//cpuCycExdVal->setFont( font );
-	//cpuCycExdVal->setMaxLength( 16 );
-	//cpuCycExdVal->setValidator( validator );
-	//cpuCycExdVal->setAlignment(Qt::AlignLeft);
-	//cpuCycExdVal->setMaximumWidth( 18 * fontCharWidth );
-	//cpuCycExdVal->setCursorPosition(0);
-	//connect( cpuCycExdVal, SIGNAL(textEdited(const QString &)), this, SLOT(cpuCycleThresChanged(const QString &)));
+	hbox1->addWidget( ctlFrame );
+	ctlFrame->setLayout( grid1 );
 
-	//validator = new fceuDecIntValidtor( 0, 0x3FFFFFFF, this );
-	//instrExdVal->setFont( font );
-	//instrExdVal->setMaxLength( 16 );
-	//instrExdVal->setValidator( validator );
-	//instrExdVal->setAlignment(Qt::AlignLeft);
-	//instrExdVal->setMaximumWidth( 18 * fontCharWidth );
-	//instrExdVal->setCursorPosition(0);
-	//connect( instrExdVal, SIGNAL(textEdited(const QString &)), this, SLOT(instructionsThresChanged(const QString &)));
+	//ppuBgAddr   = new QLineEdit();
+	ppuBgAddr   = new ppuCtrlRegDpy();
+	ppuSprAddr  = new QLineEdit();
 
-	//brkCpuCycExd->setChecked( break_on_cycles );
-	//connect( brkCpuCycExd, SIGNAL(stateChanged(int)), this, SLOT(breakOnCyclesCB(int)) );
+	grid->addWidget( bgAddrLbl, 0, 0 );
+	grid->addWidget( sprAddrLbl, 1, 0 );
+	grid->addWidget( ppuBgAddr, 0, 1 );
+	grid->addWidget( ppuSprAddr, 1, 1 );
 
-	//brkInstrsExd->setChecked( break_on_instructions );
-	//connect( brkInstrsExd, SIGNAL(stateChanged(int)), this, SLOT(breakOnInstructionsCB(int)) );
+	grid1->addLayout( grid, 0, 0, 3, 1 );
 
-	hbox3     = new QHBoxLayout();
+	bgEnabled_cbox  = new QCheckBox( tr("BG Enabled") );
+	sprites_cbox    = new QCheckBox( tr("Sprites Enabled") );
+	drawLeftBg_cbox = new QCheckBox( tr("Draw Left BG (8px)") );
+	drawLeftFg_cbox = new QCheckBox( tr("Draw Left Sprites (8px)") );
+	vwrite_cbox     = new QCheckBox( tr("Vertical Write") );
+	nmiBlank_cbox   = new QCheckBox( tr("NMI on vBlank") );
+	sprite8x16_cbox = new QCheckBox( tr("8x16 Sprites") );
+	grayscale_cbox  = new QCheckBox( tr("Grayscale") );
+	iRed_cbox       = new QCheckBox( tr("Intensify Red") );
+	iGrn_cbox       = new QCheckBox( tr("Intensify Green") );
+	iBlu_cbox       = new QCheckBox( tr("Intensify Blue") );
+
+	grid1->addWidget( bgEnabled_cbox , 3, 0 );
+	grid1->addWidget( sprites_cbox   , 4, 0 );
+	grid1->addWidget( drawLeftBg_cbox, 5, 0 );
+	grid1->addWidget( drawLeftFg_cbox, 6, 0 );
+
+	grid1->addWidget( vwrite_cbox    , 0, 1 );
+	grid1->addWidget( nmiBlank_cbox  , 1, 1 );
+	grid1->addWidget( sprite8x16_cbox, 2, 1 );
+	grid1->addWidget( grayscale_cbox , 3, 1 );
+	grid1->addWidget( iRed_cbox      , 4, 1 );
+	grid1->addWidget( iGrn_cbox      , 5, 1 );
+	grid1->addWidget( iBlu_cbox      , 6, 1 );
+
+	ppuStatContainerWidget->setLayout( hbox1  );
+
+	vbox1 = new QVBoxLayout();
+	vbox1->addWidget( ppuStatContainerWidget, 1 );
+	vbox1->addStretch( 10 );
+
+	ppuFrame->setLayout( vbox1  );
+
+	lblFont = bgAddrLbl->font();
+	printf("Point Size: %i \n", lblFont.pointSize() );
+	lblFont.setPointSize(9);
+
+	 bgAddrLbl->setFont( lblFont );
+	sprAddrLbl->setFont( lblFont );
+	bgEnabled_cbox->setFont( lblFont );
+	sprites_cbox->setFont( lblFont );
+	drawLeftBg_cbox->setFont( lblFont );
+	drawLeftFg_cbox->setFont( lblFont );
+	vwrite_cbox->setFont( lblFont );
+	nmiBlank_cbox->setFont( lblFont );
+	sprite8x16_cbox->setFont( lblFont );
+	grayscale_cbox->setFont( lblFont );
+	iRed_cbox->setFont( lblFont );
+	iGrn_cbox->setFont( lblFont );
+	iBlu_cbox->setFont( lblFont );
+
+	//printf("Grid vspc:%i \n", grid1->verticalSpacing() );
+	grid1->setVerticalSpacing( grid1->verticalSpacing() / 2 );
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::buildBpListDisplay(void)
+{
+	QVBoxLayout *vbox;
+	QHBoxLayout *hbox;
+	QPushButton *button;
+	QTreeWidgetItem *item;
+	QFontMetrics fm(font);
+
+	bpFrame = new QFrame();
+	vbox    = new QVBoxLayout();
+	bpTree  = new QTreeWidget();
+
+	bpFrame->setObjectName( tr("debuggerBreakpointList") );
+	bpTree->setColumnCount(2);
+	bpTree->setSelectionMode( QAbstractItemView::SingleSelection );
+	bpTree->setMinimumHeight( 3 * fm.lineSpacing() );
+	bpTree->setSizePolicy( QSizePolicy::Minimum, QSizePolicy::Ignored );
+
+	item = new QTreeWidgetItem();
+	item->setFont( 0, font );
+	item->setFont( 1, font );
+	item->setFont( 2, font );
+	item->setFont( 3, font );
+	item->setText( 0, QString::fromStdString( "Addr" ) );
+	item->setText( 1, QString::fromStdString( "Flags" ) );
+	item->setText( 2, QString::fromStdString( "Cond" ) );
+	item->setText( 3, QString::fromStdString( "Desc" ) );
+	item->setTextAlignment( 0, Qt::AlignCenter);
+	item->setTextAlignment( 1, Qt::AlignCenter);
+	item->setTextAlignment( 2, Qt::AlignCenter);
+	item->setTextAlignment( 3, Qt::AlignCenter);
+
+	bpTree->setHeaderItem( item );
+
+	bpTree->header()->setSectionResizeMode( QHeaderView::ResizeToContents );
+
+	connect( bpTree, SIGNAL(itemClicked(QTreeWidgetItem*, int)),
+			   this, SLOT(bpItemClicked( QTreeWidgetItem*, int)) );
+
+	hbox   = new QHBoxLayout();
+	bpAddBtn = button = new QPushButton( tr("Add") );
+	hbox->addWidget( button );
+	connect( button, SIGNAL(clicked(void)), this, SLOT(add_BP_CB(void)) );
+
+	bpEditBtn = button = new QPushButton( tr("Edit") );
+	hbox->addWidget( button );
+	connect( button, SIGNAL(clicked(void)), this, SLOT(edit_BP_CB(void)) );
+
+	bpDelBtn = button = new QPushButton( tr("Delete") );
+	hbox->addWidget( button );
+	connect( button, SIGNAL(clicked(void)), this, SLOT(delete_BP_CB(void)) );
+
+	vbox->addWidget( bpTree );
+	vbox->addLayout( hbox   );
+	bpTreeContainerWidget = new QWidget(this);
+	bpTreeContainerWidget->setLayout( vbox );
+	vbox    = new QVBoxLayout();
+	vbox->addWidget( bpTreeContainerWidget );
+	bpFrame->setLayout( vbox );
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::buildBmListDisplay(void)
+{
+	QVBoxLayout *vbox;
+	QHBoxLayout *hbox;
+	QPushButton *button;
+	QTreeWidgetItem *item;
+	QFontMetrics fm(font);
+
+	bmTreeContainerWidget = new QWidget(this);
+
 	hbox      = new QHBoxLayout();
 	vbox      = new QVBoxLayout();
-	bmFrame   = new QGroupBox( tr("Address Bookmarks") );
+	bmFrame   = new QFrame();
 	bmTree    = new QTreeWidget();
 	selBmAddr = new QLineEdit();
 	selBmAddrVal = 0;
 
 	connect( selBmAddr, SIGNAL(textChanged(const QString &)), this, SLOT(selBmAddrChanged(const QString &)));
 
+	bmFrame->setObjectName( tr("debuggerBookmarkList") );
 	bmTree->setColumnCount(2);
+	bmTree->setMinimumHeight( 3 * fm.lineSpacing() );
+	bmTree->setSizePolicy( QSizePolicy::Minimum, QSizePolicy::Ignored );
 
 	item = new QTreeWidgetItem();
 	item->setFont( 0, font );
@@ -957,121 +1233,214 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	connect( bmTree, SIGNAL(itemDoubleClicked(QTreeWidgetItem*, int)),
 			   this, SLOT(bmItemDoubleClicked( QTreeWidgetItem*, int)) );
 
-	vbox->addWidget( selBmAddr );
+	vbox->addWidget( selBmAddr, 1 );
 
 	button    = new QPushButton( tr("Add") );
-	vbox->addWidget( button );
+	vbox->addWidget( button, 1 );
 	connect( button, SIGNAL(clicked(void)), this, SLOT(add_BM_CB(void)) );
 
 	button    = new QPushButton( tr("Delete") );
-	vbox->addWidget( button );
+	vbox->addWidget( button, 1 );
 	connect( button, SIGNAL(clicked(void)), this, SLOT(delete_BM_CB(void)) );
 
 	button    = new QPushButton( tr("Name") );
-	vbox->addWidget( button );
+	vbox->addWidget( button, 1 );
 	connect( button, SIGNAL(clicked(void)), this, SLOT(edit_BM_CB(void)) );
+
+	vbox->addStretch( 10 );
 
 	hbox->addWidget( bmTree, 10 );
 	hbox->addLayout( vbox  ,  1 );
-	bmFrame->setLayout( hbox );
-	hbox3->addWidget( bmFrame );
-	vbox1->addLayout( hbox3 );
 
-	//frame        = new QFrame();
-	//vbox         = new QVBoxLayout();
-	//button       = new QPushButton( tr("Reset Counters") );
-	//connect( button, SIGNAL(clicked(void)), this, SLOT(resetCountersCB(void)) );
-	//vbox->addWidget( button );
-	//vbox->addWidget( frame  );
-	//hbox3->addLayout( vbox  );
+	bmTreeContainerWidget->setLayout( hbox );
 
-	// IDA font is just a monospace font, we are forcing this anyway. It is just easier to read the assembly.
-	// If a different font is desired, my thought is to open a QFontDialog and let the user pick a new font,
-	// rather than use a checkbox that selects between two. But for the moment, I have more important things
-	// to do.
+	bmTreeContainerWidget->setVisible(true);
 
-	setLayout( mainLayoutv );
+	vbox = new QVBoxLayout();
+	vbox->addWidget( bmTreeContainerWidget );
 
-	windowUpdateReq   = true;
+	bmFrame->setLayout( vbox );
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::loadDisplayViews(void)
+{
+	char key[128];
+	QSettings  settings;
+	bool prevStateSaved;
 
-	dbgWin = this;
+	prevStateSaved = settings.value("debugger/prevStateSaved", false).toBool();
 
-	periodicTimer  = new QTimer( this );
+	if ( !prevStateSaved )
+	{
+		setLayoutOption(2);
+	}
 
-	connect( periodicTimer, &QTimer::timeout, this, &ConsoleDebugger::updatePeriodic );
-	connect( hbar, SIGNAL(valueChanged(int)), this, SLOT(hbarChanged(int)) );
-	connect( vbar, SIGNAL(valueChanged(int)), this, SLOT(vbarChanged(int)) );
-
-	bpListUpdate( false );
-
-	periodicTimer->start( 100 ); // 10hz
-
-	// If this is the first debug window to open, load breakpoints fresh
-	{ 
-		int autoLoadDebug;
-
-		g_config->getOption( "SDL.AutoLoadDebugFiles", &autoLoadDebug );
-
-		if ( autoLoadDebug )
+	for (int i=0; i<2; i++)
+	{
+		for (int j=0; j<4; j++)
 		{
-			loadGameDebugBreakpoints();
+			QString tabListVal;
+			sprintf( key, "debugger/tabView%i%i", i+1, j+1 );
+			tabListVal = settings.value(key).toString();
+
+			QStringList tabList = tabListVal.split(',');
+			for (int k=0; k<tabList.size(); k++)
+			{
+				if ( tabList[k].size() > 0 )
+				{
+					//printf("   %i: %s\n", k, tabList[k].toStdString().c_str() );
+
+					if ( tabList[k].compare( cpuFrame->objectName() ) == 0 )
+					{
+						tabView[i][j]->addTab( cpuFrame, tr("CPU") );
+					}
+					else if ( tabList[k].compare( ppuFrame->objectName() ) == 0 )
+					{
+						tabView[i][j]->addTab( ppuFrame, tr("PPU") );
+					}
+					else if ( tabList[k].compare( bpFrame->objectName() ) == 0 )
+					{
+						tabView[i][j]->addTab( bpFrame, tr("Breakpoints") );
+					}
+					else if ( tabList[k].compare( bmFrame->objectName() ) == 0 )
+					{
+						tabView[i][j]->addTab( bmFrame, tr("Bookmarks") );
+					}
+				}
+			}
 		}
 	}
 
+	if ( cpuFrame->parent() == nullptr )
+	{
+		tabView[0][0]->addTab( cpuFrame, tr("CPU") );
+	}
+	if ( ppuFrame->parent() == nullptr )
+	{
+		tabView[0][0]->addTab( ppuFrame, tr("PPU") );
+	}
+	if ( bpFrame->parent() == nullptr )
+	{
+		tabView[0][0]->addTab( bpFrame, tr("Breakpoints") );
+	}
+	if ( bmFrame->parent() == nullptr )
+	{
+		tabView[0][0]->addTab( bmFrame, tr("Bookmarks") );
+	}
+
+	// Restore Window Geometry
 	restoreGeometry(settings.value("debugger/geometry").toByteArray());
 
-	setCpuStatusFont( cpuFont );
+	// Restore Horizontal Panel State
+	mainLayouth->restoreState( settings.value("debugger/hPanelState").toByteArray() );
 
-	   opcodeColorAct->connectColor( &asmView->opcodeColor );
-	  addressColorAct->connectColor( &asmView->addressColor );
-	immediateColorAct->connectColor( &asmView->immediateColor );
-	    labelColorAct->connectColor( &asmView->labelColor  );
-	  commentColorAct->connectColor( &asmView->commentColor);
-	       pcColorAct->connectColor( &asmView->pcBgColor);
-}
-//----------------------------------------------------------------------------
-ConsoleDebugger::~ConsoleDebugger(void)
-{
-	std::list <ConsoleDebugger*>::iterator it;
-
-	//printf("Destroy Debugger Window\n");
-	periodicTimer->stop();
-
-	if ( dbgWin == this )
+	// Save Vertical Panel State
+	for (int i=0; i<2; i++)
 	{
-		dbgWin = NULL;
+		sprintf( key, "debugger/vPanelState%i", i+1);
+		vsplitter[i]->restoreState( settings.value(key).toByteArray() );
 	}
 
-	if ( dbgWin == NULL )
-	{
-		saveGameDebugBreakpoints();
-		debuggerClearAllBreakpoints();
-		debuggerClearAllBookmarks();
+	updateTabVisibility();
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::saveDisplayViews(void)
+{
+	char key[128];
+	QSettings  settings;
 
-		if ( waitingAtBp )
+	// Save Tab Placement
+	for (int i=0; i<2; i++)
+	{
+		for (int j=0; j<4; j++)
 		{
-			FCEUI_SetEmulationPaused(0);
+			QString tabListVal;
+			sprintf( key, "debugger/tabView%i%i", i+1, j+1 );
+
+			for (int k=0; k<tabView[i][j]->count(); k++)
+			{
+				QWidget *w = tabView[i][j]->widget(k);
+
+				//printf("(%i,%i,%i)   %s\n", i, j, k, w->objectName().toStdString().c_str() );
+
+				tabListVal += w->objectName() + ",";
+			}
+
+			//printf("(%i,%i) %s\n", i, j, tabListVal.toStdString().c_str() );
+			settings.setValue( key, tabListVal );
+		}
+	}
+
+	// Save Horizontal Panel State
+	settings.setValue("debugger/hPanelState", mainLayouth->saveState());
+
+	// Save Vertical Panel State
+	for (int i=0; i<2; i++)
+	{
+		sprintf( key, "debugger/vPanelState%i", i+1);
+		settings.setValue( key, vsplitter[i]->saveState());
+	}
+
+	// Save Window Geometry
+	settings.setValue("debugger/geometry", saveGeometry());
+
+	// Set Window 
+	settings.setValue("debugger/prevStateSaved", true);
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::updateTabVisibility(void)
+{
+	for (int i=0; i<2; i++)
+	{
+		for (int j=0; j<4; j++)
+		{
+			if ( tabView[i][j]->count() > 0 )
+			{
+				if ( !tabView[i][j]->isVisible() )
+				{
+					QList<int> s = vsplitter[i]->sizes();
+
+					s[j] = tabView[i][j]->minimumSizeHint().height();
+					
+					vsplitter[i]->setSizes(s);
+				}
+				tabView[i][j]->setVisible( true );
+			}
+			else
+			{
+				tabView[i][j]->setVisible( false );
+			}
 		}
 	}
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::closeEvent(QCloseEvent *event)
+void ConsoleDebugger::moveTab( QWidget *w, int row, int column)
 {
-	QSettings settings;
-	//printf("Debugger Close Window Event\n");
-	settings.setValue("debugger/geometry", saveGeometry());
-	done(0);
-	deleteLater();
-	event->accept();
-}
-//----------------------------------------------------------------------------
-void ConsoleDebugger::closeWindow(void)
-{
-	QSettings settings;
-	//printf("Close Window\n");
-	settings.setValue("debugger/geometry", saveGeometry());
-	done(0);
-	deleteLater();
+	int idx = -1;
+	DebuggerTabWidget *p = NULL;
+
+	for (int i=0; i<2; i++)
+	{
+		for (int j=0; j<4; j++)
+		{
+			idx = tabView[i][j]->indexOf(w);
+
+			if ( idx >= 0 )
+			{
+				p = tabView[i][j]; break;
+			}
+		}
+		if (p) break;
+	}
+
+	if ( p )
+	{
+		QString txt = p->tabBar()->tabText( idx );
+		p->removeTab( idx );
+		tabView[column][row]->addTab(w, txt);
+		//printf("Move Widget %p to (%i,%i) %s\n", w, row, column, txt.toStdString().c_str() ); 
+	}
+	updateTabVisibility();
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::setCpuStatusFont( const QFont &font )
@@ -1173,7 +1542,7 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 	QFrame *frame;
 	QGroupBox *gbox;
 	QPushButton *okButton, *cancelButton;
-	QRadioButton *cpu_radio, *ppu_radio, *sprite_radio;
+	QRadioButton *cpu_radio, *ppu_radio, *oam_radio, *rom_radio;
 
 	if ( editIdx >= 0 )
 	{
@@ -1226,15 +1595,17 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 	hbox->addWidget( ebp );
 	
 	hbox         = new QHBoxLayout();
-	cpu_radio    = new QRadioButton( tr("CPU Mem") );
-	ppu_radio    = new QRadioButton( tr("PPU Mem") );
-	sprite_radio = new QRadioButton( tr("Sprite Mem") );
+	cpu_radio    = new QRadioButton( tr("CPU") );
+	ppu_radio    = new QRadioButton( tr("PPU") );
+	oam_radio    = new QRadioButton( tr("OAM") );
+	rom_radio    = new QRadioButton( tr("ROM") );
 	cpu_radio->setChecked(true);
 
 	gbox->setLayout( hbox );
 	hbox->addWidget( cpu_radio );
 	hbox->addWidget( ppu_radio );
-	hbox->addWidget( sprite_radio );
+	hbox->addWidget( oam_radio );
+	hbox->addWidget( rom_radio );
 
 	grid  = new QGridLayout();
 
@@ -1274,7 +1645,11 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 		}
 		else if ( wp->flags & BT_S )
 		{
-			sprite_radio->setChecked(true);
+			oam_radio->setChecked(true);
+		}
+		else if ( wp->flags & BT_R )
+		{
+			rom_radio->setChecked(true);
 		}
 
 		sprintf( stmp, "%04X", wp->address );
@@ -1320,9 +1695,21 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 				// If new breakpoint, suggest condition if in ROM Mapping area of memory.
 				if ( wp->address >= 0x8000 )
 				{
-					char str[64];
-					sprintf(str, "K==#%02X", getBank(wp->address));
-					cond->setText( tr(str) );
+					int romAddr = GetNesFileAddress(wp->address);
+
+					if ( romAddr >= 0 )
+					{
+						wp->address = romAddr;
+						sprintf( stmp, "%X", wp->address );
+						addr1->setText( tr(stmp) );
+						rom_radio->setChecked(true);
+					}
+					else
+					{
+						char str[64];
+						sprintf(str, "K==#%02X", getBank(wp->address));
+						cond->setText( tr(str) );
+					}
 				}
 			}
 		}
@@ -1359,9 +1746,13 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 		{
 			type |= BT_P;
 		}
-		else if ( sprite_radio->isChecked() ) 
+		else if ( oam_radio->isChecked() ) 
 		{
 			type |= BT_S;
+		}
+		else if ( rom_radio->isChecked() )
+		{
+			type |= BT_R;
 		}
 
 		s = addr1->text().toStdString();
@@ -1505,6 +1896,10 @@ void ConsoleDebugger::bpListUpdate( bool reset )
 		else if ( watchpoint[i].flags & BT_S )
 		{
 			flags[1] = 'S';
+		}
+		else if ( watchpoint[i].flags & BT_R )
+		{
+			flags[1] = 'R';
 		}
 		else
 		{
@@ -1686,6 +2081,11 @@ void ConsoleDebugger::bmListUpdate( bool reset )
 	}
 
 	bmTree->viewport()->update();
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::resizeToMinimumSizeHint(void) 
+{
+	resize( minimumSizeHint() );
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::add_BP_CB(void)
@@ -2190,6 +2590,126 @@ void ConsoleDebugger::debugRunLine128CB(void)
 //	}
 //}
 //----------------------------------------------------------------------------
+void ConsoleDebugger::navHistBackCB (void)
+{
+	asmView->navHistBack();
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::navHistForwardCB (void)
+{
+	asmView->navHistForward();
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::setLayoutOption( int opt )
+{
+	for (int i=0; i<2; i++)
+	{
+		for (int j=0; j<4; j++)
+		{
+			for (int k=0; k<tabView[i][j]->count(); k++)
+			{
+				tabView[i][j]->removeTab(k);
+			}
+		}
+	}
+
+	switch ( opt )
+	{
+		default:
+		case 1:
+		{
+			tabView[0][0]->addTab( cpuFrame, tr("CPU") );
+			tabView[0][0]->addTab( ppuFrame, tr("PPU") );
+			tabView[0][0]->addTab(  bpFrame, tr("Breakpoints") );
+			tabView[0][0]->addTab(  bmFrame, tr("BookMarks") );
+			tabView[0][0]->setVisible(true);
+		}
+		break;
+		case 2:
+		{
+			tabView[0][0]->addTab( cpuFrame, tr("CPU") );
+			tabView[0][0]->addTab( ppuFrame, tr("PPU") );
+			tabView[0][1]->addTab(  bpFrame, tr("Breakpoints") );
+			tabView[0][1]->addTab(  bmFrame, tr("BookMarks") );
+
+			tabView[0][0]->setVisible(true);
+			tabView[0][1]->setVisible(true);
+
+			QList <int> s = vsplitter[0]->sizes();
+
+			s[0] = tabView[0][0]->minimumSizeHint().height();
+			s[1] = vsplitter[0]->height() - s[0];
+			s[2] = 0;
+			s[3] = 0;
+
+			vsplitter[0]->setSizes(s);
+		}
+		break;
+		case 3:
+		{
+			tabView[0][0]->addTab( cpuFrame, tr("CPU") );
+			tabView[0][1]->addTab( ppuFrame, tr("PPU") );
+			tabView[1][0]->addTab(  bpFrame, tr("Breakpoints") );
+			tabView[1][0]->addTab(  bmFrame, tr("BookMarks") );
+
+			tabView[0][0]->setVisible(true);
+			tabView[0][1]->setVisible(true);
+			tabView[1][0]->setVisible(true);
+
+			QList <int> s = vsplitter[0]->sizes();
+
+			s[0] = vsplitter[0]->height() / 2;
+			s[1] = s[0];
+			s[2] = 0;
+			s[3] = 0;
+
+			vsplitter[0]->setSizes(s);
+
+			s = mainLayouth->sizes();
+
+			if ( s[2] == 0 )
+			{
+				s[0] = s[1] = s[2] = mainLayouth->width() / 3;
+				mainLayouth->setSizes(s);
+			}
+		}
+		break;
+		case 4:
+		{
+			tabView[0][0]->addTab( cpuFrame, tr("CPU") );
+			tabView[0][1]->addTab( ppuFrame, tr("PPU") );
+			tabView[1][0]->addTab(  bpFrame, tr("Breakpoints") );
+			tabView[1][1]->addTab(  bmFrame, tr("BookMarks") );
+
+			tabView[0][0]->setVisible(true);
+			tabView[0][1]->setVisible(true);
+			tabView[1][0]->setVisible(true);
+			tabView[1][1]->setVisible(true);
+
+			QList <int> s = vsplitter[0]->sizes();
+
+			s[0] = vsplitter[0]->height() / 2;
+			s[1] = s[0];
+			s[2] = 0;
+			s[3] = 0;
+
+			vsplitter[0]->setSizes(s);
+			vsplitter[1]->setSizes(s);
+
+			s = mainLayouth->sizes();
+
+			if ( s[2] == 0 )
+			{
+				s[0] = s[1] = s[2] = mainLayouth->width() / 3;
+				mainLayouth->setSizes(s);
+			}
+		}
+		break;
+	}
+
+	updateTabVisibility();
+}
+//----------------------------------------------------------------------------
 void ConsoleDebugger::seekPCCB (void)
 {
 	if (FCEUI_EmulationPaused())
@@ -2305,14 +2825,11 @@ void ConsoleDebugger::openGotoAddrDialog(void)
 
 	if ( QDialog::Accepted == ret )
 	{
-		int addr, line;
+		int addr;
 	
 		addr = sbox->value();
 	
-		line = asmView->getAsmLineFromAddr(addr);
-
-		asmView->setLine( line );
-		vbar->setValue( line );
+		asmView->gotoAddr(addr);
 	}
 }
 //----------------------------------------------------------------------------
@@ -2331,6 +2848,11 @@ void ConsoleDebugger::asmViewCtxMenuRunToCursor(void)
 
 	FCEUI_SetEmulationPaused(0);
 	fceuWrapperUnLock();
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::asmViewCtxMenuGoTo(void)
+{
+	asmView->gotoAddr( asmView->getCtxMenuAddr() );
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::asmViewCtxMenuAddBP(void)
@@ -2519,6 +3041,15 @@ void QAsmView::setBreakpointAtSelectedLine(void)
 	}
 }
 //----------------------------------------------------------------------------
+int  QAsmView::getAsmAddrFromLine(int line)
+{
+	if ( (line >= 0) && (line < asmEntry.size()) )
+	{
+		return asmEntry[line]->addr;
+	}
+	return -1;
+}
+//----------------------------------------------------------------------------
 int  QAsmView::getAsmLineFromAddr(int addr)
 {
 	int  line = -1;
@@ -2527,7 +3058,7 @@ int  QAsmView::getAsmLineFromAddr(int addr)
 
 	if ( asmEntry.size() <= 0 )
 	{
-      return -1;
+		return -1;
 	}
 	incr = asmEntry.size() / 2;
 
@@ -2624,11 +3155,17 @@ int  QAsmView::getAsmLineFromAddr(int addr)
 		}
 	}
 
+	// Don't stop on an symbol name or comment line, search for next assembly line
+	while ( (line < asmEntry.size()) && (asmEntry[line]->type != dbg_asm_entry_t::ASM_TEXT) )
+	{
+		line++;
+	}
+
 	//for (size_t i=0; i<asmEntry.size(); i++)
 	//{
 	//	if ( asmEntry[i]->addr >= addr )
 	//	{
-   //      line = i; break;
+	//      line = i; break;
 	//	}
 	//}
 
@@ -2946,10 +3483,21 @@ void  QAsmView::updateAssemblyView(void)
 		asmEntry.push_back(a);
 	}
 
-	pxLineWidth = maxLineLen * pxCharWidth;
+	pxLineWidth = (maxLineLen+1) * pxCharWidth;
 
-	//setMaximumWidth( pxLineWidth + 10 );
+	if ( viewWidth >= pxLineWidth )
+	{
+		hbar->hide();
+	}
+	else
+	{
+		hbar->setPageStep( viewWidth );
+		hbar->setMaximum( pxLineWidth - viewWidth );
+		hbar->show();
+	}
+	//setMaximumWidth( pxLineWidth );
 
+	vbar->setPageStep( (3*viewLines)/4 );
 	vbar->setMaximum( asmEntry.size() );
 
 	determineLineBreakpoints();
@@ -3181,6 +3729,9 @@ void ConsoleDebugger::queueUpdate(void)
 //----------------------------------------------------------------------------
 void ConsoleDebugger::updatePeriodic(void)
 {
+	bool buttonEnable;
+	QTreeWidgetItem *item;
+
 	//printf("Update Periodic\n");
 
 	if ( windowUpdateReq )
@@ -3231,6 +3782,20 @@ void ConsoleDebugger::updatePeriodic(void)
 		//printf("Bookmark Tree Update\n");
 		bmListUpdate( true );
 	}
+
+	item = bpTree->currentItem();
+
+	if ( item == NULL )
+	{
+		buttonEnable = false;
+	}
+	else
+	{
+		buttonEnable = true;
+	}
+	bpAddBtn->setEnabled(true);
+	bpEditBtn->setEnabled(buttonEnable);
+	bpDelBtn->setEnabled(buttonEnable);
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::breakPointNotify( int bpNum )
@@ -3279,12 +3844,14 @@ void ConsoleDebugger::hbarChanged(int value)
 {
 	//printf("HBar Changed: %i\n", value);
 	asmView->setXScroll( value );
+	asmView->update();
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::vbarChanged(int value)
 {
 	//printf("VBar Changed: %i\n", value);
 	asmView->setLine( value );
+	asmView->update();
 }
 //----------------------------------------------------------------------------
 void bpDebugSetEnable(bool val)
@@ -3458,6 +4025,10 @@ void saveGameDebugBreakpoints( bool force )
 		{
 			flags[1] = 'S';
 		}
+		else if ( watchpoint[i].flags & BT_R )
+		{
+			flags[1] = 'R';
+		}
 		else
 		{
 			flags[1] = 'C';
@@ -3469,7 +4040,7 @@ void saveGameDebugBreakpoints( bool force )
 		flags[5] = (watchpoint[i].flags & WP_F) ? 'F' : '-';
 		flags[6] = 0;
 
-		fprintf( fp, "BreakPoint: startAddr=%04X  endAddr=%04X  flags=%s  condition=\"%s\"  desc=\"%s\" \n",
+		fprintf( fp, "BreakPoint: startAddr=%08X  endAddr=%08X  flags=%s  condition=\"%s\"  desc=\"%s\" \n",
 			  	watchpoint[i].address, watchpoint[i].endaddress, flags,
 			  		(watchpoint[i].condText != NULL) ? watchpoint[i].condText : "",
 			  		(watchpoint[i].desc != NULL) ? watchpoint[i].desc : "");
@@ -3642,6 +4213,10 @@ void loadGameDebugBreakpoints(void)
 					{
 						type |= BT_S;
 					}
+					else if ( data[1] == 'R' )
+					{
+						type |= BT_R;
+					}
 					else 
 					{
 						type |= BT_C;
@@ -3730,12 +4305,12 @@ QAsmView::QAsmView(QWidget *parent)
 	addressColor.setRgb( 106, 90, 205 );
 	immediateColor.setRgb( 255, 1, 255 );
 
-	fceuLoadConfigColor( "SDL.DebuggerSyntaxColorOpcode"   , &opcodeColor );
-	fceuLoadConfigColor( "SDL.DebuggerSyntaxColorAddress"  , &addressColor );
-	fceuLoadConfigColor( "SDL.DebuggerSyntaxColorImmediate", &immediateColor );
-	fceuLoadConfigColor( "SDL.DebuggerSyntaxColorLabel"    , &labelColor );
-	fceuLoadConfigColor( "SDL.DebuggerSyntaxColorComment"  , &commentColor );
-	fceuLoadConfigColor( "SDL.DebuggerSyntaxColorPC"       , &pcBgColor );
+	fceuLoadConfigColor( "SDL.AsmSyntaxColorOpcode"   , &opcodeColor );
+	fceuLoadConfigColor( "SDL.AsmSyntaxColorAddress"  , &addressColor );
+	fceuLoadConfigColor( "SDL.AsmSyntaxColorImmediate", &immediateColor );
+	fceuLoadConfigColor( "SDL.AsmSyntaxColorLabel"    , &labelColor );
+	fceuLoadConfigColor( "SDL.AsmSyntaxColorComment"  , &commentColor );
+	fceuLoadConfigColor( "SDL.AsmSyntaxColorPC"       , &pcBgColor );
 
 	g_config->getOption("SDL.DebuggerAsmFont", &fontString);
 
@@ -3786,15 +4361,16 @@ QAsmView::QAsmView(QWidget *parent)
 	this->setPalette(pal);
 	this->setMouseTracking(true);
 
+	showByteCodes = false;
+	displayROMoffsets = false;
+	symbolicDebugEnable = true;
+	registerNameEnable = true;
+
 	calcFontData();
 
 	vbar = NULL;
 	hbar = NULL;
 	asmPC = NULL;
-	displayROMoffsets = false;
-	symbolicDebugEnable = true;
-	registerNameEnable = true;
-	showByteCodes = false;
 	maxLineLen = 0;
 	pxLineWidth = 0;
 	lineOffset = 0;
@@ -3872,7 +4448,7 @@ void QAsmView::setXScroll(int value)
 	}
 	else
 	{
-		pxLineXScroll = (int)(0.010f * (float)value * (float)(pxLineWidth - viewWidth) );
+		pxLineXScroll = value;
 	}
 }
 //----------------------------------------------------------------------------
@@ -3880,53 +4456,175 @@ void QAsmView::scrollToPC(void)
 {
 	if ( asmPC != NULL )
 	{
-		int ofs = 0;
-		int maxOfs = (viewLines-3);
+		curNavLoc.addr = asmPC->addr;
 
-		if ( maxOfs < 0 )
-		{
-			maxOfs = 0;
-		}
+		scrollToLine( asmPC->line );
+	}
+}
+//----------------------------------------------------------------------------
+void QAsmView::scrollToAddr( int addr )
+{
+	int line = getAsmLineFromAddr(addr);
 
-		switch ( pcLinePlacement )
-		{
-			default:
-			case 0:
+	curNavLoc.addr = asmPC->addr;
+
+	scrollToLine( line );
+}
+//----------------------------------------------------------------------------
+void QAsmView::scrollToLine( int line )
+{
+	int ofs = 0;
+	int maxOfs = (viewLines-3);
+
+	if ( maxOfs < 0 )
+	{
+		maxOfs = 0;
+	}
+
+	switch ( pcLinePlacement )
+	{
+		default:
+		case 0:
+			ofs = 0;
+		break;
+		case 1:
+			ofs = (viewLines / 4);
+		break;
+		case 2:
+			ofs = (viewLines / 2);
+		break;
+		case 3:
+			ofs = (viewLines*3) / 4;
+		break;
+		case 4:
+			ofs =  maxOfs;
+		break;
+		case 5:
+			ofs = pcLineOffset;
+
+			if ( ofs < 0 )
+			{
 				ofs = 0;
-			break;
-			case 1:
-				ofs = (viewLines / 4);
-			break;
-			case 2:
-				ofs = (viewLines / 2);
-			break;
-			case 3:
-				ofs = (viewLines*3) / 4;
-			break;
-			case 4:
-				ofs =  maxOfs;
-			break;
-			case 5:
-				ofs = pcLineOffset;
+			}
+			else if ( ofs > maxOfs )
+			{
+				ofs = maxOfs;
+			}
+		break;
+	}
 
-				if ( ofs < 0 )
-				{
-					ofs = 0;
-				}
-				else if ( ofs > maxOfs )
-				{
-					ofs = maxOfs;
-				}
-			break;
+	lineOffset = line - ofs;
+
+	if ( lineOffset < 0 )
+	{
+		lineOffset = 0;
+	}
+	vbar->setValue( lineOffset );
+}
+//----------------------------------------------------------------------------
+void QAsmView::gotoPC(void)
+{
+	if ( asmPC != NULL )
+	{
+		gotoLine( asmPC->line );
+	}
+}
+//----------------------------------------------------------------------------
+void QAsmView::gotoAddr( int addr )
+{
+	int line = getAsmLineFromAddr(addr);
+
+	gotoLine( line );
+}
+//----------------------------------------------------------------------------
+void QAsmView::gotoLine( int line )
+{
+	if ( (line >= 0) && (line < asmEntry.size()) )
+	{
+		if ( curNavLoc.addr != asmEntry[line]->addr )
+		{	// Don't push back to back duplicates into the navigation history
+			pushAddrHist();
 		}
+		curNavLoc.addr = asmEntry[line]->addr;
 
-		lineOffset = asmPC->line - ofs;
+		scrollToLine( line );
 
-		if ( lineOffset < 0 )
+		setSelAddrToLine(line);
+	}
+}
+//----------------------------------------------------------------------------
+void QAsmView::pushAddrHist(void)
+{
+	if ( navBckHist.size() > 0)
+	{
+		if ( navBckHist.back().addr == curNavLoc.addr )
 		{
-			lineOffset = 0;
+			//printf("Address is Same\n");
+			return;
 		}
-		vbar->setValue( lineOffset );
+	}
+	navBckHist.push_back(curNavLoc);
+
+	navFwdHist.clear();
+
+	//printf("Push Address: $%04X   %zi\n", curNavLoc.addr, navBckHist.size() );
+}
+//----------------------------------------------------------------------------
+void QAsmView::navHistBack(void)
+{
+	if ( navBckHist.size() > 0)
+	{
+		navFwdHist.push_back(curNavLoc);
+
+		curNavLoc = navBckHist.back();
+
+		navBckHist.pop_back();
+
+		int line = getAsmLineFromAddr( curNavLoc.addr );
+
+		scrollToLine( line );
+		setSelAddrToLine( line );
+	}
+}
+//----------------------------------------------------------------------------
+void QAsmView::navHistForward(void)
+{
+	if ( navFwdHist.size() > 0 )
+	{
+		navBckHist.push_back(curNavLoc);
+
+		curNavLoc = navFwdHist.back();
+
+		navFwdHist.pop_back();
+
+		int line = getAsmLineFromAddr( curNavLoc.addr );
+
+		scrollToLine( line );
+		setSelAddrToLine( line );
+	}
+}
+//----------------------------------------------------------------------------
+void QAsmView::setSelAddrToLine( int line )
+{
+	if ( (line >= 0) && (line < asmEntry.size()) )
+	{
+		int addr = asmEntry[line]->addr;
+		selAddrLine  = line;
+		selAddrChar  = pcLocLinePos + 3;
+		selAddrWidth = 4;
+		selAddrValue = addr;
+		sprintf( selAddrText, "%04X", addr );
+
+		parent->setBookmarkSelectedAddress( addr );
+
+		//printf("Selected ADDR:  $%04X   '%s'  '%s'\n", addr, selAddrText, asmEntry[line]->text.c_str() );
+
+		txtHlgtAnchorLine = -1;
+		txtHlgtAnchorChar = -1;
+		txtHlgtStartChar  = -1;
+		txtHlgtStartLine  = -1;
+		txtHlgtEndChar    = -1;
+		txtHlgtEndLine    = -1;
 	}
 }
 //----------------------------------------------------------------------------
@@ -3999,10 +4697,12 @@ void QAsmView::calcFontData(void)
 #else
 	pxCharWidth = metrics.width(QLatin1Char('2'));
 #endif
-	pxCharHeight   = metrics.height();
+	pxCharHeight   = metrics.capHeight();
 	pxLineSpacing  = metrics.lineSpacing() * 1.25;
-	pxLineLead     = pxLineSpacing - pxCharHeight;
-	pxCursorHeight = pxCharHeight;
+	pxLineLead     = pxLineSpacing - metrics.height();
+	pxCursorHeight = metrics.height();
+
+	printf("W:%i  H:%i  LS:%i  \n", pxCharWidth, pxCharHeight, pxLineSpacing );
 
 	viewLines   = (viewHeight / pxLineSpacing) + 1;
 
@@ -4030,9 +4730,13 @@ bool QAsmView::event(QEvent *event)
 {
 	if (event->type() == QEvent::ToolTip)
 	{
-		int line;
+		int i,j, line, addr = 0;
 		QHelpEvent *helpEvent = static_cast<QHelpEvent *>(event);
 		bool opcodeValid = false, showOpcodeDesc = false, showSymHexDecode = false;
+		bool showAddrDesc = false, showOperandAddrDesc = false;
+		char stmp[256];
+
+		printf("QEvent::ToolTip\n");
 
 		QPoint c = convPixToCursor(helpEvent->pos());
 
@@ -4042,6 +4746,8 @@ bool QAsmView::event(QEvent *event)
 				(asmEntry[line]->type == dbg_asm_entry_t::ASM_TEXT);
 
 		showOpcodeDesc = (c.x() >= opcodeLinePos) && (c.x() < operandLinePos) && opcodeValid;
+
+		showAddrDesc = (c.x() >= pcLocLinePos) && (c.x() < byteCodeLinePos) && opcodeValid;
 
 		if ( (c.x() > operandLinePos) && opcodeValid && (asmEntry[line]->sym.name.size() > 0) )
 		{
@@ -4060,6 +4766,52 @@ bool QAsmView::event(QEvent *event)
 			}
 		}
 
+		if ( opcodeValid && (c.x() > operandLinePos) &&
+				(c.x() < asmEntry[line]->text.size()) )
+		{
+			i = c.x();
+
+			if ( isxdigit( asmEntry[line]->text[i] ) )
+			{
+				int addrClicked = 1;
+				int addrTextLoc = i;
+
+				while ( isxdigit( asmEntry[line]->text[i] ) )
+				{
+					addrTextLoc = i;
+					i--;
+				}
+				if ( asmEntry[line]->text[i] == '$' || asmEntry[line]->text[i] == ':' )
+				{
+					i--;
+				}
+				else
+				{
+					addrClicked = 0;
+				}
+				if ( asmEntry[line]->text[i] == '#' )
+				{
+					addrClicked = 0;
+				}
+				if ( addrClicked )
+				{
+					j=0; i = addrTextLoc;
+					
+					while ( isxdigit( asmEntry[line]->text[i] ) )
+					{
+						stmp[j] = asmEntry[line]->text[i]; i++; j++;
+					}
+					stmp[j] = 0;
+
+					//printf("Addr: '%s'\n", stmp );
+
+					addr = strtol( stmp, NULL, 16 );
+
+					showOperandAddrDesc = true;
+				}
+			}
+		}
+
 		if ( showOpcodeDesc )
 		{
 			QString qs = fceuGetOpcodeToolTip(asmEntry[line]->opcode, asmEntry[line]->size );
@@ -4069,19 +4821,58 @@ bool QAsmView::event(QEvent *event)
 		}
 		else if ( showSymHexDecode )
 		{
-			char stmp[64];
-
 			sprintf( stmp, "$%04X", asmEntry[line]->sym.ofs );
+
+			QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
+		}
+		else if ( showAddrDesc )
+		{
+			if ( asmEntry[line]->bank < 0 )
+			{
+				sprintf( stmp, "ADDR:\t$%04X", asmEntry[line]->addr );
+			}
+			else
+			{
+				sprintf( stmp, "ADDR:\t$%04X\nBANK:\t$%02X\nROM:\t$%06X", 
+					asmEntry[line]->addr, asmEntry[line]->bank, asmEntry[line]->rom );
+			}
+
+			QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
+		}
+		else if ( showOperandAddrDesc )
+		{
+			int bank = -1, romOfs = -1;
+
+			if (addr >= 0x8000)
+			{
+				bank   = getBank(addr);
+				romOfs = GetNesFileAddress(addr);
+			}
+
+			if ( bank < 0 )
+			{
+				sprintf( stmp, "ADDR:\t$%04X", addr );
+			}
+			else
+			{
+				sprintf( stmp, "ADDR:\t$%04X\nBANK:\t$%02X\nROM:\t$%06X", 
+					addr, bank, romOfs );
+			}
 
 			QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
 		}
 		else
 		{
+			//printf("Tool Tip Hide\n");
 			QToolTip::hideText();
 			event->ignore();
 		}
 		return true;
 	}
+	//else if (event->type() == QEvent::Leave)
+	//{
+	//	printf("QEvent::Leave\n");
+	//}
 	return QWidget::event(event);
 }
 //----------------------------------------------------------------------------
@@ -4099,12 +4890,16 @@ void QAsmView::resizeEvent(QResizeEvent *event)
 	if ( viewWidth >= pxLineWidth )
 	{
 		pxLineXScroll = 0;
+		hbar->hide();
 	}
 	else
 	{
-		pxLineXScroll = (int)(0.010f * (float)hbar->value() * (float)(pxLineWidth - viewWidth) );
+		hbar->setPageStep( viewWidth );
+		hbar->setMaximum( pxLineWidth - viewWidth );
+		hbar->show();
+		pxLineXScroll = hbar->value();
 	}
-
+	vbar->setPageStep( (3*viewLines)/4 );
 }
 //----------------------------------------------------------------------------
 void QAsmView::keyPressEvent(QKeyEvent *event)
@@ -4425,10 +5220,32 @@ void QAsmView::mouseReleaseEvent(QMouseEvent * event)
 	if ( event->button() == Qt::LeftButton )
 	{
 		//printf("Left Button Release: (%i,%i)\n", c.x(), c.y() );
-		mouseLeftBtnDown = false;
-		setHighlightEndCoord( c.x(), line );
 
-		loadHighlightToClipboard();
+		if ( mouseLeftBtnDown )
+		{
+			mouseLeftBtnDown = false;
+			setHighlightEndCoord( c.x(), line );
+
+			loadHighlightToClipboard();
+		}
+	}
+}
+//----------------------------------------------------------------------------
+void QAsmView::mouseDoubleClickEvent(QMouseEvent * event)
+{
+	//printf("Double Click\n");
+
+	if ( selAddrValue >= 0 )
+	{
+		gotoAddr( selAddrValue );
+
+		mouseLeftBtnDown = false;
+		txtHlgtAnchorLine = -1;
+		txtHlgtAnchorChar = -1;
+		txtHlgtStartChar  = -1;
+		txtHlgtStartLine  = -1;
+		txtHlgtEndChar    = -1;
+		txtHlgtEndLine    = -1;
 	}
 }
 //----------------------------------------------------------------------------
@@ -4477,7 +5294,6 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 		{
 			if ( selChar < (int)asmEntry[line]->text.size() )
 			{
-
 				i = selChar;
 
 				if ( asmEntry[line]->sym.name.size() > 0 )
@@ -4554,22 +5370,21 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 		else if ( asmEntry[line]->type == dbg_asm_entry_t::SYMBOL_NAME )
 		{
 			selAddrLine  = line;
-			selAddrChar  = 0;
+			selAddrChar  = 3;
 			selAddrValue = addr = asmEntry[line]->addr;
 
-			if ( asmEntry[line]->text.size() > 0 )
+			i=selAddrChar; j=0;
+			while ( asmEntry[line]->text[i] != 0 )
 			{
-				selAddrWidth = asmEntry[line]->text.size()-1;
+				if ( j >= (int)sizeof(selAddrText) )
+				{
+					j=sizeof(selAddrText)-1;
+					break;
+				}
+				selAddrText[j] = asmEntry[line]->text[i]; i++; j++;
 			}
-			else
-			{
-				selAddrWidth = 0;
-			}
-			if ( selAddrWidth >= (int)sizeof(selAddrText) )
-			{
-				selAddrWidth = sizeof(selAddrText)-1;
-			}
-			strncpy( selAddrText, asmEntry[line]->text.c_str(), selAddrWidth );
+			selAddrText[j] = 0;
+			selAddrWidth = j-1;
 			selAddrText[ selAddrWidth ] = 0;
 		}
 
@@ -4577,7 +5392,7 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 		{
 			addr = asmEntry[line]->addr;
 			selAddrLine  = line;
-			selAddrChar  = 4;
+			selAddrChar  = pcLocLinePos+3;
 			selAddrWidth = 4;
 			selAddrValue = addr;
 			sprintf( selAddrText, "%04X", addr );
@@ -4651,6 +5466,7 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 	QMenu menu(this);
 	QPoint c = convPixToCursor( event->pos() );
 	bool enableRunToCursor = false;
+	char stmp[128];
 
 	line = lineOffset + c.y();
 
@@ -4681,6 +5497,12 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 			connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuRunToCursor(void)) );
 		}
 
+		sprintf( stmp, "Go to $%04X\tDouble+Click", ctxMenuAddr );
+		act = new QAction(tr(stmp), &menu);
+		menu.addAction(act);
+		//act->setShortcut( QKeySequence(tr("Ctrl+F10")));
+		connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuGoTo(void)) );
+
 		if ( isBreakpointAtAddr( addr ) >= 0 )
 		{
 			act = new QAction(tr("Edit &Breakpoint"), &menu);
@@ -4710,6 +5532,45 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 		
 		menu.exec(event->globalPos());
 	}
+}
+//----------------------------------------------------------------------------
+void QAsmView::drawPointerPC( QPainter *painter, int xl, int yl )
+{
+	int x, y, w, h, b, b2;
+	QPoint p[3];
+
+	b  = 2;
+	b2 = 2*b;
+
+	w =  pxCharWidth;
+
+	h = (pxCharHeight / 4);
+
+	if ( h < 1 )
+	{
+		h = 1;
+	}
+
+	x = xl + (pxCharWidth*2);
+	y = yl -  pxCharHeight + (pxCharHeight - h - b2)/2;
+
+	painter->fillRect( x, y, w, h+b2, Qt::black );
+
+	x = xl + (pxCharWidth*3);
+	y = yl;
+
+	p[0] = QPoint( x, y );
+	p[1] = QPoint( x, y-pxCharHeight );
+	p[2] = QPoint( x+pxCharWidth-1, y-(pxCharHeight/2) );
+
+	painter->setBrush(Qt::red);
+
+	painter->drawPolygon( p, 3 );
+
+	x = xl + (pxCharWidth*2);
+	y = yl -  pxCharHeight + (pxCharHeight - h)/2;
+
+	painter->fillRect( x+b, y, w, h, Qt::red );
 }
 //----------------------------------------------------------------------------
 void QAsmView::drawText( QPainter *painter, int x, int y, const char *txt )
@@ -4871,12 +5732,13 @@ void QAsmView::paintEvent(QPaintEvent *event)
 {
 	int x,y,l, row, nrow, selAddr;
 	int cd_boundary, asm_start_boundary;
-	int pxCharWidth2, vOffset;
+	int pxCharWidth2, vOffset, vlineOffset;
 	QPainter painter(this);
 	QColor white("white"), black("black"), blue("blue");
 	QColor hlgtFG("white"), hlgtBG("blue");
 	bool forceDarkColor = false;
 	bool txtHlgtSet = false;
+	bool lineIsPC = false;
 	QPen pen;
 
 	painter.setFont(font);
@@ -4914,6 +5776,8 @@ void QAsmView::paintEvent(QPaintEvent *event)
 	cd_boundary = (int)(2.5*pxCharWidth) - pxLineXScroll;
 	asm_start_boundary = cd_boundary + (10*pxCharWidth);
 	//asm_stop_boundary  = asm_start_boundary + (9*pxCharWidth);
+	
+	vlineOffset = -pxLineSpacing + (pxLineSpacing - pxCharHeight)/2;
 
 	painter.fillRect( 0, 0, viewWidth, viewHeight, this->palette().color(QPalette::Window) );
 	painter.fillRect( 0, 0, cd_boundary, viewHeight, this->palette().color(QPalette::Mid) );
@@ -4938,9 +5802,18 @@ void QAsmView::paintEvent(QPaintEvent *event)
 		{
 			if ( l == asmPC->line )
 			{
-				painter.fillRect( cd_boundary, y - pxLineSpacing + pxLineLead, viewWidth, pxLineSpacing, pcBgColor );
+				painter.fillRect( cd_boundary, y + vlineOffset, viewWidth, pxLineSpacing, pcBgColor );
 				forceDarkColor = true;
+				lineIsPC = true;
 			}
+			else
+			{
+				lineIsPC = false;
+			}
+		}
+		else
+		{
+			lineIsPC = false;
 		}
 
 		if ( l < asmEntry.size() )
@@ -4982,7 +5855,7 @@ void QAsmView::paintEvent(QPaintEvent *event)
 
 					ax = x + selAddrChar*pxCharWidth;
 
-					painter.fillRect( ax, y - pxLineSpacing + pxLineLead, selAddrWidth*pxCharWidth, pxLineSpacing, blue );
+					painter.fillRect( ax, y + vlineOffset, selAddrWidth*pxCharWidth, pxLineSpacing, blue );
 
 					painter.setPen( white );
 
@@ -5037,7 +5910,7 @@ void QAsmView::paintEvent(QPaintEvent *event)
 
 				ax = x + (hlgtXs * pxCharWidth);
 
-				painter.fillRect( ax, y - pxLineSpacing + pxLineLead, hlgtXd * pxCharWidth, pxLineSpacing, hlgtBG );
+				painter.fillRect( ax, y + vlineOffset, hlgtXd * pxCharWidth, pxLineSpacing, hlgtBG );
 
 				drawText( &painter, ax, y, s.c_str() );
 			}
@@ -5064,9 +5937,30 @@ void QAsmView::paintEvent(QPaintEvent *event)
 
 		if ( l < asmEntry.size() )
 		{
+			if ( asmPC != NULL )
+			{
+				if ( l == asmPC->line )
+				{
+					lineIsPC = true;
+				}
+				else
+				{
+					lineIsPC = false;
+				}
+			}
+			else
+			{
+				lineIsPC = false;
+			}
+
+			if ( lineIsPC )
+			{
+				drawPointerPC( &painter, x, y );
+			}
+
 			if ( asmEntry[l]->bpNum >= 0 )
 			{
-				painter.drawEllipse( cd_boundary - pxCharWidth2, y - pxLineSpacing + pxLineLead + vOffset, pxCharWidth, pxCharWidth );
+				painter.drawEllipse( cd_boundary - pxCharWidth2, y + vlineOffset + vOffset, pxCharWidth, pxCharWidth );
 			}
 		}
 
@@ -5432,5 +6326,423 @@ void DebuggerStackDisplay::updateText(void)
 
 	setMinimumWidth( pxCharWidth * charsPerLine );
 	setMinimumHeight( pxLineSpacing * 5 );
+}
+//----------------------------------------------------------------------------
+//--  PPU Control Register Widget
+//----------------------------------------------------------------------------
+ppuCtrlRegDpy::ppuCtrlRegDpy( QWidget *parent )
+	: QLineEdit( parent )
+{
+	popup = NULL;
+	setReadOnly(true);
+}
+//----------------------------------------------------------------------------
+ppuCtrlRegDpy::~ppuCtrlRegDpy( void )
+{
+	//if ( popup != NULL )
+	//{
+	//	popup->close();
+	//}
+}
+//----------------------------------------------------------------------------
+bool ppuCtrlRegDpy::event(QEvent *event)
+{
+	if (event->type() == QEvent::ToolTip)
+	{
+		QHelpEvent *helpEvent = static_cast<QHelpEvent *>(event);
+		//if ( popup == NULL )
+		//{
+		//	printf("Tool Tip Show\n");
+		//}
+		popup = static_cast<ppuRegPopup*>(fceuCustomToolTipShow( helpEvent, new ppuRegPopup(this) ));
+
+		QToolTip::hideText();
+		event->ignore();
+		return true;
+	}
+	return QWidget::event(event);
+}
+//----------------------------------------------------------------------------
+//--  PPU Register Tool Tip Popup
+//----------------------------------------------------------------------------
+ppuRegPopup::ppuRegPopup( QWidget *parent )
+	: fceuCustomToolTip( parent )
+{
+	QVBoxLayout *vbox, *vbox1;
+	QGridLayout *grid, *grid1;
+	QGroupBox *ctlFrame;
+	QFrame    *winFrame;
+	QLabel    *bgAddrLbl, *sprAddrLbl;
+	QLineEdit *ppuBgAddr;
+	QLineEdit *ppuSprAddr;
+	QCheckBox *bgEnabled_cbox;
+	QCheckBox *sprites_cbox;
+	QCheckBox *drawLeftBg_cbox;
+	QCheckBox *drawLeftFg_cbox;
+	QCheckBox *vwrite_cbox;
+	QCheckBox *nmiBlank_cbox;
+	QCheckBox *sprite8x16_cbox;
+	QCheckBox *grayscale_cbox;
+	QCheckBox *iRed_cbox;
+	QCheckBox *iGrn_cbox;
+	QCheckBox *iBlu_cbox;
+	char stmp[32];
+
+	//QPalette pal = this->palette();
+	//pal.setColor( QPalette::Window    , pal.color(QPalette::ToolTipBase) );
+	//pal.setColor( QPalette::WindowText, pal.color(QPalette::ToolTipText) );
+	//setPalette(pal);
+
+	vbox1    = new QVBoxLayout();
+	vbox     = new QVBoxLayout();
+	winFrame = new QFrame();
+	ctlFrame = new QGroupBox( tr("PPU Control / Mask") );
+	grid1    = new QGridLayout();
+	grid     = new QGridLayout();
+
+	winFrame->setFrameShape(QFrame::Box);
+
+	vbox1->addWidget( winFrame );
+	winFrame->setLayout( vbox );
+	vbox->addWidget( ctlFrame );
+	ctlFrame->setLayout( grid1 );
+
+	 bgAddrLbl = new QLabel( tr("BG Addr") );
+	sprAddrLbl = new QLabel( tr("Spr Addr") );
+
+	ppuBgAddr   = new QLineEdit();
+	ppuSprAddr  = new QLineEdit();
+
+	grid->addWidget( bgAddrLbl, 0, 0 );
+	grid->addWidget( sprAddrLbl, 1, 0 );
+	grid->addWidget( ppuBgAddr, 0, 1 );
+	grid->addWidget( ppuSprAddr, 1, 1 );
+
+	grid1->addLayout( grid, 0, 0, 3, 1 );
+
+	bgEnabled_cbox  = new QCheckBox( tr("BG Enabled") );
+	sprites_cbox    = new QCheckBox( tr("Sprites Enabled") );
+	drawLeftBg_cbox = new QCheckBox( tr("Draw Left BG (8px)") );
+	drawLeftFg_cbox = new QCheckBox( tr("Draw Left Sprites (8px)") );
+	vwrite_cbox     = new QCheckBox( tr("Vertical Write") );
+	nmiBlank_cbox   = new QCheckBox( tr("NMI on vBlank") );
+	sprite8x16_cbox = new QCheckBox( tr("8x16 Sprites") );
+	grayscale_cbox  = new QCheckBox( tr("Grayscale") );
+	iRed_cbox       = new QCheckBox( tr("Intensify Red") );
+	iGrn_cbox       = new QCheckBox( tr("Intensify Green") );
+	iBlu_cbox       = new QCheckBox( tr("Intensify Blue") );
+
+	sprintf( stmp, "$%04X", 0x2000 + (0x400*(PPU[0] & 0x03)));
+	ppuBgAddr->setText( tr(stmp) );
+
+	sprintf( stmp, "$%04X", (PPU[0] & 0x08) ? 0x1000 : 0x0000 );
+	ppuSprAddr->setText( tr(stmp) );
+
+	  nmiBlank_cbox->setChecked( PPU[0] & 0x80 );
+	sprite8x16_cbox->setChecked( PPU[0] & 0x20 );
+
+	 grayscale_cbox->setChecked( PPU[1] & 0x01 );
+	drawLeftBg_cbox->setChecked( PPU[1] & 0x02 );
+	drawLeftFg_cbox->setChecked( PPU[1] & 0x04 );
+	 bgEnabled_cbox->setChecked( PPU[1] & 0x08 );
+	   sprites_cbox->setChecked( PPU[1] & 0x10 );
+	      iRed_cbox->setChecked( PPU[1] & 0x20 );
+	      iGrn_cbox->setChecked( PPU[1] & 0x40 );
+	      iBlu_cbox->setChecked( PPU[1] & 0x80 );
+
+	grid1->addWidget( bgEnabled_cbox , 3, 0 );
+	grid1->addWidget( sprites_cbox   , 4, 0 );
+	grid1->addWidget( drawLeftBg_cbox, 5, 0 );
+	grid1->addWidget( drawLeftFg_cbox, 6, 0 );
+
+	grid1->addWidget( vwrite_cbox    , 0, 1 );
+	grid1->addWidget( nmiBlank_cbox  , 1, 1 );
+	grid1->addWidget( sprite8x16_cbox, 2, 1 );
+	grid1->addWidget( grayscale_cbox , 3, 1 );
+	grid1->addWidget( iRed_cbox      , 4, 1 );
+	grid1->addWidget( iGrn_cbox      , 5, 1 );
+	grid1->addWidget( iBlu_cbox      , 6, 1 );
+
+	setLayout( vbox1 );
+}
+//----------------------------------------------------------------------------
+ppuRegPopup::~ppuRegPopup( void )
+{
+	//printf("Popup Deleted\n");
+}
+//----------------------------------------------------------------------------
+//--- Debugger Tabbed Data Display
+//----------------------------------------------------------------------------
+DebuggerTabWidget::DebuggerTabWidget( int row, int col, QWidget *parent )
+	: QTabWidget(parent)
+{
+	DebuggerTabBar *bar = new DebuggerTabBar(this);
+	setTabBar( bar );
+	bar->setAcceptDrops(true);
+	bar->setChangeCurrentOnDrag(true);
+	setMouseTracking(true);
+	setAcceptDrops(true);
+
+	_row = row;
+	_col = col;
+
+	setMovable(true);
+	setUsesScrollButtons(true);
+
+	connect( bar, &DebuggerTabBar::beginDragOut, this,[this,bar](int index)
+	{
+		if (!this->indexValid(index))
+		{
+		    return;
+		}
+		QWidget *drag_tab=this->widget(index);
+		//Fixed tab will not be dragged out
+		if (!drag_tab /*||fixedPage.contains(drag_tab)*/)
+		{
+		    return;
+		}
+		//Drag and drop the current page as a snapshot
+		//The size adds the title bar and border
+		QPixmap pixmap(drag_tab->size()+QSize(2,31));
+		pixmap.fill(Qt::transparent);
+
+		QPainter painter(&pixmap);
+
+		if (painter.isActive())
+		{
+			//I want to make the title bar pasted on the content
+			//But you can't get the image of the default title bar, just draw a rectangular box
+			//If the external theme color is set, you need to change it
+			QRect title_rect{0,0,pixmap.width(),30};
+			painter.fillRect(title_rect,Qt::white);
+			painter.drawText(title_rect,Qt::AlignLeft|Qt::AlignVCenter,"  "+drag_tab->windowTitle());
+			painter.drawRect(pixmap.rect().adjusted(0,0,-1,-1));
+		}
+		painter.end();
+		drag_tab->render(&pixmap,QPoint(1,30));
+		
+		QMimeData *mime=new QMimeData;
+		QDrag *drag=new QDrag(bar);
+		drag->setMimeData(mime);
+		drag->setPixmap(pixmap);
+		drag->setHotSpot(QPoint(10,0));
+		
+		//Drag is released after the mouse bounces up, at this time to judge whether it is dragged to the outside
+		connect(drag,&QDrag::destroyed,this,[=]{
+		    QPoint bar_point=bar->mapFromGlobal(QCursor::pos());
+		                 //Out of range, drag out
+		    if (!bar->contentsRect().contains(bar_point))
+		    {
+		        popPage(drag_tab);
+		    }
+		});
+		
+		drag->exec(Qt::MoveAction);
+	});
+}
+//----------------------------------------------------------------------------
+DebuggerTabWidget::~DebuggerTabWidget(void)
+{
+
+}
+//----------------------------------------------------------------------------
+bool DebuggerTabWidget::indexValid(int idx)
+{
+	return ( (idx >= 0) && (idx < count()) );
+}
+//----------------------------------------------------------------------------
+void DebuggerTabWidget::dragEnterEvent(QDragEnterEvent *event)
+{
+	DebuggerTabBar *w = qobject_cast<DebuggerTabBar*>(event->source());
+	//printf("Tab Widget Drag Enter Event: %p\n", w);
+
+	if ( (w != NULL) && (event->dropAction() == Qt::MoveAction) )
+	{
+		//printf("Drag Action Accepted\n");
+		event->acceptProposedAction();
+	}
+}
+
+//----------------------------------------------------------------------------
+void DebuggerTabWidget::dropEvent(QDropEvent *event)
+{
+	DebuggerTabBar *bar = qobject_cast<DebuggerTabBar*>(event->source());
+	//printf("Tab Widget Drop Event: %p\n", bar);
+
+	if ( (bar != NULL) && (event->dropAction() == Qt::MoveAction) )
+	{
+		int idx = bar->currentIndex();
+
+		DebuggerTabWidget *p = qobject_cast<DebuggerTabWidget*>(bar->parent());
+		if ( p == NULL )
+		{
+			return;
+		}
+		QWidget *w = p->widget(idx);
+
+		if ( w )
+		{
+			QString txt = bar->tabText(idx);
+			//printf("Removing Widget from Parent:%p  %p  %p  %i\n", bar, p, w, idx);
+			p->removeTab( idx );
+			addTab(w, txt);
+
+			dbgWin->updateTabVisibility();
+		}
+	}
+}
+//----------------------------------------------------------------------------
+void DebuggerTabWidget::mouseMoveEvent(QMouseEvent * e)
+{
+	//printf("TabWidget: (%i,%i) \n", e->pos().x(), e->pos().y() );;
+}
+//----------------------------------------------------------------------------
+void DebuggerTabWidget::contextMenuEvent(QContextMenuEvent *event)
+{
+	buildContextMenu(event);
+}
+//----------------------------------------------------------------------------
+void DebuggerTabWidget::buildContextMenu(QContextMenuEvent *event)
+{
+	int i,j;
+	QAction *act;
+	QActionGroup *group;
+	QMenu menu(this);
+	QMenu *moveMenu, *subMenu;
+
+	//printf("TabWidget Context\n");
+
+	moveMenu = menu.addMenu( tr("Move Tab To...") );
+
+	group = new QActionGroup(moveMenu);
+	group->setExclusive(true);
+
+	for (j=0; j<4; j++)
+	{
+		const char *vertText;
+
+		switch (j)
+		{
+			default:
+			case 0:
+				vertText = "Upper";
+			break;
+			case 1:
+				vertText = "Mid-Upper";
+			break;
+			case 2:
+				vertText = "Mid-Lower";
+			break;
+			case 3:
+				vertText = "Lower";
+			break;
+		}
+		subMenu = moveMenu->addMenu( tr(vertText) );
+
+		for (i=0; i<2; i++)
+		{
+			const char *horzText = i ? "Right" : "Left";
+
+			act = new QAction(tr(horzText), &menu);
+
+			subMenu->addAction(act);
+			group->addAction(act);
+
+			QWidget *w = widget( currentIndex() );
+
+			connect( act, &QAction::triggered, [w, j, i]{ dbgWin->ConsoleDebugger::moveTab( w, j, i ); } );
+		}
+	}
+
+	menu.exec(event->globalPos());
+}
+//----------------------------------------------------------------------------
+void DebuggerTabWidget::popPage(QWidget *page)
+{
+	printf("Pop Page: %p\n", page);
+}
+//----------------------------------------------------------------------------
+//--- Debugger Tabbed Data Display
+//----------------------------------------------------------------------------
+DebuggerTabBar::DebuggerTabBar( QWidget *parent )
+	: QTabBar(parent)
+{
+	setMouseTracking(true);
+	setAcceptDrops(true);
+	theDragPress = false;
+	theDragOut = false;
+}
+//----------------------------------------------------------------------------
+DebuggerTabBar::~DebuggerTabBar(void)
+{
+}
+//----------------------------------------------------------------------------
+void DebuggerTabBar::mouseMoveEvent( QMouseEvent *event)
+{
+	//printf("TabBar Mouse Move: (%i,%i) \n", event->pos().x(), event->pos().y() );;
+	QTabBar::mouseMoveEvent(event);
+
+	if ( theDragPress && event->buttons())
+	{
+		//Is it out of the scope of tabbar
+		if ( !theDragOut && !contentsRect().contains(event->pos()) )
+		{
+			theDragOut=true;
+			emit beginDragOut(this->currentIndex());
+			
+			//The release will not be triggered after QDrag.exec, manually trigger it yourself
+			//But he still seems to animate after the mouse is up, to be resolved
+			QMouseEvent *e=new QMouseEvent(QEvent::MouseButtonRelease,
+			                                  this->mapFromGlobal(QCursor::pos()),
+			                                   Qt::LeftButton,
+			                                   Qt::LeftButton,
+			                                   Qt::NoModifier);
+			//mouseReleaseEvent(event);
+			QApplication::postEvent(this,e);
+		}
+	}
+}
+//----------------------------------------------------------------------------
+void DebuggerTabBar::mousePressEvent( QMouseEvent *event)
+{
+	printf("TabBar Mouse Press: (%i,%i) \n", event->pos().x(), event->pos().y() );;
+	QTabBar::mousePressEvent(event);
+
+	if ( (event->button() == Qt::LeftButton) && (currentIndex() >= 0) )
+	{
+		//Save state
+		theDragPress = true;
+	}
+}
+//----------------------------------------------------------------------------
+void DebuggerTabBar::mouseReleaseEvent( QMouseEvent *event)
+{
+	//printf("TabBar Mouse Release: (%i,%i) \n", event->pos().x(), event->pos().y() );;
+	QTabBar::mouseReleaseEvent(event);
+	theDragPress = false;
+	theDragOut = false;
+}
+//----------------------------------------------------------------------------
+void DebuggerTabBar::contextMenuEvent(QContextMenuEvent *event)
+{
+	int idx;
+
+	idx = tabAt(event->pos());
+
+	if ( idx < 0 )
+	{
+		idx = currentIndex();
+	}
+
+	if ( idx != currentIndex() )
+	{
+		setCurrentIndex(idx);
+	}
+	DebuggerTabWidget *p = qobject_cast<DebuggerTabWidget*>(parent());
+
+	if ( p )
+	{
+		p->buildContextMenu(event);
+	}
 }
 //----------------------------------------------------------------------------
