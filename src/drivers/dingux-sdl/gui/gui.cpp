@@ -15,6 +15,7 @@
 extern SDL_Surface* screen;
 extern int RunFileBrowser(char *source, char *romname, const char *types[],
 		const char *info = NULL);
+extern int isloaded;
 
 typedef struct _menu_entry {
 	const char *name;
@@ -33,6 +34,7 @@ int g_slot = 0; // make it accessible from input.cpp
 static int g_romtype;
 static unsigned long g_key = 0, last_key;
 static int counter = 0;
+static Config *oldConfig=NULL;
 
 void FCEUGUI_Flip()
 {
@@ -220,12 +222,54 @@ static int load_rom() {
 		exit(-1);
 	}
 
+	if (oldConfig) {
+	        free(oldConfig);
+	        oldConfig = NULL;
+	}
+
+	// Set last filename behind CloseGame to avoid save bad values in cfg
+	// for previous loaded rom
+	g_config->setOption("SDL.LastOpenFile", filename);
+
 	return 1;
 }
 
 static int reset_nes() {
 	FCEUI_ResetNES();
 	return 1;
+}
+
+void HardReset(void)
+{
+	if (isloaded)
+	{
+		const char *lastFile;
+		g_config->getOption("SDL.LastOpenFile", &lastFile);
+		LoadGame(lastFile);
+	}
+}
+
+static void backupCurrentConfig(void) {
+	if (oldConfig) {
+		free(oldConfig);
+		oldConfig = NULL;
+	}
+	oldConfig = new Config(*g_config);
+}
+
+static void resetIfNeeded(void) {
+	int gg_previous, gg_new;
+
+	if (!oldConfig)
+	    return;
+
+	oldConfig->getOption("SDL.GameGenie", &gg_previous);
+	g_config->getOption("SDL.GameGenie", &gg_new);
+
+	if (gg_previous != gg_new)
+	    HardReset();
+	free(oldConfig);
+	oldConfig = NULL;
 }
 
 // Dirty way of flipping disc
@@ -353,6 +397,8 @@ void FCEUGUI_Run() {
 	int done = 0, y, i;
 	static int current_menu_items = main_menu_items;
 	int index_correction;
+
+	backupCurrentConfig();
 
 	InitGuiVideo();
 
@@ -487,6 +533,8 @@ void FCEUGUI_Run() {
 	int save_FDSSwitchRequested = FDSSwitchRequested;
 	FCEUD_DriverReset();
 	FDSSwitchRequested = save_FDSSwitchRequested;
+
+	resetIfNeeded();
 
 	// Clear screen
 	dingoo_clear_video();

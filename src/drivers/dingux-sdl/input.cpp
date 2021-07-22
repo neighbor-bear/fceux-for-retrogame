@@ -344,7 +344,15 @@ static void KeyboardCommands() {
 			g_config->setOption("SDL.ShowFPS", showfps);
 			resetkey(DINGOO_UP);
 		}
-		if(_keyonly(DINGOO_DOWN)) {// R + DOWN activate subtitle display (??) is this really needed
+		if(_keyonly(DINGOO_DOWN)) {// R + DOWN Toggle Game Genie
+			int gg;
+			g_config->getOption("SDL.GameGenie", &gg);
+			gg ^= 1;
+			g_config->setOption("SDL.GameGenie", gg);
+			FCEUI_SetGameGenie(gg ? 1 : 0);
+			bool FCEU_OpenGenie(void);
+			if (!FCEU_OpenGenie())
+			    HardReset();
 			resetkey(DINGOO_DOWN);
 		}
 		if(_keyonly(DINGOO_LEFT)) { // R + LEFT  insert vsuini coin

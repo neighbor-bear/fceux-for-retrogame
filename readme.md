@@ -10,6 +10,14 @@ You can see the upstream FCEUX changelog [here](http://fceux.com/web/help/WhatsN
 
 To load FDS files bios file `disksys.rom` is needed. It must be placed at `$HOME/.fceux` directory or in the game directory.
 
+## Game Genie
+
+You must place Game Genie rom in the `$HOME/.fceux` directory and it must be named `gg.rom`.
+
+You can toggle it in `Settings Menu --> Main Setup` or with the hotkey `R1 + DOWN`.
+
+When toggled a hard reset will be done if a rom was loaded.
+
 ## Controls
 
 FCEUX|Nes
@@ -33,6 +41,7 @@ R1 + B 				|Load state (current slot from gui is used)
 R1 + X				|Toggle fullscreen
 R1 + Y				|Flip fds disk
 R1 + UP				|Toggle framerate display
+R1 + DOWN			|Toggle Game Genie
 R1 + LEFT			|Insert vsuni coin
 R1 + SELECT		|Save snapshot
 R1 + START		|Pause emulation
@@ -83,6 +92,9 @@ Examples:
 Build files are created in the `bin`directory.
 
 ## What's new
+
+ #### In progress (Not released yet)
+  - Some refactorings for Game Genie use and assign hotkey to toggle it.
 
 #### 21 July 2021
 

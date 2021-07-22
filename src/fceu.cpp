@@ -514,6 +514,9 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 		// ################################## End of SP CODE ###########################
 #endif
 
+#ifdef DINGUX
+		FCEUD_ReloadConfig();
+#endif
 		if (OverwriteVidMode)
 			FCEU_ResetVidSys();
 

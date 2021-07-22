@@ -12,6 +12,20 @@
 #include "configSys.h"
 
 std::string cfgFile = "fceux.cfg";
+
+#if DINGUX
+Config::Config(const Config &config)
+{
+        _dir = config._dir;
+        _strOptMap = config._strOptMap;
+	_intOptMap = config._intOptMap;
+	_dblOptMap = config._dblOptMap;
+	_fnOptMap = config._fnOptMap;
+	_shortArgMap = config._shortArgMap;
+	_longArgMap = config._longArgMap;
+}
+#endif
+
 /**
  * Add a given option.  The option is specified as a short command
  * line (-f), long command line (--foo), option name (Foo), its type
@@ -627,6 +641,7 @@ char* Config::getConfigDirectory()
 	return strdup(_dir.c_str());
 }
 
+#if DINGUX
 int
 Config::reload(const std::string &cfgname)
 {
@@ -690,6 +705,7 @@ Config::reload(const std::string &cfgname)
 
 	return 0;
 }
+#endif
 
 // load and parse the default configuration file
 int
@@ -833,6 +849,7 @@ Config::save()
 	return 0;
 }
 
+#if DINGUX
 int
 Config::save(const std::string &name)
 {
@@ -879,3 +896,4 @@ Config::save(const std::string &name)
 
 	return 0;
 }
+#endif

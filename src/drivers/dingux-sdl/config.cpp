@@ -225,6 +225,10 @@ Config * InitConfig() {
 	config->addOption("mute", "SDL.MuteCapture", 0);
 #endif
 
+	char* home_dir = getenv("HOME");
+	// prefixed with _ because they are internal (not cli options)
+	config->addOption("_lastopenfile", "SDL.LastOpenFile", home_dir);
+
 	// fcm -> fm2 conversion
 	config->addOption("fcmconvert", "SDL.FCMConvert", "");
 

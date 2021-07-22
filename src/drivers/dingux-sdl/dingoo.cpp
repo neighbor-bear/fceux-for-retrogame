@@ -54,7 +54,7 @@ extern double g_fpsScale;
 
 extern bool MaxSpeed;
 
-static int isloaded;
+int isloaded;
 
 int closeFinishedMovie = 0;
 
@@ -187,6 +187,22 @@ void FCEUD_Message(char *s) {
 }
 
 /**
+ * Reload game config or default config
+ */
+int FCEUD_ReloadConfig(void) {
+        int gg_enabled=0;
+
+	if (g_config->reload(FCEU_MakeFName(FCEUMKF_CFG, 0, 0))==-1)
+	    return 0;
+
+	// Enable Game Genie if needed
+	g_config->getOption("SDL.GameGenie", &gg_enabled);
+	FCEUI_SetGameGenie(gg_enabled);
+
+	return 1;
+}
+
+/**
  * Loads a game, given a full path/filename.  The driver code must be
  * initialized after the game is loaded, because the emulator code
  * provides data necessary for the driver code(number of scanlines to
@@ -199,22 +215,6 @@ int LoadGame(const char *path) {
 	}
 	ParseGIInput(GameInfo);
 	RefreshThrottleFPS();
-
-	// 20210721 FIX
-        // Fix for save settings per game and auto change video region.
-	// In FCEUD_VideoRegionSave we have enabled the video region (SDL.PAL)
-	// This is so because we have called FCEUI_LoadGame with parameter
-	// OverwriteVidMode=1 that automatically will set the PAL/NTSC region.
-	// Recover here the value stablished then reload the game config and
-	// set again the value for video region.
-	int pal=0;
-	g_config->getOption("SDL.PAL", &pal);
-
-	// Reload game config or default config
-	g_config->reload(FCEU_MakeFName(FCEUMKF_CFG, 0, 0));
-
-	// Set video mode.
-	g_config->setOption("SDL.PAL", pal);
 
 #ifdef FRAMESKIP
 	// Update frameskip value
@@ -792,6 +792,7 @@ int main(int argc, char *argv[]) {
 			SDL_Quit();
 			return -1;
 		}
+		g_config->setOption("SDL.LastOpenFile", argv[romIndex]);
 	} else {
 		// Launch file browser
 		const char *types[] = { ".nes", ".fds", ".zip", ".fcm", ".fm2", ".nsf",
@@ -821,6 +822,7 @@ int main(int argc, char *argv[]) {
 			SDL_Quit();
 			return -1;
 		}
+		g_config->setOption("SDL.LastOpenFile", filename);
 	}
 
 	// movie playback
