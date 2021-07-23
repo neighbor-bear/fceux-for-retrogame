@@ -204,7 +204,6 @@ DRIVER_OBJS = $(SRC)drivers/dingux-sdl/config.o $(SRC)drivers/dingux-sdl/input.o
 	$(SRC)drivers/dingux-sdl/dingoo.o $(SRC)drivers/dingux-sdl/dingoo-joystick.o \
 	$(SRC)drivers/dingux-sdl/dingoo-throttle.o $(SRC)drivers/dingux-sdl/dingoo-sound.o \
 	$(SRC)drivers/dingux-sdl/dingoo-video.o $(SRC)drivers/dingux-sdl/dummy-netplay.o \
-	$(SRC)drivers/dingux-sdl/2xSaI.o \
 	$(SRC)drivers/dingux-sdl/scaler.o \
 	$(MINIMAL_OBJS) $(GUI_OBJS)
 
