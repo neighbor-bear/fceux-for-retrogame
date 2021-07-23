@@ -206,7 +206,6 @@ DRIVER_OBJS = $(SRC)drivers/dingux-sdl/config.o $(SRC)drivers/dingux-sdl/input.o
 	$(SRC)drivers/dingux-sdl/dingoo-video.o $(SRC)drivers/dingux-sdl/dummy-netplay.o \
 	$(SRC)drivers/dingux-sdl/2xSaI.o \
 	$(SRC)drivers/dingux-sdl/scaler.o \
-	$(SRC)drivers/dingux-sdl/dma.o \
 	$(MINIMAL_OBJS) $(GUI_OBJS)
 
 OBJS = $(CORE_OBJS) $(BOARDS_OBJS) $(INPUT_OBJS) $(MAPPERS_OBJS) $(UTILS_OBJS) \
