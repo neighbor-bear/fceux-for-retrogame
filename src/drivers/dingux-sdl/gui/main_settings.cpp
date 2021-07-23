@@ -15,6 +15,19 @@ static void pal_update(unsigned long key) {
 	g_config->setOption("SDL.PAL", val);
 }
 
+// Use PAL or NTSC rate
+static void autoresume_update(unsigned long key) {
+	int val;
+
+	if (key == DINGOO_RIGHT)
+		val = 1;
+	if (key == DINGOO_LEFT)
+		val = 0;
+
+	g_config->setOption("SDL.AutoResume", val);
+	FCEUD_SetAutoResume(val);
+}
+
 // TODO - Open game genie screen
 static void gg_update(unsigned long key) {
 	int val;
@@ -119,6 +132,7 @@ static void custom_update(unsigned long key) {
 static SettingEntry
 	st_menu[] = {
 		{ "PAL", "Use PAL timing", "SDL.PAL", pal_update },
+		{ "Auto-Resume", "Auto-Resume Play", "SDL.AutoResume", autoresume_update },
 		{ "Game Genie", "Emulate Game Genie", "SDL.GameGenie", gg_update },
 		{ "No sprite limit", "Disable sprite limit", "SDL.DisableSpriteLimit", sprite_limit_update },
 		{ "FPS Throttle", "Use fps throttling", "SDL.FPSThrottle", throttle_update },

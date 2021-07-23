@@ -15,6 +15,7 @@ int FCEUD_LoadMovie(const char *name, char *romname);
 int FCEUD_DriverReset();
 int FCEUD_VideoRegionSave(int pal);
 int FCEUD_ReloadConfig(void);
+void FCEUD_SetAutoResume(int val);
 
 void FCEUI_FDSFlip(void);
 

@@ -18,6 +18,12 @@ You can toggle it in `Settings Menu --> Main Setup` or with the hotkey `R1 + DOW
 
 When toggled a hard reset will be done if a rom was loaded.
 
+## Auto-resume play
+
+If enabled, FCEUX will make a special savestate every time you close ROM (loading another rom or exiting from emulator), and will automatically load the savestate when you open this ROM next time, so you can continue from where you left the game.
+
+This savestates will be created in the `$HOME/.fceux/fcs` directory and it will be named `<filename's game>-resume.fcs`
+
 ## Controls
 
 FCEUX|Nes
@@ -93,8 +99,9 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
- #### In progress (Not released yet)
+#### In progress (Not released yet)
   - Some refactorings for Game Genie use and assign hotkey to toggle it.
+  - Added autoresume. It can be enabled in `Main settings`. This is a feature from upstream FCEUX.
 
 #### 21 July 2021
 

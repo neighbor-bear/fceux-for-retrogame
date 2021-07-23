@@ -191,6 +191,7 @@ void FCEUD_Message(char *s) {
  */
 int FCEUD_ReloadConfig(void) {
         int gg_enabled=0;
+	int autoResume=0;
 
 	if (g_config->reload(FCEU_MakeFName(FCEUMKF_CFG, 0, 0))==-1)
 	    return 0;
@@ -198,6 +199,9 @@ int FCEUD_ReloadConfig(void) {
 	// Enable Game Genie if needed
 	g_config->getOption("SDL.GameGenie", &gg_enabled);
 	FCEUI_SetGameGenie(gg_enabled);
+	
+	g_config->getOption("SDL.AutoResume", &autoResume);
+	FCEUD_SetAutoResume(autoResume);
 
 	return 1;
 }
@@ -665,6 +669,10 @@ int main(int argc, char *argv[]) {
 		return 0;
 	}
 
+	int autoResume=0;
+	g_config->getOption("SDL.AutoResume", &autoResume);
+	FCEUD_SetAutoResume(autoResume);
+
 	// check to see if movie messages are disabled
 	int mm;
 	g_config->getOption("SDL.MovieMsg", &mm);
@@ -944,6 +952,9 @@ void FCEUD_TurboOff(void) {
 }
 void FCEUD_TurboToggle(void) {
 	NoWaiting ^= 1;
+}
+void FCEUD_SetAutoResume(int val) {
+    AutoResumePlay = val ? true : false;
 }
 FCEUFILE* FCEUD_OpenArchiveIndex(ArchiveScanRecord& asr, std::string &fname,
 		int innerIndex) {
