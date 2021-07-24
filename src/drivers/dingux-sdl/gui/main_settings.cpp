@@ -235,7 +235,7 @@ int RunMainSettings() {
 
 				g_config->getOption(st_menu[i].option, &itmp);
 
-				if (!strncmp(st_menu[i].name, "Custom palette", 6)) {
+				if (!strncmp(st_menu[i].name, "Custom palette", 14)) {
 					std::string palname;
 					g_config->getOption(st_menu[i].option, &palname);
 

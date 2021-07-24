@@ -377,7 +377,7 @@ extern void InitGuiVideo();
 // OpenDingux - Fix flip disk side
 extern int FDSSwitchRequested;
 
-int menu_items_process(int *current_menu_items) {
+void menu_items_process(int *current_menu_items) {
 	// Remove FDS Flip if not disk is loaded
 	if (g_romtype != GIT_FDS && *current_menu_items == main_menu_items) { // Remove "Flip disc" if not a FDS
 		for (int i = 2; i < main_menu_items - 1; i++)
@@ -396,13 +396,12 @@ void FCEUGUI_Run() {
 	static int spy = 72;
 	int done = 0, y, i;
 	static int current_menu_items = main_menu_items;
-	int index_correction;
 
 	backupCurrentConfig();
 
 	InitGuiVideo();
 
-	index_correction = menu_items_process(&current_menu_items);
+	menu_items_process(&current_menu_items);
 
 	load_preview();
 
@@ -438,7 +437,7 @@ void FCEUGUI_Run() {
 			done = main_menu[index].command();
 		}
 
-		if (index == (3 - index_correction) || index == (4 - index_correction)) {
+		if (!strncmp(main_menu[index].name, "Save state", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
 			if (parsekey(DINGOO_RIGHT, 0)) {
 				if (g_slot < 9) {
 					g_slot++;
@@ -473,7 +472,7 @@ void FCEUGUI_Run() {
 			DrawChar(gui_screen, SP_SELECTOR, 56, spy);
 			DrawChar(gui_screen, SP_SELECTOR, 77, spy);
 
-			if (index == (3 - index_correction) || index == (4 - index_correction)) {
+			if (!strncmp(main_menu[index].name, "Save state", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
 				// Draw state preview
 				DrawChar(gui_screen, SP_PREVIEWBLOCK, 184, 73);
 				draw_preview((unsigned short *)gui_screen->pixels, 185, 100);
@@ -481,7 +480,7 @@ void FCEUGUI_Run() {
 					DrawChar(gui_screen, SP_NOPREVIEW, 207, 135);
 			}
 
-			if (index == (5 - index_correction)) {
+			if (!strncmp(main_menu[index].name, "Screenshot", 10)) {
 				DrawChar(gui_screen, SP_PREVIEWBLOCK, 184, 73);
 				draw_shot_preview((unsigned short *)gui_screen->pixels, 185, 100);
 			}
@@ -498,7 +497,7 @@ void FCEUGUI_Run() {
 			DrawText(gui_screen, main_menu[index].info, 8, 225);
 
 			// If save/load state render slot preview and number
-			if (index == (3 - index_correction) || index == (4 - index_correction)) {
+			if (!strncmp(main_menu[index].name, "Save state", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
 				char tmp[32];
 				sprintf(tmp, "Slot %d", g_slot);
 				DrawText(gui_screen, tmp, 212, 80);
@@ -510,7 +509,7 @@ void FCEUGUI_Run() {
 			}
 
 			// If screenshot render current frame preview
-			if (index == (5 - index_correction)) {
+			if (!strncmp(main_menu[index].name, "Screenshot", 10)) {
 				DrawText(gui_screen, "Preview", 207, 80);
 			}
 
