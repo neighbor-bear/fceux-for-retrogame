@@ -375,6 +375,8 @@ fceuCustomToolTip::fceuCustomToolTip( QWidget *parent )
 	setBackgroundRole( QPalette::ToolTipBase );
 	setPalette( QToolTip::palette() );
 
+	hideOnMouseMode = false;
+
 	setMouseTracking(true);
 
 	//printf("Create Tool Tip\n");
@@ -392,6 +394,11 @@ fceuCustomToolTip::~fceuCustomToolTip( void )
 	{
 		instance = 0;
 	}
+}
+//---------------------------------------------------------------------------
+void fceuCustomToolTip::setHideOnMouseMove(bool val)
+{
+	hideOnMouseMode = val;
 }
 //---------------------------------------------------------------------------
 void fceuCustomToolTip::hideTip(void)
@@ -455,9 +462,18 @@ bool fceuCustomToolTip::eventFilter( QObject *obj, QEvent *event)
 			hideTipImmediately();
 			break;
 
+		case QEvent::KeyPress:
+		case QEvent::KeyRelease:
+			hideTipImmediately();
+			break;
+
 		case QEvent::MouseMove:
 		{
-			if ( (obj == w) && !rect().isNull() && 
+			if ( hideOnMouseMode )
+			{
+				hideTip();
+			}
+			else if ( (obj == w) && !rect().isNull() && 
 					!rect().contains(static_cast<QMouseEvent*>(event)->pos()))
 			{
 				hideTip();
@@ -492,14 +508,14 @@ void fceuCustomToolTip::mouseMoveEvent(QMouseEvent *event)
 //---------------------------------------------------------------------------
 // FCEU Data Entry Custom Validators
 //---------------------------------------------------------------------------
-fceuDecIntValidtor::fceuDecIntValidtor( int min, int max, QObject *parent)
+fceuDecIntValidtor::fceuDecIntValidtor( long long int min, long long int max, QObject *parent)
      : QValidator(parent)
 {
 	this->min = min;
 	this->max = max;
 }
 //---------------------------------------------------------------------------
-void fceuDecIntValidtor::setMinMax( int min, int max)
+void fceuDecIntValidtor::setMinMax( long long int min, long long int max)
 {
 	this->min = min;
 	this->max = max;
@@ -507,7 +523,7 @@ void fceuDecIntValidtor::setMinMax( int min, int max)
 //---------------------------------------------------------------------------
 QValidator::State fceuDecIntValidtor::validate(QString &input, int &pos) const
 {
-   int i, v;
+   long long int i, v;
    //printf("Validate: %i '%s'\n", input.size(), input.toStdString().c_str() );
 
    if ( input.size() == 0 )
@@ -541,7 +557,7 @@ QValidator::State fceuDecIntValidtor::validate(QString &input, int &pos) const
 		
 		if ( s[i] == 0 )
 		{
-			v = strtol( s.c_str(), NULL, 0 );
+			v = strtoll( s.c_str(), NULL, 0 );
 			
 			if ( v < min )
 			{
@@ -559,14 +575,14 @@ QValidator::State fceuDecIntValidtor::validate(QString &input, int &pos) const
 //---------------------------------------------------------------------------
 // FCEU Data Entry Custom Validators
 //---------------------------------------------------------------------------
-fceuHexIntValidtor::fceuHexIntValidtor( int min, int max, QObject *parent)
+fceuHexIntValidtor::fceuHexIntValidtor( long long int min, long long int max, QObject *parent)
      : QValidator(parent)
 {
 	this->min = min;
 	this->max = max;
 }
 //---------------------------------------------------------------------------
-void fceuHexIntValidtor::setMinMax( int min, int max)
+void fceuHexIntValidtor::setMinMax( long long int min, long long int max)
 {
 	this->min = min;
 	this->max = max;
@@ -574,7 +590,7 @@ void fceuHexIntValidtor::setMinMax( int min, int max)
 //---------------------------------------------------------------------------
 QValidator::State fceuHexIntValidtor::validate(QString &input, int &pos) const
 {
-   int i, v;
+   long long int i, v;
    //printf("Validate: %i '%s'\n", input.size(), input.toStdString().c_str() );
 
    if ( input.size() == 0 )
@@ -609,7 +625,7 @@ QValidator::State fceuHexIntValidtor::validate(QString &input, int &pos) const
 		
 		if ( s[i] == 0 )
 		{
-		  	v = strtol( s.c_str(), NULL, 16 );
+		  	v = strtoll( s.c_str(), NULL, 16 );
 		
 		  	if ( v < min )
 		  	{

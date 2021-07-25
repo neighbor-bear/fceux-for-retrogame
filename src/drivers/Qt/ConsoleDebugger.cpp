@@ -89,6 +89,12 @@ static void DeleteBreak(int sel);
 static bool waitingAtBp = false;
 static bool bpDebugEnable = true;
 static int  lastBpIdx   = 0;
+static bool breakOnCycleOneShot = 0;
+static bool breakOnInstrOneShot = 0;
+static int  breakOnCycleMode    = 1;
+static int  breakOnInstrMode    = 1;
+static unsigned long long int  breakOnCycleRelVal = 0;
+static unsigned long long int  breakOnInstrRelVal = 0;
 //----------------------------------------------------------------------------
 ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	: QDialog( parent, Qt::Window )
@@ -224,6 +230,12 @@ ConsoleDebugger::~ConsoleDebugger(void)
 		{
 			FCEUI_SetEmulationPaused(0);
 		}
+
+		break_on_cycles        = false;
+		break_on_instructions  = false;
+		break_on_unlogged_code = false;
+		break_on_unlogged_data = false;
+		FCEUI_Debugger().badopbreak = false;
 	}
 }
 //----------------------------------------------------------------------------
@@ -489,21 +501,25 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 	subMenu->addAction(act);
 
 	// View -> Show Byte Codes
+	g_config->getOption( "SDL.AsmShowByteCodes", &opt );
+
 	act = new QAction(tr("Show &Byte Codes"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Show &Byte Codes"));
 	act->setCheckable(true);
-	act->setChecked(false);
+	act->setChecked(opt);
 	connect( act, SIGNAL(triggered(bool)), this, SLOT(displayByteCodesCB(bool)) );
 
 	viewMenu->addAction(act);
 
 	// View -> Display ROM Offsets
+	g_config->getOption( "SDL.AsmShowRomOffsets", &opt );
+
 	act = new QAction(tr("Show ROM &Offsets"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Show ROM &Offsets"));
 	act->setCheckable(true);
-	act->setChecked(false);
+	act->setChecked(opt);
 	connect( act, SIGNAL(triggered(bool)), this, SLOT(displayROMoffsetCB(bool)) );
 
 	viewMenu->addAction(act);
@@ -577,35 +593,59 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 
 	debugMenu->addSeparator();
 
-	// Debug -> Break on Bad Opcodes
-	act = new QAction(tr("Break on Bad &Opcodes"), this);
+	subMenu = debugMenu->addMenu(tr("&Break On..."));
+
+	// Debug -> Break on -> Bad Opcodes
+	act = new QAction(tr("Bad &Opcodes"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("Break on Bad Opcodes"));
+	act->setStatusTip(tr("Bad Opcodes"));
 	act->setCheckable(true);
 	act->setChecked( FCEUI_Debugger().badopbreak );
 	connect( act, SIGNAL(triggered(bool)), this, SLOT(breakOnBadOpcodeCB(bool)) );
 
-	debugMenu->addAction(act);
+	subMenu->addAction(act);
 
-	// Debug -> Break on Unlogged Code
-	act = new QAction(tr("Break on Unlogged &Code"), this);
+	// Debug -> Break on -> Unlogged Code
+	act = new QAction(tr("Unlogged &Code"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("Break on Unlogged Code"));
+	act->setStatusTip(tr("Unlogged Code"));
 	act->setCheckable(true);
 	act->setChecked( break_on_unlogged_code );
 	connect( act, SIGNAL(triggered(bool)), this, SLOT(breakOnNewCodeCB(bool)) );
 
-	debugMenu->addAction(act);
+	subMenu->addAction(act);
 
-	// Debug -> Break on Unlogged Data
-	act = new QAction(tr("Break on Unlogged &Data"), this);
+	// Debug -> Break on -> Unlogged Data
+	act = new QAction(tr("Unlogged &Data"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
-	act->setStatusTip(tr("Break on Unlogged Data"));
+	act->setStatusTip(tr("Unlogged Data"));
 	act->setCheckable(true);
 	act->setChecked( break_on_unlogged_data );
 	connect( act, SIGNAL(triggered(bool)), this, SLOT(breakOnNewDataCB(bool)) );
 
-	debugMenu->addAction(act);
+	subMenu->addAction(act);
+
+	// Debug -> Break on -> Cycle Count Exceeded
+	brkOnCycleExcAct = act = new QAction(tr("C&ycle Count Exceeded"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("CPU Cycle Count Exceeded"));
+	act->setCheckable(true);
+	act->setChecked( break_on_cycles );
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(breakOnCyclesCB(bool)) );
+
+	subMenu->addAction(act);
+
+	// Debug -> Break on -> Instruction Count Exceeded
+	brkOnInstrExcAct = act = new QAction(tr("&Instruction Count Exceeded"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("CPU Instruction Count Exceeded"));
+	act->setCheckable(true);
+	act->setChecked( break_on_instructions );
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(breakOnInstructionsCB(bool)) );
+
+	subMenu->addAction(act);
+
+	debugMenu->addSeparator();
 
 	// Debug -> Reset Counters
 	act = new QAction(tr("Reset &Counters"), this);
@@ -662,21 +702,25 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 	symMenu->addSeparator();
 
 	// Symbols -> Symbolic Debug
+	g_config->getOption( "SDL.DebuggerShowSymNames", &opt );
+
 	act = new QAction(tr("&Symbolic Debug"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("&Symbolic Debug"));
 	act->setCheckable(true);
-	act->setChecked(true);
+	act->setChecked(opt);
 	connect( act, SIGNAL(triggered(bool)), this, SLOT(symbolDebugEnableCB(bool)) );
 
 	symMenu->addAction(act);
 
-	// Symbols -> Symbolic Debug
+	// Symbols -> Register Names
+	g_config->getOption( "SDL.DebuggerShowRegNames", &opt );
+
 	act = new QAction(tr("&Register Names"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("&Register Names"));
 	act->setCheckable(true);
-	act->setChecked(true);
+	act->setChecked(opt);
 	connect( act, SIGNAL(triggered(bool)), this, SLOT(registerNameEnableCB(bool)) );
 
 	symMenu->addAction(act);
@@ -711,7 +755,7 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addSeparator();
 
 	// Debug -> Run
-	act = new QAction(tr("&Run"), this);
+	act = new QAction(tr("&Run (F5)"), this);
 	//act->setShortcut(QKeySequence( tr("F5") ) );
 	act->setStatusTip(tr("Run"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
@@ -721,7 +765,7 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addAction(act);
 
 	// Debug -> Step Into
-	act = new QAction(tr("Step &Into"), this);
+	act = new QAction(tr("Step &Into (F11)"), this);
 	//act->setShortcut(QKeySequence( tr("F11") ) );
 	act->setStatusTip(tr("Step Into"));
 	act->setIcon( QIcon(":icons/StepInto.png") );
@@ -730,7 +774,7 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addAction(act);
 
 	// Debug -> Step Out
-	act = new QAction(tr("&Step Out"), this);
+	act = new QAction(tr("&Step Out (Shift+F11)"), this);
 	//act->setShortcut(QKeySequence( tr("Shift+F11") ) );
 	act->setStatusTip(tr("Step Out"));
 	act->setIcon( QIcon(":icons/StepOut.png") );
@@ -739,7 +783,7 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addAction(act);
 
 	// Debug -> Step Over
-	act = new QAction(tr("Step &Over"), this);
+	act = new QAction(tr("Step &Over (F10)"), this);
 	//act->setShortcut(QKeySequence( tr("F10") ) );
 	act->setStatusTip(tr("Step Over"));
 	act->setIcon( QIcon(":icons/StepOver.png") );
@@ -750,7 +794,7 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addSeparator();
 
 	// Debug -> Run Line
-	act = new QAction(tr("Run &Line"), this);
+	act = new QAction(tr("Run &Line (F6)"), this);
 	//act->setShortcut(QKeySequence( tr("F6") ) );
 	act->setStatusTip(tr("Run Line"));
 	act->setIcon( QIcon(":icons/RunPpuScanline.png") );
@@ -759,7 +803,7 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addAction(act);
 
 	// Debug -> Run 128 Lines
-	act = new QAction(tr("Run &128 Lines"), this);
+	act = new QAction(tr("Run &128 Lines (F7)"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Run 128 Lines"));
 	act->setIcon( QIcon(":icons/RunPpuFrame.png") );
@@ -2236,11 +2280,19 @@ void ConsoleDebugger::breakOnNewDataCB(bool value)
 	break_on_unlogged_data = value;
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::breakOnCyclesCB( int value )
+void ConsoleDebugger::breakOnCyclesCB( bool value )
 {
 	std::string s;
 
-	break_on_cycles = (value != Qt::Unchecked);
+	if ( value )
+	{
+		DebugBreakOnDialog *win = new DebugBreakOnDialog(0, this);
+		win->exec();
+	}
+	else
+	{
+		break_on_cycles = value;
+	}
 
 	//s = cpuCycExdVal->text().toStdString();
 
@@ -2266,11 +2318,19 @@ void ConsoleDebugger::cpuCycleThresChanged(const QString &txt)
 	}
 }
 //----------------------------------------------------------------------------
-void ConsoleDebugger::breakOnInstructionsCB( int value )
+void ConsoleDebugger::breakOnInstructionsCB( bool value )
 {
 	std::string s;
 
-	break_on_instructions = (value != Qt::Unchecked);
+	if ( value )
+	{
+		DebugBreakOnDialog *win = new DebugBreakOnDialog(1, this);
+		win->exec();
+	}
+	else
+	{
+		break_on_instructions = value;
+	}
 
 	//s = instrExdVal->text().toStdString();
 
@@ -2298,21 +2358,29 @@ void ConsoleDebugger::instructionsThresChanged(const QString &txt)
 //----------------------------------------------------------------------------
 void ConsoleDebugger::displayByteCodesCB( bool value )
 {
+	g_config->setOption( "SDL.AsmShowByteCodes", value );
+
 	asmView->setDisplayByteCodes(value);
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::displayROMoffsetCB( bool value )
 {
+	g_config->setOption( "SDL.AsmShowRomOffsets", value );
+
 	asmView->setDisplayROMoffsets(value);
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::symbolDebugEnableCB( bool value )
 {
+	g_config->setOption( "SDL.DebuggerShowSymNames", value );
+
 	asmView->setSymbolDebugEnable(value);
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::registerNameEnableCB( bool value )
 {
+	g_config->setOption( "SDL.DebuggerShowRegNames", value );
+
 	asmView->setRegisterNameEnable(value);
 }
 //----------------------------------------------------------------------------
@@ -2866,7 +2934,7 @@ void ConsoleDebugger::asmViewCtxMenuAddBP(void)
 	wp.condText = 0;
 	wp.desc = NULL;
 
-	bpNum = asmView->isBreakpointAtAddr( wp.address );
+	bpNum = asmView->isBreakpointAtAddr( wp.address, GetNesFileAddress(wp.address) );
 
 	if ( bpNum >= 0 )
 	{
@@ -2967,7 +3035,7 @@ void QAsmView::toggleBreakpoint(int line)
 	}
 }
 //----------------------------------------------------------------------------
-int QAsmView::isBreakpointAtAddr( int addr )
+int QAsmView::isBreakpointAtAddr( int cpuAddr, int romAddr )
 {
 	for (int i=0; i<numWPs; i++)
 	{
@@ -2979,19 +3047,40 @@ int QAsmView::isBreakpointAtAddr( int addr )
 		{
 			continue;
 		}
-		if ( watchpoint[i].endaddress )
+		if ( watchpoint[i].flags & BT_R )
 		{
-			if ( (addr >= watchpoint[i].address) && 
-				addr < watchpoint[i].endaddress )
+			if ( watchpoint[i].endaddress )
 			{
-				return i;
+				if ( (romAddr >= watchpoint[i].address) && 
+					romAddr < watchpoint[i].endaddress )
+				{
+					return i;
+				}
+			}
+			else
+			{
+				if (romAddr == watchpoint[i].address)
+				{
+					return i;
+				}
 			}
 		}
 		else
 		{
-			if (addr == watchpoint[i].address)
+			if ( watchpoint[i].endaddress )
 			{
-				return i;
+				if ( (cpuAddr >= watchpoint[i].address) && 
+					cpuAddr < watchpoint[i].endaddress )
+				{
+					return i;
+				}
+			}
+			else
+			{
+				if (cpuAddr == watchpoint[i].address)
+				{
+					return i;
+				}
 			}
 		}
 	}
@@ -3004,7 +3093,7 @@ int QAsmView::isBreakpointAtLine( int l )
 	{
 		if ( asmEntry[l]->type == dbg_asm_entry_t::ASM_TEXT )
 		{
-			return isBreakpointAtAddr( asmEntry[l]->addr );
+			return isBreakpointAtAddr( asmEntry[l]->addr, asmEntry[l]->rom );
 		}
 	}
 	return -1;
@@ -3086,7 +3175,7 @@ int  QAsmView::getAsmLineFromAddr(int addr)
 			if ( asmEntry[line]->addr < addr )
 			{
 				nextLine = line + 1;
-				if ( asmEntry[line]->addr > nextLine )
+				if ( asmEntry[nextLine]->addr > addr )
 				{
 					break;
 				}
@@ -3095,7 +3184,7 @@ int  QAsmView::getAsmLineFromAddr(int addr)
 			else if ( asmEntry[line]->addr > addr )
 			{
 				nextLine = line - 1;
-				if ( asmEntry[line]->addr < nextLine )
+				if ( asmEntry[nextLine]->addr < addr )
 				{
 					break;
 				}
@@ -3744,7 +3833,49 @@ void ConsoleDebugger::updatePeriodic(void)
 
 	if ( FCEUI_EmulationPaused() && !FCEUI_EmulationFrameStepped())
 	{
-		emuStatLbl->setText( tr(" Emulator Stopped / Paused") );
+		if ( waitingAtBp )
+		{
+			switch ( lastBpIdx )
+			{
+				case BREAK_TYPE_STEP:
+					emuStatLbl->setText( tr(" Emulator Paused on Step") );
+				break;
+				case BREAK_TYPE_BADOP:
+					emuStatLbl->setText( tr(" Emulator Paused on Bad Opcode") );
+				break;
+				case BREAK_TYPE_CYCLES_EXCEED:
+					emuStatLbl->setText( tr(" Emulator Paused on Cycle Count Exceedance") );
+				break;
+				case BREAK_TYPE_INSTRUCTIONS_EXCEED:
+					emuStatLbl->setText( tr(" Emulator Paused on Instruction Count Exceedance") );
+				break;
+				case BREAK_TYPE_LUA:
+					emuStatLbl->setText( tr(" Emulator Paused on Lua Breakpoint") );
+				break;
+				case BREAK_TYPE_UNLOGGED_CODE:
+					emuStatLbl->setText( tr(" Emulator Paused on Unlogged Code") );
+				break;
+				case BREAK_TYPE_UNLOGGED_DATA:
+					emuStatLbl->setText( tr(" Emulator Paused on Unlogged Data") );
+				break;
+				default:
+					if ( lastBpIdx >= 0 )
+					{
+						char stmp[128];
+						sprintf( stmp, " Emulator Stopped / Paused at Breakpoint: %i", lastBpIdx );
+						emuStatLbl->setText( tr(stmp) );
+					}
+					else
+					{
+						emuStatLbl->setText( tr(" Emulator Stopped / Paused at Breakpoint") );
+					}
+				break;
+			}
+		}
+		else
+		{
+			emuStatLbl->setText( tr(" Emulator Stopped / Paused") );
+		}
 		emuStatLbl->setStyleSheet("background-color: red; color: white;");
 	}
 	else
@@ -3761,6 +3892,7 @@ void ConsoleDebugger::updatePeriodic(void)
 	{
 		cpuCyclesLbl1->setStyleSheet(NULL);
 	}
+	brkOnCycleExcAct->setChecked( break_on_cycles );
 
 	if ( waitingAtBp && (lastBpIdx == BREAK_TYPE_INSTRUCTIONS_EXCEED) )
 	{
@@ -3770,6 +3902,7 @@ void ConsoleDebugger::updatePeriodic(void)
 	{
 		cpuInstrsLbl1->setStyleSheet(NULL);
 	}
+	brkOnInstrExcAct->setChecked( break_on_instructions );
 
 	if ( bpTree->topLevelItemCount() != numWPs )
 	{
@@ -3869,6 +4002,43 @@ void FCEUD_DebugBreakpoint( int bpNum )
 	}
 	lastBpIdx   = bpNum;
 	waitingAtBp = true;
+
+	if (bpNum == BREAK_TYPE_CYCLES_EXCEED)
+	{
+		if ( breakOnCycleOneShot )
+		{
+			break_on_cycles = false;
+		}
+		else
+		{
+			if ( breakOnCycleMode )
+			{
+				long long int totalCount = timestampbase + (uint64)timestamp - total_cycles_base;
+
+				if (totalCount < 0)	// sanity check
+				{
+					ResetDebugStatisticsCounters();
+					totalCount = 0;
+				}
+				break_cycles_limit = totalCount + breakOnCycleRelVal;
+				//printf("Increasing Cycles Limit by: %llu  to: %llu\n", breakOnCycleRelVal, break_cycles_limit );
+			}
+		}
+	}
+	else if (bpNum == BREAK_TYPE_INSTRUCTIONS_EXCEED)
+	{
+		if ( breakOnInstrOneShot )
+		{
+			break_on_instructions = false;
+		}
+		else
+		{
+			if ( breakOnInstrMode )
+			{
+				break_instructions_limit = total_instructions + breakOnInstrRelVal;
+			}
+		}
+	}
 
 	printf("Breakpoint Hit: %i \n", bpNum );
 
@@ -4296,6 +4466,9 @@ QAsmView::QAsmView(QWidget *parent)
 	QColor c;
 	std::string fontString;
 
+	viewWidth  = 512;
+	viewHeight = 512;
+
 	useDarkTheme = false;
 
 	pcBgColor.setRgb( 255, 255, 0 );
@@ -4357,14 +4530,21 @@ QAsmView::QAsmView(QWidget *parent)
 		pal.setColor(QPalette::WindowText, fg );
 	}
 
-	this->parent = (ConsoleDebugger*)parent;
+	//this->parent = (ConsoleDebugger*)parent;
+	this->parent = qobject_cast <ConsoleDebugger*>( parent );
 	this->setPalette(pal);
 	this->setMouseTracking(true);
 
+	isPopUp = false;
 	showByteCodes = false;
 	displayROMoffsets = false;
 	symbolicDebugEnable = true;
 	registerNameEnable = true;
+
+	g_config->getOption( "SDL.AsmShowByteCodes" , &showByteCodes );
+	g_config->getOption( "SDL.AsmShowRomOffsets", &displayROMoffsets );
+	g_config->getOption( "SDL.DebuggerShowSymNames", &symbolicDebugEnable );
+	g_config->getOption( "SDL.DebuggerShowRegNames", &registerNameEnable );
 
 	calcFontData();
 
@@ -4416,6 +4596,11 @@ QAsmView::QAsmView(QWidget *parent)
 QAsmView::~QAsmView(void)
 {
 	asmClear();
+}
+//----------------------------------------------------------------------------
+void QAsmView::setIsPopUp(bool val)
+{
+	isPopUp = val;
 }
 //----------------------------------------------------------------------------
 void QAsmView::asmClear(void)
@@ -4615,7 +4800,11 @@ void QAsmView::setSelAddrToLine( int line )
 		selAddrValue = addr;
 		sprintf( selAddrText, "%04X", addr );
 
-		parent->setBookmarkSelectedAddress( addr );
+
+		if ( parent )
+		{
+			parent->setBookmarkSelectedAddress( addr );
+		}
 
 		//printf("Selected ADDR:  $%04X   '%s'  '%s'\n", addr, selAddrText, asmEntry[line]->text.c_str() );
 
@@ -4837,7 +5026,10 @@ bool QAsmView::event(QEvent *event)
 					asmEntry[line]->addr, asmEntry[line]->bank, asmEntry[line]->rom );
 			}
 
+			//static_cast<asmLookAheadPopup*>(fceuCustomToolTipShow( helpEvent, new asmLookAheadPopup(asmEntry[line]->addr, this) ));
 			QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
+			//QToolTip::hideText();
+			//event->ignore();
 		}
 		else if ( showOperandAddrDesc )
 		{
@@ -4859,7 +5051,10 @@ bool QAsmView::event(QEvent *event)
 					addr, bank, romOfs );
 			}
 
-			QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
+			static_cast<asmLookAheadPopup*>(fceuCustomToolTipShow( helpEvent, new asmLookAheadPopup(addr, this) ));
+			//QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
+			QToolTip::hideText();
+			event->ignore();
 		}
 		else
 		{
@@ -4881,11 +5076,16 @@ void QAsmView::resizeEvent(QResizeEvent *event)
 	viewWidth  = event->size().width();
 	viewHeight = event->size().height();
 
-	//printf("QAsmView Resize: %ix%i\n", viewWidth, viewHeight );
+	//printf("QAsmView Resize: %ix%i  $%04X\n", viewWidth, viewHeight );
 
 	viewLines = (viewHeight / pxLineSpacing) + 1;
 
-	maxLineOffset = 0; // mb.numLines() - viewLines + 1;
+	maxLineOffset = asmEntry.size() - viewLines + 1;
+
+	if ( maxLineOffset < 0 )
+	{
+		maxLineOffset = 0;
+	}
 
 	if ( viewWidth >= pxLineWidth )
 	{
@@ -4955,22 +5155,34 @@ void QAsmView::keyPressEvent(QKeyEvent *event)
 
 		if ( event->key() == Qt::Key_B )
 		{
-			parent->asmViewCtxMenuAddBP();
+			if ( parent )
+			{
+				parent->asmViewCtxMenuAddBP();
+			}
 			event->accept();
 		}
 		else if ( event->key() == Qt::Key_S )
 		{
-			parent->asmViewCtxMenuAddSym();
+			if ( parent )
+			{
+				parent->asmViewCtxMenuAddSym();
+			}
 			event->accept();
 		}
 		else if ( event->key() == Qt::Key_M )
 		{
-			parent->asmViewCtxMenuAddBM();
+			if ( parent )
+			{
+				parent->asmViewCtxMenuAddBM();
+			}
 			event->accept();
 		}
 		else if ( event->key() == Qt::Key_H )
 		{
-			parent->asmViewCtxMenuOpenHexEdit();
+			if ( parent )
+			{
+				parent->asmViewCtxMenuOpenHexEdit();
+			}
 			event->accept();
 		}
 	}
@@ -5401,7 +5613,10 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 
 		if ( addr >= 0 )
 		{
-			parent->setBookmarkSelectedAddress( addr );
+			if ( parent )
+			{
+				parent->setBookmarkSelectedAddress( addr );
+			}
 		}
 
 		if ( selAddrText[0] != 0 )
@@ -5468,13 +5683,17 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 	bool enableRunToCursor = false;
 	char stmp[128];
 
+	if ( parent == NULL )
+	{
+		return;
+	}
 	line = lineOffset + c.y();
 
 	ctxMenuAddr = -1;
 
 	if ( line < asmEntry.size() )
 	{
-		int addr;
+		int addr, romAddr;
 
 		if ( selAddrValue < 0 )
 		{
@@ -5488,6 +5707,7 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 
 			enableRunToCursor = (selAddrValue == asmEntry[line]->addr);
 		}
+		romAddr = GetNesFileAddress(addr);
 
 		if ( enableRunToCursor )
 		{
@@ -5503,7 +5723,7 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 		//act->setShortcut( QKeySequence(tr("Ctrl+F10")));
 		connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuGoTo(void)) );
 
-		if ( isBreakpointAtAddr( addr ) >= 0 )
+		if ( isBreakpointAtAddr( addr, romAddr ) >= 0 )
 		{
 			act = new QAction(tr("Edit &Breakpoint"), &menu);
 		}
@@ -5628,11 +5848,14 @@ void QAsmView::drawAsmLine( QPainter *painter, int x, int y, const char *txt )
 	// Opcode Area
 	painter->setPen( opcodeColor );
 
-	while ( (i<operandLinePos) && (txt[i] != 0) )
+	if ( txt[i] != ' ' ) // Skip over undefined opcodes
 	{
-		c[0] = txt[i];
-		painter->drawText( x, y, tr(c) );
-		i++; x += pxCharWidth;
+		while ( (i<operandLinePos) && (txt[i] != 0) )
+		{
+			c[0] = txt[i];
+			painter->drawText( x, y, tr(c) );
+			i++; x += pxCharWidth;
+		}
 	}
 
 	// Operand Area
@@ -5741,6 +5964,10 @@ void QAsmView::paintEvent(QPaintEvent *event)
 	bool lineIsPC = false;
 	QPen pen;
 
+	//if ( isPopUp )
+	//{
+	//	printf("Is PopUp\n");
+	//}
 	painter.setFont(font);
 	viewWidth  = event->rect().width();
 	viewHeight = event->rect().height();
@@ -5770,7 +5997,14 @@ void QAsmView::paintEvent(QPaintEvent *event)
 	{
 		lineOffset = maxLineOffset;
 	}
-	selAddr = parent->getBookmarkSelectedAddress();
+	if ( parent )
+	{
+		selAddr = parent->getBookmarkSelectedAddress();
+	}
+	else
+	{
+		selAddr = selAddrValue;
+	}
 
 	pxCharWidth2 = (pxCharWidth/2);
 	cd_boundary = (int)(2.5*pxCharWidth) - pxLineXScroll;
@@ -6365,6 +6599,68 @@ bool ppuCtrlRegDpy::event(QEvent *event)
 //----------------------------------------------------------------------------
 //--  PPU Register Tool Tip Popup
 //----------------------------------------------------------------------------
+asmLookAheadPopup::asmLookAheadPopup( int addr, QWidget *parent )
+	: fceuCustomToolTip( parent )
+{
+	int line;
+	QVBoxLayout *vbox, *vbox1;
+	QGridLayout *grid;
+	QScrollBar  *hbar, *vbar;
+	QFrame      *winFrame;
+
+	vbox    = new QVBoxLayout();
+	vbox1   = new QVBoxLayout();
+
+	winFrame   = new QFrame();
+	grid       = new QGridLayout();
+	asmView    = new QAsmView(this);
+	vbar       = new QScrollBar( Qt::Vertical, this );
+	hbar       = new QScrollBar( Qt::Horizontal, this );
+
+	setHideOnMouseMove(true);
+	asmView->setIsPopUp(true);
+
+	winFrame->setLayout( vbox );
+	vbox1->addWidget( winFrame );
+	winFrame->setFrameShape(QFrame::Box);
+
+	hbar->setMinimum(0);
+	hbar->setMaximum(100);
+	vbar->setMinimum(0);
+	vbar->setMaximum( 0x10000 );
+
+	asmView->setScrollBars( hbar, vbar );
+
+	grid->addWidget( asmView, 0, 0 );
+	grid->addWidget( vbar   , 0, 1 );
+	grid->addWidget( hbar   , 1, 0 );
+
+	vbox->addLayout( grid );
+
+	setLayout( vbox1 );
+
+	resize(512, 512);
+
+	fceuWrapperLock();
+	asmView->updateAssemblyView();
+	fceuWrapperUnLock();
+
+	hbar->hide();
+	vbar->hide();
+
+	line = asmView->getAsmLineFromAddr(addr);
+	asmView->gotoLine(line);
+
+	//printf("PopUp: Addr: $%04X   %i\n", addr, line );
+}
+//----------------------------------------------------------------------------
+asmLookAheadPopup::~asmLookAheadPopup( void )
+{
+	//printf("Popup Deleted\n");
+}
+//----------------------------------------------------------------------------
+//--  PPU Register Tool Tip Popup
+//----------------------------------------------------------------------------
 ppuRegPopup::ppuRegPopup( QWidget *parent )
 	: fceuCustomToolTip( parent )
 {
@@ -6744,5 +7040,465 @@ void DebuggerTabBar::contextMenuEvent(QContextMenuEvent *event)
 	{
 		p->buildContextMenu(event);
 	}
+}
+//----------------------------------------------------------------------------
+//----------------------------------------------------------------------------
+//---  Break On Count Setup Dialog
+//----------------------------------------------------------------------------
+//----------------------------------------------------------------------------
+DebugBreakOnDialog::DebugBreakOnDialog(int type, QWidget *parent )
+	: QDialog(parent)
+{
+	
+	QVBoxLayout *mainLayout, *vbox;
+	QHBoxLayout *hbox;
+	QGroupBox   *gbox;
+	QGridLayout *grid;
+	fceuDecIntValidtor *validator;
+	int  refMode;
+	bool oneShotMode;
+	char stmp[128];
+	QPushButton *btn;
+	
+	fceuWrapperLock();
+
+	prevPauseState = FCEUI_EmulationPaused();
+
+	if (prevPauseState == 0)
+	{
+		FCEUI_ToggleEmulationPause();
+	}
+	fceuWrapperUnLock();
+
+	currLbl = new QLabel();
+
+	this->type = type;
+
+	if ( type )
+	{
+		totalCount = total_instructions;
+		deltaCount = delta_instructions;
+
+		setWindowTitle( tr("Break on CPU Instruction Exceedance") );
+		oneShotMode = breakOnInstrOneShot;
+		refMode     = breakOnInstrMode;
+		threshold   = break_instructions_limit;
+
+		sprintf(stmp, "Current Instruction Count: %10llu  (+%llu)", totalCount, deltaCount);
+		currLbl->setText( tr(stmp) );
+
+	}
+	else
+	{
+		totalCount = timestampbase + (uint64)timestamp - total_cycles_base;
+		deltaCount = timestampbase + (uint64)timestamp - delta_cycles_base;
+
+		if (totalCount < 0)	// sanity check
+		{
+			ResetDebugStatisticsCounters();
+			totalCount = 0;
+		}
+		if (deltaCount < 0)	// sanity check
+		{
+			ResetDebugStatisticsCounters();
+			deltaCount = 0;
+		}
+		setWindowTitle( tr("Break on CPU Cycle Exceedance") );
+		oneShotMode = breakOnCycleOneShot;
+		refMode     = breakOnCycleMode;
+		threshold   = break_cycles_limit;
+
+		sprintf(stmp, "Current Cycle Count: %10llu  (+%llu)", totalCount, deltaCount);
+		currLbl->setText( tr(stmp) );
+	}
+
+	mainLayout = new QVBoxLayout();
+	hbox       = new QHBoxLayout();
+
+	mainLayout->addLayout(hbox);
+
+	gbox       = new QGroupBox( tr("Mode") );
+	vbox       = new QVBoxLayout();
+	oneShotBtn = new QRadioButton( tr("One-Shot") );
+	contBtn    = new QRadioButton( tr("Continuous") );
+
+	oneShotBtn->setChecked(  oneShotMode );
+	   contBtn->setChecked( !oneShotMode );
+
+	hbox->addWidget(gbox);
+	gbox->setLayout(vbox);
+	vbox->addWidget( oneShotBtn );
+	vbox->addWidget( contBtn    );
+
+	gbox       = new QGroupBox( tr("Reference") );
+	vbox       = new QVBoxLayout();
+	absBtn     = new QRadioButton( tr("Absolute") );
+	relBtn     = new QRadioButton( tr("Relative") );
+
+	absBtn->setChecked( refMode == 0 );
+	relBtn->setChecked( refMode == 1 );
+
+	hbox->addWidget(gbox);
+	gbox->setLayout(vbox);
+	vbox->addWidget( absBtn );
+	vbox->addWidget( relBtn );
+
+	mainLayout->addWidget(currLbl);
+
+	hbox       = new QHBoxLayout();
+	mainLayout->addLayout(hbox);
+
+	validator = new fceuDecIntValidtor( 0, 0x7FFFFFFFFFFFFFFFLL, this);
+
+	countEntryBox = new QLineEdit();
+	countEntryBox->setValidator( validator );
+	countEntryBox->setAlignment(Qt::AlignCenter);
+
+	hbox->addWidget( new QLabel( tr("Threshold:") ), 1 );
+	hbox->addWidget( countEntryBox, 100 );
+
+	grid = new QGridLayout();
+	mainLayout->addLayout( grid );
+
+	int b = 1, bb, bbb;
+	for (int col=0; col<3; col++)
+	{
+		int c;
+
+		bb = 1;
+
+		if ( b < 1000 )
+		{
+			c = ' ';
+		}
+		else if ( b < 1000000 )
+		{
+			c = 'k';
+		}
+		else
+		{
+			c = 'm';
+		}
+
+		for (int row=0; row<3; row++)
+		{
+			bbb = b * bb;
+
+			btn = new QPushButton();
+
+			grid->addWidget( btn, row, 4-(col*2) );
+
+			sprintf( stmp, "%+i%c", -bb, c);
+
+			btn->setText( tr(stmp) );
+
+			connect( btn, &QPushButton::clicked, [ this, bbb ] { incrThreshold( -bbb ); } );
+
+			btn = new QPushButton();
+
+			grid->addWidget( btn, row, 4-(col*2)+1 );
+
+			sprintf( stmp, "%+i%c", bb, c);
+
+			btn->setText( tr(stmp) );
+
+			connect( btn, &QPushButton::clicked, [ this, bbb ] { incrThreshold( bbb ); } );
+
+			bb = bb * 10;
+		}
+		b = b * 1000;
+	}
+
+	btn = new QPushButton( tr("Sync to Current") );
+	grid->addWidget( btn, 3, 4, 1, 2 );
+	connect( btn, SIGNAL(clicked(void)), this, SLOT(syncToCurrent(void)) );
+
+	btn = new QPushButton( tr("-1g") );
+	grid->addWidget( btn, 3, 0, 1, 1 );
+	connect( btn, &QPushButton::clicked, [ this ] { incrThreshold( -1e9 ); } );
+
+	btn = new QPushButton( tr("+1g") );
+	grid->addWidget( btn, 3, 1, 1, 1 );
+	connect( btn, &QPushButton::clicked, [ this ] { incrThreshold(  1e9 ); } );
+
+	descLbl = new QLabel();
+	descLbl->setWordWrap(true);
+	mainLayout->addWidget( descLbl );
+
+	hbox = new QHBoxLayout();
+	mainLayout->addLayout(hbox);
+
+	btn = new QPushButton( tr("Reset All") );
+	hbox->addWidget( btn, 1 );
+	btn->setIcon( style()->standardIcon( QStyle::SP_DialogResetButton ) );
+	connect( btn, SIGNAL(clicked(void)), this, SLOT(resetCounters(void)) );
+
+	btn = new QPushButton( tr("Reset Deltas") );
+	hbox->addWidget( btn, 1 );
+	btn->setIcon( style()->standardIcon( QStyle::SP_DialogResetButton ) );
+	connect( btn, SIGNAL(clicked(void)), this, SLOT(resetDeltas(void)) );
+
+	hbox->addStretch(10);
+
+	btn = new QPushButton( tr("Cancel") );
+	hbox->addWidget( btn, 1 );
+	btn->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
+	connect( btn, SIGNAL(clicked(void)), this, SLOT(reject(void)) );
+
+	btn = new QPushButton( tr("Ok") );
+	hbox->addWidget( btn, 1 );
+	btn->setIcon( style()->standardIcon( QStyle::SP_DialogOkButton ) );
+	connect( btn, SIGNAL(clicked(void)), this, SLOT(accept(void)) );
+
+	setLayout( mainLayout );
+
+	setThreshold( threshold );
+
+	connect( countEntryBox, SIGNAL(textChanged(const QString &)), this, SLOT(setThreshold(const QString &)) );
+
+	connect( absBtn, SIGNAL(clicked(bool)), this, SLOT(refModeChanged(bool)) );
+	connect( relBtn, SIGNAL(clicked(bool)), this, SLOT(refModeChanged(bool)) );
+	connect( this  , SIGNAL(finished(int)), this, SLOT(closeWindow(int)) );
+}
+//----------------------------------------------------------------------------
+DebugBreakOnDialog::~DebugBreakOnDialog(void)
+{
+	FCEUI_SetEmulationPaused(prevPauseState);
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::closeEvent(QCloseEvent *event)
+{
+	//printf("Close Window Event\n");
+	done(QDialog::Rejected);
+	deleteLater();
+	event->accept();
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::closeWindow(int ret)
+{
+	if ( ret == QDialog::Accepted )
+	{
+		if ( type )
+		{
+			breakOnInstrOneShot = oneShotBtn->isChecked();
+			breakOnInstrMode    =     relBtn->isChecked();
+
+			if ( absBtn->isChecked() )
+			{
+				break_instructions_limit = threshold;
+			}
+			else
+			{
+				breakOnInstrRelVal = threshold;
+
+				break_instructions_limit = totalCount + (breakOnInstrRelVal - deltaCount);
+			}
+			break_on_instructions = true;
+		}
+		else
+		{
+			breakOnCycleOneShot = oneShotBtn->isChecked();
+			breakOnCycleMode    =     relBtn->isChecked();
+
+			if ( absBtn->isChecked() )
+			{
+				break_cycles_limit = threshold;
+			}
+			else
+			{
+				breakOnCycleRelVal = threshold;
+
+				break_cycles_limit = totalCount + (breakOnCycleRelVal - deltaCount);
+			}
+			break_on_cycles = true;
+		}
+	}
+	else
+	{
+		if ( type )
+		{
+			break_on_instructions = false;
+		}
+		else
+		{
+			break_on_cycles = false;
+		}
+	}
+	//printf("Close Window\n");
+	deleteLater();
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::updateCurrent(void)
+{
+	char stmp[128];
+
+	if ( type )
+	{
+		totalCount = total_instructions;
+		deltaCount = delta_instructions;
+
+		sprintf(stmp, "Current Instruction Count: %10llu  (+%llu)", totalCount, deltaCount);
+		currLbl->setText( tr(stmp) );
+
+	}
+	else
+	{
+		totalCount = timestampbase + (uint64)timestamp - total_cycles_base;
+		deltaCount = timestampbase + (uint64)timestamp - delta_cycles_base;
+
+		if (totalCount < 0)	// sanity check
+		{
+			ResetDebugStatisticsCounters();
+			totalCount = 0;
+		}
+		if (deltaCount < 0)	// sanity check
+		{
+			ResetDebugStatisticsCounters();
+			deltaCount = 0;
+		}
+		sprintf(stmp, "Current Cycle Count: %10llu  (+%llu)", totalCount, deltaCount);
+		currLbl->setText( tr(stmp) );
+	}
+
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::resetCounters(void)
+{
+	ResetDebugStatisticsCounters();
+
+	if ( dbgWin )
+	{
+		dbgWin->updateRegisterView();
+	}
+	setThreshold(0);
+	updateCurrent();
+	updateLabel();
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::resetDeltas(void)
+{
+	ResetDebugStatisticsDeltaCounters();
+
+	if ( dbgWin )
+	{
+		dbgWin->updateRegisterView();
+	}
+	updateCurrent();
+	updateLabel();
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::syncToCurrent(void)
+{
+	if ( absBtn->isChecked() )
+	{
+		setThreshold( totalCount );
+	}
+	else
+	{
+		setThreshold( deltaCount );
+	}
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::incrThreshold( int ival )
+{
+	long long int ll = threshold + ival;
+
+	if ( ll < 0 ) ll = 0;
+
+	setThreshold( ll );
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::setThreshold( unsigned long long int val )
+{
+	char stmp[64];
+
+	threshold = val;
+
+	sprintf( stmp, "%llu", threshold );
+
+	countEntryBox->setText( tr(stmp) );
+
+	updateLabel();
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::setThreshold( const QString &text )
+{
+	threshold = strtoull( text.toStdString().c_str(), NULL, 10 );
+
+	updateLabel();
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::refModeChanged(bool val)
+{
+	updateLabel();
+}
+//----------------------------------------------------------------------------
+void DebugBreakOnDialog::updateLabel(void)
+{
+	long long delta;
+	char stmp[256];
+
+	stmp[0] = 0;
+
+	if ( type )
+	{
+		if ( absBtn->isChecked() )
+		{
+			delta = threshold - total_instructions;
+
+			if ( delta > 0 )
+			{
+				sprintf( stmp, "Will break in %lli CPU Instruction%s", delta, (delta > 1) ? "s":"" );
+			}
+			else
+			{
+				sprintf( stmp, "Will break immediately, CPU instruction count already exceeds value by %lli.", -delta);
+			}
+		}
+		else
+		{
+			delta = threshold - delta_instructions;
+
+			if ( delta > 0 )
+			{
+				sprintf( stmp, "Will break in %lli CPU Instruction%s", delta, (delta > 1) ? "s":"" );
+			}
+			else
+			{
+				sprintf( stmp, "Will break immediately, CPU instruction count already exceeds value by %lli.", -delta);
+			}
+		}
+	}
+	else
+	{
+		if ( absBtn->isChecked() )
+		{
+			delta = threshold - totalCount;
+
+			if ( delta > 0 )
+			{
+				sprintf( stmp, "Will break in %lli CPU cycle%s", delta, (delta > 1) ? "s":"" );
+			}
+			else
+			{
+				sprintf( stmp, "Will break immediately, CPU cycle count already exceeds value by %lli.", -delta);
+			}
+		}
+		else
+		{
+			delta = threshold - deltaCount;
+
+			if ( delta > 0 )
+			{
+				sprintf( stmp, "Will break in %lli CPU cycle%s", delta, (delta > 1) ? "s":"" );
+			}
+			else
+			{
+				sprintf( stmp, "Will break immediately, CPU cycle count already exceeds value %lli.", -delta);
+			}
+		}
+	}
+	descLbl->setText( tr(stmp) );
+
 }
 //----------------------------------------------------------------------------
