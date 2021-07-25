@@ -150,14 +150,15 @@ static SettingEntry sd_menu[] = {
 	{ "Noise volume", "Sets Noise volume", "SDL.Sound.NoiseVolume",	noise_update },
 	{ "PCM volume", "Sets PCM volume", "SDL.Sound.PCMVolume", pcm_update }
 };
+static int sd_menu_items = sizeof(sd_menu) / sizeof(sd_menu[0]);
 
 int RunSoundSettings() {
 	static int index = 0;
 	static int spy = 72;
 	int done = 0, y, i;
 
-	int max_entries = 8;
-	int menu_size = 10;
+	int max_entries = 9;
+	int menu_size = sd_menu_items;
 
 	static int offset_start = 0;
 	static int offset_end = menu_size > max_entries ? max_entries : menu_size;
@@ -249,9 +250,9 @@ int RunSoundSettings() {
 
 			// Draw offset marks
 			if (offset_start > 0)
-				DrawChar(gui_screen, SP_UPARROW, 218, 57);
+				DrawChar(gui_screen, SP_UPARROW, 157, 57);
 			if (offset_end < menu_size)
-				DrawChar(gui_screen, SP_DOWNARROW, 218, 197);
+				DrawChar(gui_screen, SP_DOWNARROW, 157, 212);
 
 			g_dirty = 0;
 		}

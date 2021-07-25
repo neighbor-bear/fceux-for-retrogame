@@ -144,18 +144,15 @@ static SettingEntry
 #endif
 		{ "Custom palette", "Load custom palette", "SDL.Palette", custom_update },
 };
+static int st_menu_items = sizeof(st_menu) / sizeof(st_menu[0]);
 
 int RunMainSettings() {
 	static int index = 0;
 	static int spy = 72;
 	int done = 0, y, i;
 
-	int max_entries = 8;
-#if 0 //def FRAMESKIP
-	int menu_size = 9;
-#else
-	int menu_size = 8;
-#endif
+	int max_entries = 9;
+	int menu_size = st_menu_items;
 
 	static int offset_start = 0;
 	static int offset_end = menu_size > max_entries ? max_entries : menu_size;
@@ -260,9 +257,9 @@ int RunMainSettings() {
 
 			// Draw offset marks
 			if (offset_start > 0)
-				DrawChar(gui_screen, SP_UPARROW, 274, 62);
+				DrawChar(gui_screen, SP_UPARROW, 157, 57);
 			if (offset_end < menu_size)
-				DrawChar(gui_screen, SP_DOWNARROW, 274, 203);
+				DrawChar(gui_screen, SP_DOWNARROW, 157, 212);
 
 			g_dirty = 0;
 		}
