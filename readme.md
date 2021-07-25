@@ -147,7 +147,7 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
-#### In progress (Not released yet)
+#### 25 July 2021
   - Some refactorings for Game Genie use and assign hotkey to toggle it.
   - Added autoresume. It can be enabled in `Main settings`. This is a feature from upstream FCEUX.
   - Added Cheat browser. With it you can import cheats from `.cht` files, that will be saved in `$HOME/.fceux/cheats` for later autoload, and enable/disable loaded cheats. Also you can enable/disable cheats and enable/disable the auto load/save of cheats files per game globally, both are by default enabled.
