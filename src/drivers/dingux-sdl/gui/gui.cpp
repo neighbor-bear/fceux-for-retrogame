@@ -109,6 +109,7 @@ int update_time()
 // Include additional files
 #include "file_browser.cpp"
 #include "settings_menu.cpp"
+#include "cheat_browser.cpp"
 
 /* MENU COMMANDS */
 
@@ -233,6 +234,10 @@ static int load_rom() {
 
 	return 1;
 }
+	
+static int enable_cheats(void) {
+	return RunCheatBrowser();
+}
 
 static int reset_nes() {
 	FCEUI_ResetNES();
@@ -312,6 +317,7 @@ static int cmd_exit() {
 static MenuEntry main_menu[] = { 
 		{ "Load ROM", "Load new rom or movie", load_rom },
 		{ "Reset", "Reset NES", reset_nes },
+		{ "Cheats", "Enable and import cheats", enable_cheats },
 		{ "Flip disc", "Switch side or disc (FDS)", flip_disc },
 		{ "Save state", "Save current state", save_state },
 		{ "Load state", "Load emulation state", load_state },
@@ -380,7 +386,7 @@ extern int FDSSwitchRequested;
 void menu_items_process(int *current_menu_items) {
 	// Remove FDS Flip if not disk is loaded
 	if (g_romtype != GIT_FDS && *current_menu_items == main_menu_items) { // Remove "Flip disc" if not a FDS
-		for (int i = 2; i < main_menu_items - 1; i++)
+		for (int i = 3; i < main_menu_items - 1; i++)
 			main_menu[i] = main_menu_bck[i+1];
 		(*current_menu_items)--;
 	} else if (g_romtype == GIT_FDS && *current_menu_items < main_menu_items) {
@@ -388,7 +394,6 @@ void menu_items_process(int *current_menu_items) {
 			main_menu[i] = main_menu_bck[i];
 		*current_menu_items = main_menu_items;
 	}
-	return (main_menu_items - *current_menu_items);
 }
 
 void FCEUGUI_Run() {

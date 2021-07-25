@@ -2,46 +2,49 @@
 #include <stdlib.h>
 #include <SDL/SDL.h>
 
-#include "file_list.h"
+#include "cheat_list.h"
 
 // Externals
-extern SDL_Surface* screen;
 extern Config *g_config;
+extern int globalCheatDisabled;
+extern int disableAutoLSCheats;
 
-uint64 FCEUD_GetTime(void);
-uint64 FCEUD_GetTimeFreq(void);
+extern uint64 FCEUD_GetTime(void);
+extern uint64 FCEUD_GetTimeFreq(void);
 
-static char file_infos[3][12] = {
+int global_enabled;
+bool ls_enabled;
+
+#define INFO_ENTRIES 6
+static char cheat_infos[INFO_ENTRIES][18] = {
 	"B - Go Back",
 	"X - Exit",
-	"A - Load",
+	"A - Toggle cheat",
+	"Y - Import cheats",
+	"START - Enable",
+	"SELECT - Autoload"
 };
 
-// Type of Browser from filetypes filter
-static const char *
-GetTypeOfBrowser(const char *types[]) {
-	if (!strncmp(types[0],".nes",4))
-		return "ROM Browser";
-	else if (!strncmp(types[0],".pal",4))
-		return "Palette Browser";
-	else if (!strncmp(types[0],".cht",4))
-		return "Cheat file Browser";
+// Import cheat file
+static int import_cheats(CheatList *list) {
+	const char *types[] = { ".cht", NULL };
+	char cheatfile[128] = "";
 
-	return "File Browser";
+	if (!RunFileBrowser(NULL, cheatfile, types, "Choose cheat file (.cht)") || cheatfile[0] == '\0') {
+	    return 0;
+	}
+	
+	return list->LoadCheats(cheatfile);
 }
 
-static char s_LastDir[128] = "/";
-int RunFileBrowser(char *source, char *outname, const char *types[],
-		const char *info) {
-
+int RunCheatBrowser(const char *info = NULL) {
 	int size = 0;
+	int done = 0;
+	int return_value = 0;
 	int index;
 	int offset_start, offset_end;
 	static int max_entries = 9;
 	int scrollModifier = 1; // OpenDingux - 1 page scrolling
-	int justsavedromdir = 0;
-	int scrollMult;
-	const char *browserType = GetTypeOfBrowser(types);
 
 	static int spy;
 	int y, i;
@@ -50,23 +53,15 @@ int RunFileBrowser(char *source, char *outname, const char *types[],
 
 	time_start = FCEUD_GetTime();
 
-	// Try to get a saved romdir from a config file
-	char* home = getenv("HOME");
-	char romcfgfile [128];
-	sprintf (romcfgfile, "%s/.fceux/romdir.cfg", home);
-	FILE * pFile;
-	pFile = fopen (romcfgfile,"r+");
-	if (pFile != NULL) {
-		fgets (s_LastDir , 128 , pFile);
-		fclose (pFile);
-	}
-
 	// Create file list
-	FileList *list = new FileList(source ? source : s_LastDir, types);
+	CheatList *list = new CheatList();
 	if (list == NULL)
 		return 0;
 
 	scrollModifier *= max_entries;
+	
+	global_enabled = !globalCheatDisabled;
+	ls_enabled = ( disableAutoLSCheats == 2 ) ? false : true;
 
 RESTART:
 	size = list->Size();
@@ -77,57 +72,53 @@ RESTART:
 	offset_end = size > max_entries ? max_entries : size;
 
 	g_dirty = 1;
-	while (1) {
+	while (!done) {
 		if ( ( (FCEUD_GetTime() - time_start) / FCEUD_GetTimeFreq() ) > 3 ) {
-			info_index = ( info_index + 1 ) % 3;
+			info_index = ( info_index + 1 ) % INFO_ENTRIES;
 			time_start = FCEUD_GetTime();
 			g_dirty = 1;
 		}
 		// Parse input
 		readkey();
-		// TODO - put exit keys
 
 		// Go to previous folder or return ...
 		if (parsekey(DINGOO_B)) {
-			list->Enter(-1);
-			goto RESTART;
+			done = 1;
 		}
 
-		// Enter folder or select rom ...
+		// Enable/Disable Cheat
 		if (parsekey(DINGOO_A)) {
-			// Fix for OpenDingux when no files are shown don't
-			// allow select
-			if (size > 0) {
-				if (list->GetSize(index) == -1) {
-					list->Enter(index);
-					goto RESTART;
-				} else {
-					strncpy(outname, list->GetPath(index), 128);
-					break;
-				}
-			}
+			if (size > 0)
+				list->ToggleCheat(index);
 		}
 
 		if (parsekey(DINGOO_X)) {
-			return 1; // OpenDingux - Don't exit emulator
+			return_value = 1; // Exit to game
+			done = 1;
+		}
+		
+		
+		if (parsekey(DINGOO_Y)) {
+			if (import_cheats(list))
+			    goto RESTART;
 		}
 
 		if (parsekey(DINGOO_SELECT)) {
-			// Save the current romdir in a config file
-			char* home = getenv("HOME");
-			char romcfgfile [128];
-			strncpy(s_LastDir, list->GetCurDir(), 128);
-			sprintf (romcfgfile, "%s/.fceux/romdir.cfg", home);
-			FILE * pFile;
-			pFile = fopen (romcfgfile,"w+");
-			fputs (s_LastDir,pFile);
-			fclose (pFile);
-			justsavedromdir = 1;
+			ls_enabled = !ls_enabled;
+			disableAutoLSCheats = ls_enabled ? 0 : 2;
+			g_config->setOption("SDL.AutoLSCheatsDisabled", disableAutoLSCheats);
+			g_config->save();
+		}
+
+		if (parsekey(DINGOO_START)) {
+			global_enabled = !global_enabled;
+			FCEUI_GlobalToggleCheat(global_enabled);
+			g_config->setOption("SDL.CheatDisabled", globalCheatDisabled);
+			g_config->save();
 		}
 
 		if (size > 0) {
-			// Move through file list
-
+			// Move through cheat list
 			if (parsekey(DINGOO_R, 0)) {
 				int iSmartOffsetAdj = ((size <= max_entries) ? size : max_entries);
 				index = size - 1;
@@ -215,33 +206,39 @@ RESTART:
 			DrawChar(gui_screen, SP_SELECTOR, 81, 37);
 			DrawChar(gui_screen, SP_SELECTOR, 0, 225);
 			DrawChar(gui_screen, SP_SELECTOR, 81, 225);
-			DrawText(gui_screen, file_infos[info_index], 235, 225);
+			DrawText(gui_screen, cheat_infos[info_index], 196, 225);
 			DrawChar(gui_screen, SP_LOGO, 12, 9);
 
 			// Draw selector
 			DrawChar(gui_screen, SP_SELECTOR, 4, spy);
 			DrawChar(gui_screen, SP_SELECTOR, 81, spy);
 
-			DrawText(gui_screen, browserType, 8, 37);
+			if (g_romname)
+			    DrawText(gui_screen, g_romname, 8, 37);
+			else
+			    DrawText(gui_screen, "Cheat Browser", 8, 37);
+			
+			// Active flags
+			DrawText(gui_screen, "Enable cheats:", 182, 8);
+			DrawText(gui_screen, global_enabled ? "On" : "Off", 298, 8);
+			DrawText(gui_screen, "Auto load/save:", 182, 18);
+			DrawText(gui_screen, ls_enabled ? "On" : "Off", 298, 18);
+			
+			if (size > 0)
+				DrawText(gui_screen, list->GetCode(index), 200, 37);
 
 			// Draw file list
 			for (i = offset_start, y = 72; i < offset_end; i++, y += 15) {
-				DrawText(gui_screen, list->GetName(i), 8, y);
+				if (list->IsActive(i)) 
+				    DrawChar(gui_screen,('*'-32) & 0x7f, 8, y);
+				DrawText(gui_screen, list->GetLabel(i), 16, y);
 			}
 
 			// Draw info
 			if (info)
 				DrawText(gui_screen, info, 8, 225);
 			else {
-				if (justsavedromdir == 1){
-					DrawText(gui_screen, "ROM dir successfully saved!", 8, 225);
-				} else {
-					if (list->GetSize(index) == -1)
-						DrawText(gui_screen, "SELECT - Save ROM dir", 8, 225);
-					else
-						DrawText(gui_screen, "SELECT - Save ROM dir", 8, 225);
-				}
-				justsavedromdir = 0;
+				DrawText(gui_screen, "Select cheats", 8, 225);
 			}
 
 			// Draw offset marks
@@ -260,9 +257,11 @@ RESTART:
 
 	}
 
-	if (source == NULL)
-		strncpy(s_LastDir, list->GetCurDir(), 128);
 	delete list;
 
-	return 1;
+	// Clear screen
+	dingoo_clear_video();
+
+	g_dirty = 1;
+	return return_value;
 }

@@ -13,26 +13,6 @@ Bios file
 To load FDS files bios file `disksys.rom` is needed. It must be placed
 at `$HOME/.fceux` directory or in the game directory.
 
-Game Genie
-----------
-You must place Game Genie rom in the `$HOME/.fceux` directory and it must
-be named `gg.rom`.
-
-You can toggle it in `Settings Menu --> Main Setup` or with the
-hotkey `R1 + DOWN`.
-
-When toggled a hard reset will be done if a rom was loaded.
-
-Auto-resume play
-----------------
-If enabled, FCEUX will make a special savestate every time you close
-ROM (loading another rom or exiting from emulator), and will automatically
-load the savestate when you open this ROM next time, so you can continue
-from where you left the game.
-
-This savestates will be created in the `$HOME/.fceux/fcs` directory and it
-will be named `<filename's game>-resume.fcs`
-
 Controls
 --------
  
@@ -57,6 +37,7 @@ Controls
  R1 + UP       Toggle framerate display
  R1 + DOWN     Toggle Game Genie
  R1 + LEFT     Insert vsuni coin
+ R1 + RIGHT    Open Cheat browser
  R1 + SELECT   Save snapshot
  R1 + START    Pause emulation
  L1            Toggle throttling
@@ -83,8 +64,95 @@ Controls
  Select            Save current directory as default when
                    open ROM browser
 
+ Controls in Cheat Browser
+ --------------------------------------------------------
+ Up/Down           Move to select cheat
+ A                 Enable/disable cheat
+ B                 Exit to previous menu
+ X                 Exit to emulator
+ Y                 Open browser to select a `.cht` file
+                   to import. This override current cheats
+ Left/Right        Select first/last cheat in current page
+                   or advanve one page up/down if
+                   first/last cheat is already selected
+ L1                Go to last cheat
+ R1                Go to first cheat
+ Start             Enable/disable cheats globally
+ Select            Enable/disable cheatfiles auto load/save
+                   golbally
+
  L1 and R1 is equal to L and R for devices withouth L2 and R2 buttons.
- 
+
+Auto-resume play
+----------------
+If enabled, FCEUX will make a special savestate every time you close
+ROM (loading another rom or exiting from emulator), and will automatically
+load the savestate when you open this ROM next time, so you can continue
+from where you left the game.
+
+This savestates will be created in the `$HOME/.fceux/fcs` directory and it
+will be named `<filename's game>-resume.fcs`
+
+Cheats
+------
+
+*Adapted from FCEUX upstream help*
+
+By default cheat files (.cht) are stored in the "cheats" subdirectory under
+the base FCEUX (`$HOME/.fceux/cheats`).
+
+The files are in a simple plain-text format. Each line represents a one-byte
+memory patch. The format is as follows(text in brackets [] represents optional
+parameters):
+
+    [S][C][:]Address(hex):Value(hex):[Compare value:]Description
+
+Example:
+
+    040e:05:Infinite super power.
+
+A colon(:) near the beginning of the line is used to disable the cheat.
+"S" denotes a cheat that is a read-substitute-style cheat(such as with
+Game Genie cheats), and a "C" denotes that the cheat has a compare value.
+
+
+When a game is loaded, FCEUX will load any accompanying saved `.cht` file
+in `$HOME/.fceux/cheats` automatically. This can be changed by disabling
+Auto load/save in **Cheat browser**.
+
+- Cheat browser -
+
+You can access to Cheat browser from main menu or with hotkey `L1 + RIGHT`.
+
+The Cheat browser will cheat the list of current loaded cheats. It will
+display cheat description or code if no description is available.
+
+A `*` in front of chate name will be displayed for enabled cheats. You can
+enable/disable a cheat by selecting it and use `A` button.
+
+If there are no loaded cheats for current rom you can import them from
+a `.cht` file located in any directory. For import use the `Y` button, it
+will init a browser in default ROM folder, navigate to directory where
+desired `.cht` file is located and load it using the `A` button.
+
+When a cheat file is imported it will overwrite any cheat previously loaded
+and it will be saved in `$HOME/.fceux/cheats` for future auto load/save.
+
+Cheats and auto load/save options can be changed in Cheat browser with
+Start and Select buttons respectively. Differently than upstream FCEUX this
+options will be saved in the configuration file. Also take into account that
+these are global options and not per game options.
+
+Game Genie
+----------
+You must place Game Genie rom in the `$HOME/.fceux` directory and it must
+be named `gg.rom`.
+
+You can toggle it in `Settings Menu --> Main Setup` or with the
+hotkey `R1 + DOWN`.
+
+When toggled a hard reset will be done if a rom was loaded.
+
 What's new
 ----------
 
@@ -92,6 +160,11 @@ What's new
   - Some refactorings for Game Genie use and assign hotkey to toggle it.
   - Added autoresume. It can be enabled in `Main settings`. This is a feature
     from upstream FCEUX.
+  - Added Cheat browser. With it you can import cheats from `.cht` files, that
+    will be saved in `$HOME/.fceux/cheats` for later autoload, and
+    enable/disable loaded cheats.
+    Also you can enable/disable cheats and enable/disable the auto load/save
+    of cheats files per game globally, both are by default enabled.
 
  21 July 2021
   - The screenshot menu option now saves directly when the A button is pressed.

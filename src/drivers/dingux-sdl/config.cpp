@@ -398,6 +398,10 @@ Config * InitConfig() {
 
 	config->addOption("SDL.Zapper.0.DeviceType", "Mouse");
 	config->addOption("SDL.Zapper.0.DeviceNum", 0);
+	
+	// Cheats
+	config->addOption("SDL.CheatDisabled", 0);
+	config->addOption("SDL.AutoLSCheatsDisabled", 0);
 
 	return config;
 }

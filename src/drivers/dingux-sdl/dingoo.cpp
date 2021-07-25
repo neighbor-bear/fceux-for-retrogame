@@ -54,6 +54,9 @@ extern double g_fpsScale;
 
 extern bool MaxSpeed;
 
+extern int globalCheatDisabled;
+extern int disableAutoLSCheats;
+
 int isloaded;
 
 int closeFinishedMovie = 0;
@@ -629,6 +632,10 @@ int main(int argc, char *argv[]) {
 	g_config->getOption("SDL.NoConfig", &noconfig);
 	if (!noconfig)
 		g_config->save();
+	
+	// Cheats
+	g_config->getOption("SDL.CheatDisabled", &globalCheatDisabled);
+	g_config->getOption("SDL.AutoLSCheatsDisabled", &disableAutoLSCheats);
 
 	std::string s;
 	g_config->getOption("SDL.InputCfg", &s);

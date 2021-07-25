@@ -359,8 +359,12 @@ static void KeyboardCommands() {
 			if (gametype == GIT_VSUNI) FCEUI_VSUniCoin();
 			resetkey(DINGOO_LEFT);
 		}
-		if(_keyonly(DINGOO_RIGHT)) { // R + RIGHT  frame advancing (??)
+		if(_keyonly(DINGOO_RIGHT)) { // R + RIGHT  Cheats
+			RunCheatBrowser();
 			resetkey(DINGOO_RIGHT);
+			// Reset possible exit keys from Cheat Browser
+			resetkey(DINGOO_X);
+			resetkey(DINGOO_B);
 		}
 		if(_keyonly(DINGOO_SELECT)) { // R + SELECT
 			FCEUI_SaveSnapshot();

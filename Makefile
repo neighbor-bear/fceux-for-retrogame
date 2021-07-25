@@ -198,7 +198,8 @@ COMMON_DRIVER_OBJS = $(SRC)drivers/common/args.o $(SRC)drivers/common/cheat.o \
 GUI_OBJS = \
 	$(SRC)drivers/dingux-sdl/gui/gui.o \
 	$(SRC)drivers/dingux-sdl/gui/file_list.o \
-	$(SRC)drivers/dingux-sdl/gui/font.o
+	$(SRC)drivers/dingux-sdl/gui/font.o \
+	$(SRC)drivers/dingux-sdl/gui/cheat_list.o
 
 DRIVER_OBJS = $(SRC)drivers/dingux-sdl/config.o $(SRC)drivers/dingux-sdl/input.o \
 	$(SRC)drivers/dingux-sdl/dingoo.o $(SRC)drivers/dingux-sdl/dingoo-joystick.o \
