@@ -152,6 +152,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	emulatorThread = new emulatorThread_t(this);
 
 	connect(emulatorThread, &QThread::finished, emulatorThread, &QObject::deleteLater);
+	connect(emulatorThread, SIGNAL(frameFinished(void)), this, SLOT(emuFrameFinish(void)) );
 
 	connect( gameTimer, &QTimer::timeout, this, &consoleWin_t::updatePeriodic );
 
@@ -213,6 +214,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 		this->showFullScreen();
 	}
 
+	refreshRate = 0.0;
 	updateCounter = 0;
 	recentRomMenuReset = false;
 
@@ -368,6 +370,8 @@ void consoleWin_t::winScreenChanged(QScreen *scr)
 	{
 		return;
 	}
+	refreshRate = scr->refreshRate();
+	//printf("Screen Refresh Rate: %f\n", scr->refreshRate() );
 
 	//printf("Screen Changed: %p\n", scr );
 	if ( viewport_GL != NULL )
@@ -3974,15 +3978,8 @@ void consoleWin_t::loadMostRecentROM(void)
 	fceuWrapperUnLock();
 }
 
-void consoleWin_t::updatePeriodic(void)
+void consoleWin_t::transferVideoBuffer(void)
 {
-	// Process all events before attempting to render viewport
-	QCoreApplication::processEvents();
-
-	// Update Input Devices
-	FCEUD_UpdateInput();
-	
-	// RePaint Game Viewport
 	if ( nes_shm->blitUpdated )
 	{
 		nes_shm->blitUpdated = 0;
@@ -3992,12 +3989,31 @@ void consoleWin_t::updatePeriodic(void)
 			viewport_SDL->transfer2LocalBuffer();
 			viewport_SDL->render();
 		}
-		else
+		else if ( viewport_GL )
 		{
 			viewport_GL->transfer2LocalBuffer();
 			viewport_GL->update();
 		}
 	}
+}
+
+void consoleWin_t::emuFrameFinish(void)
+{
+	//printf("EMU Frame Finish\n");
+
+	transferVideoBuffer();
+}
+
+void consoleWin_t::updatePeriodic(void)
+{
+	// Process all events before attempting to render viewport
+	QCoreApplication::processEvents();
+
+	// Update Input Devices
+	FCEUD_UpdateInput();
+	
+	// RePaint Game Viewport
+	transferVideoBuffer();
 
 	// Low Rate Updates
 	if ( (updateCounter % 30) == 0 )
@@ -4269,6 +4285,11 @@ void emulatorThread_t::run(void)
 	}
 	printf("Emulator Exit\n");
 	emit finished();
+}
+
+void emulatorThread_t::signalFrameFinished(void)
+{
+	emit frameFinished();
 }
 
 //-----------------------------------------------------------------------------

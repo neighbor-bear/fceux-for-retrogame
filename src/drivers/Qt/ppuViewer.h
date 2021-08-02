@@ -60,6 +60,9 @@ class ppuPatternView_t : public QWidget
 
 		bool getHoverFocus(void){ return hover2Focus; };
 		bool getDrawTileGrid(void){ return drawTileGrid; };
+
+		QColor  selTileColor;
+		QColor  gridColor;
 	protected:
 		void paintEvent(QPaintEvent *event);
 		void resizeEvent(QResizeEvent *event);
@@ -67,8 +70,6 @@ class ppuPatternView_t : public QWidget
 		void mouseMoveEvent(QMouseEvent *event);
 		void mousePressEvent(QMouseEvent * event);
 		void contextMenuEvent(QContextMenuEvent *event);
-
-		void openColorPicker( QColor *c );
 
 		int patternIndex;
 		int viewWidth;
@@ -79,13 +80,9 @@ class ppuPatternView_t : public QWidget
 		bool hover2Focus;
 		QLabel *tileLabel;
 		QPoint  selTile;
-		QColor  selTileColor;
-		QColor  gridColor;
 		ppuPatternTable_t *pattern;
    public slots:
 	void toggleTileGridLines(void);
-   	void setTileSelectorColor(void);
-   	void setTileGridColor(void);
    private slots:
 	void showTileMode(void);
 	void exitTileMode(void);
@@ -347,6 +344,9 @@ class oamPatternView_t : public QWidget
 		bool getHoverFocus(void){ return hover2Focus; };
 		void setGridVisibility(bool val);
 		bool getGridVisibility(void){ return showGrid; };
+
+		QColor gridColor;
+		QColor selTileColor;
 	protected:
 		void paintEvent(QPaintEvent *event);
 		void resizeEvent(QResizeEvent *event);
@@ -365,7 +365,6 @@ class oamPatternView_t : public QWidget
 		bool hover2Focus;
 		bool showGrid;
 
-		QColor selSpriteBoxColor;
 		QPoint selSprite;
 		int    spriteIdx;
 	private:
@@ -431,6 +430,8 @@ class oamPreview_t : public QWidget
 
 		void setIndex(int val);
 		void setMinScale(int val);
+
+		QColor  boxColor;
 	protected:
 		void paintEvent(QPaintEvent *event);
 		void resizeEvent(QResizeEvent *event);

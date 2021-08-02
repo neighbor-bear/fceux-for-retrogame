@@ -47,6 +47,7 @@ class ConsoleVideoConfDialog_t : public QDialog
 		QCheckBox   *aspectCbx;
 		QCheckBox   *cursorVisCbx;
 		QCheckBox   *drawInputAidsCbx;
+		QCheckBox   *intFrameRateCbx;
 		QDoubleSpinBox *xScaleBox;
 		QDoubleSpinBox *yScaleBox;
 		QLabel         *aspectSelectLabel;
@@ -58,6 +59,7 @@ class ConsoleVideoConfDialog_t : public QDialog
 		QSpinBox       *pal_end;
 		QLineEdit      *winSizeReadout;
 		QLineEdit      *vpSizeReadout;
+		QLineEdit      *scrRateReadout;
 
 		void  setCheckBoxFromProperty( QCheckBox *cbx, const char *property );
 		void  setComboBoxFromProperty( QComboBox *cbx, const char *property );
@@ -78,6 +80,7 @@ class ConsoleVideoConfDialog_t : public QDialog
 		void  aspectEnableChanged( int value );
 		void  use_new_PPU_changed( bool value );
 		void  frameskip_changed( int value );
+		void  intFrameRate_changed( int value );
 		void  useSpriteLimitChanged( int value );
 		void  clipSidesChanged( int value );
 		void  showFPSChanged( int value );

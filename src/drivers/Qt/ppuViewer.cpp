@@ -56,6 +56,7 @@
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/PaletteEditor.h"
+#include "Qt/ColorMenu.h"
 
 #define PATTERNWIDTH          128
 #define PATTERNHEIGHT         128
@@ -212,6 +213,7 @@ ppuViewerDialog_t::ppuViewerDialog_t(QWidget *parent)
 	QAction *act;
 	//char stmp[64];
 	int useNativeMenuBar;
+	ColorMenuItem *tileSelColorAct[2], *tileGridColorAct[2];
 
 	ppuViewWindow = this;
 
@@ -242,6 +244,9 @@ ppuViewerDialog_t::ppuViewerDialog_t(QWidget *parent)
 	sprite8x16Cbox[1] = new QCheckBox( tr("Sprites 8x16 Mode") );
 	tileLabel[0]      = new QLabel( tr("Tile:") );
 	tileLabel[1]      = new QLabel( tr("Tile:") );
+
+	g_config->getOption("SDL.PPU_View1_8x16", &PPUView_sprite16Mode[0]);
+	g_config->getOption("SDL.PPU_View2_8x16", &PPUView_sprite16Mode[1]);
 
 	sprite8x16Cbox[0]->setChecked( PPUView_sprite16Mode[0] );
 	sprite8x16Cbox[1]->setChecked( PPUView_sprite16Mode[1] );
@@ -326,10 +331,14 @@ ppuViewerDialog_t::ppuViewerDialog_t(QWidget *parent)
 	patternView[0]->setTileLabel( tileLabel[0] );
 	patternView[1]->setTileLabel( tileLabel[1] );
 
+	g_config->getOption("SDL.PPU_ViewScanLine", &PPUViewScanline);
+
 	scanLineEdit->setRange( 0, 255 );
 	scanLineEdit->setValue( PPUViewScanline );
 
 	connect( scanLineEdit, SIGNAL(valueChanged(int)), this, SLOT(scanLineChanged(int)));
+
+	g_config->getOption("SDL.PPU_ViewRefreshFrames", &PPUViewRefresh);
 
 	refreshSlider->setMinimum( 0);
 	refreshSlider->setMaximum(25);
@@ -373,20 +382,16 @@ ppuViewerDialog_t::ppuViewerDialog_t(QWidget *parent)
 	colorMenu = viewMenu->addMenu(tr("&Colors"));
 
 	// View1 -> Colors -> Tile Selector
-	act = new QAction(tr("Tile &Selector"), this);
-	//act->setShortcut(QKeySequence::Open);
-	act->setStatusTip(tr("Tile Selector"));
-	connect(act, SIGNAL(triggered()), patternView[0], SLOT(setTileSelectorColor()) );
+	tileSelColorAct[0] = new ColorMenuItem(tr("Tile &Selector"), "SDL.PPU_TileSelColor0", this);
+	tileSelColorAct[0]->connectColor( &patternView[0]->selTileColor );
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(tileSelColorAct[0]);
 
 	// View1 -> Colors -> Tile Grid
-	act = new QAction(tr("Tile &Grid"), this);
-	//act->setShortcut(QKeySequence::Open);
-	act->setStatusTip(tr("Tile Grid"));
-	connect(act, SIGNAL(triggered()), patternView[0], SLOT(setTileGridColor()) );
+	tileGridColorAct[0] = new ColorMenuItem(tr("Tile &Grid"), "SDL.PPU_TileGridColor0", this);
+	tileGridColorAct[0]->connectColor( &patternView[0]->gridColor );
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(tileGridColorAct[0]);
 
 	// View2
 	viewMenu = menuBar->addMenu(tr("View&2"));
@@ -405,20 +410,16 @@ ppuViewerDialog_t::ppuViewerDialog_t(QWidget *parent)
 	colorMenu = viewMenu->addMenu(tr("&Colors"));
 
 	// View2 -> Colors -> Tile Selector
-	act = new QAction(tr("Tile &Selector"), this);
-	//act->setShortcut(QKeySequence::Open);
-	act->setStatusTip(tr("Tile Selector"));
-	connect(act, SIGNAL(triggered()), patternView[1], SLOT(setTileSelectorColor()) );
+	tileSelColorAct[1] = new ColorMenuItem(tr("Tile &Selector"), "SDL.PPU_TileSelColor1", this);
+	tileSelColorAct[1]->connectColor( &patternView[1]->selTileColor );
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(tileSelColorAct[1]);
 
 	// View2 -> Colors -> Tile Grid
-	act = new QAction(tr("Tile &Grid"), this);
-	//act->setShortcut(QKeySequence::Open);
-	act->setStatusTip(tr("Tile Grid"));
-	connect(act, SIGNAL(triggered()), patternView[1], SLOT(setTileGridColor()) );
+	tileGridColorAct[1] = new ColorMenuItem(tr("Tile &Grid"), "SDL.PPU_TileGridColor1", this);
+	tileGridColorAct[1]->connectColor( &patternView[1]->gridColor );
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(tileGridColorAct[1]);
 
 	// Options
 	optMenu = menuBar->addMenu(tr("&Options"));
@@ -453,6 +454,8 @@ ppuViewerDialog_t::ppuViewerDialog_t(QWidget *parent)
 	updateTimer->start( 33 ); // 30hz
 
 	restoreGeometry(settings.value("ppuViewer/geometry").toByteArray());
+
+	connect( this, SIGNAL(rejected(void)), this, SLOT(deleteLater(void)));
 }
 
 //----------------------------------------------------
@@ -505,6 +508,7 @@ void ppuViewerDialog_t::scanLineChanged(int value)
 {
 	PPUViewScanline = value;
 	//printf("ScanLine: %i\n", PPUViewScanline );
+	g_config->setOption("SDL.PPU_ViewScanLine", PPUViewScanline);
 }
 //----------------------------------------------------
 void ppuViewerDialog_t::invertMaskChanged(int state)
@@ -524,16 +528,22 @@ void ppuViewerDialog_t::maskUnusedGraphicsChanged(int state)
 void ppuViewerDialog_t::sprite8x16Changed0(int state)
 {
 	PPUView_sprite16Mode[0] = (state == Qt::Unchecked) ? 0 : 1;
+
+	g_config->setOption("SDL.PPU_View1_8x16", PPUView_sprite16Mode[0]);
 }
 //----------------------------------------------------
 void ppuViewerDialog_t::sprite8x16Changed1(int state)
 {
 	PPUView_sprite16Mode[1] = (state == Qt::Unchecked) ? 0 : 1;
+
+	g_config->setOption("SDL.PPU_View2_8x16", PPUView_sprite16Mode[1]);
 }
 //----------------------------------------------------
 void ppuViewerDialog_t::refreshSliderChanged(int value)
 {
 	PPUViewRefresh = value;
+
+	g_config->setOption("SDL.PPU_ViewRefreshFrames", PPUViewRefresh);
 }
 //----------------------------------------------------
 void ppuViewerDialog_t::setClickFocus(void)
@@ -569,6 +579,19 @@ ppuPatternView_t::ppuPatternView_t( int patternIndexID, QWidget *parent)
 	selTile.setX(-1);
 	selTile.setY(-1);
 
+	if ( patternIndexID )
+	{
+		fceuLoadConfigColor("SDL.PPU_TileSelColor1"  , &selTileColor  );
+		fceuLoadConfigColor("SDL.PPU_TileGridColor1" , &gridColor     );
+		g_config->getOption("SDL.PPU_TileShowGrid1"  , &drawTileGrid );
+	}
+	else
+	{
+		fceuLoadConfigColor("SDL.PPU_TileSelColor0"  , &selTileColor  );
+		fceuLoadConfigColor("SDL.PPU_TileGridColor0" , &gridColor     );
+		g_config->getOption("SDL.PPU_TileShowGrid0"  , &drawTileGrid );
+	}
+
 	g_config->getOption("SDL.PPU_TileFocusPolicy", &hover2Focus );
 }
 //----------------------------------------------------
@@ -599,35 +622,6 @@ void ppuPatternView_t::setTileCoord( int x, int y )
 ppuPatternView_t::~ppuPatternView_t(void)
 {
 
-}
-//----------------------------------------------------
-void ppuPatternView_t::openColorPicker( QColor *c )
-{
-	int ret;
-	QColorDialog dialog( this );
-
-	dialog.setCurrentColor( *c );
-	dialog.setOption( QColorDialog::DontUseNativeDialog, true );
-	ret = dialog.exec();
-
-	if ( ret == QDialog::Accepted )
-	{
-		//QString colorText;
-		//colorText = dialog.selectedColor().name();
-		//printf("FG Color string '%s'\n", colorText.toStdString().c_str() );
-		//g_config->setOption("SDL.HexEditFgColor", colorText.toStdString().c_str() );
-		*c = dialog.selectedColor();
-	}
-}
-//----------------------------------------------------
-void ppuPatternView_t::setTileSelectorColor(void)
-{
-	openColorPicker( &selTileColor );
-}
-//----------------------------------------------------
-void ppuPatternView_t::setTileGridColor(void)
-{
-	openColorPicker( &gridColor );
 }
 //----------------------------------------------------
 QPoint ppuPatternView_t::convPixToTile( QPoint p )
@@ -1018,7 +1012,16 @@ void ppuPatternView_t::contextMenuEvent(QContextMenuEvent *event)
 //----------------------------------------------------
 void ppuPatternView_t::toggleTileGridLines(void)
 {
-   drawTileGrid = !drawTileGrid;
+	drawTileGrid = !drawTileGrid;
+	
+	if ( patternIndex )
+	{
+	     g_config->setOption( "SDL.PPU_TileShowGrid1", drawTileGrid );
+	}
+	else
+	{
+	     g_config->setOption( "SDL.PPU_TileShowGrid0", drawTileGrid );
+	}
 }
 //----------------------------------------------------
 void ppuPatternView_t::showTileMode(void)
@@ -2833,11 +2836,12 @@ spriteViewerDialog_t::spriteViewerDialog_t(QWidget *parent)
 	QGroupBox   *frame;
 	QLabel      *lbl;
 	QActionGroup *group;
-	QMenu *fileMenu, *viewMenu, *optMenu, *subMenu;
+	QMenu *fileMenu, *viewMenu, *colorMenu, *optMenu, *subMenu;
 	QAction *act;
 	QFont font;
 	//char stmp[64];
-	int useNativeMenuBar, pxCharWidth;
+	int useNativeMenuBar, pxCharWidth, opt;
+	ColorMenuItem *selTileColorAct, *gridColorAct, *locColorAct;
 
 	spriteViewWindow = this;
 
@@ -2877,6 +2881,26 @@ spriteViewerDialog_t::spriteViewerDialog_t(QWidget *parent)
 	connect(act, SIGNAL(triggered()), this, SLOT(toggleGridVis(void)) );
 	
 	viewMenu->addAction(act);
+
+	colorMenu = menuBar->addMenu(tr("&Color"));
+
+	// Color -> Selector
+	selTileColorAct = new ColorMenuItem(tr("&Selector"), "SDL.OAM_TileSelColor", this);
+	selTileColorAct->connectColor( &oamView->selTileColor );
+	
+	colorMenu->addAction(selTileColorAct);
+
+	// Color -> Grid
+	gridColorAct = new ColorMenuItem(tr("&Grid"), "SDL.OAM_TileGridColor", this);
+	gridColorAct->connectColor( &oamView->gridColor );
+	
+	colorMenu->addAction(gridColorAct);
+
+	// Color -> Locator
+	locColorAct = new ColorMenuItem(tr("&Locator Box"), "SDL.OAM_LocatorColor", this);
+	locColorAct->connectColor( &preView->boxColor );
+	
+	colorMenu->addAction(locColorAct);
 
 	// View -> Show Preview
 	//act = new QAction(tr("Show &Preview"), this);
@@ -2955,6 +2979,8 @@ spriteViewerDialog_t::spriteViewerDialog_t(QWidget *parent)
 	useSprRam = new QRadioButton( tr("Sprite RAM") );
 	useCpuPag = new QRadioButton( tr("CPU Page #") );
 	cpuPagIdx = new QSpinBox(this);
+
+	g_config->getOption("SDL.PPU_ViewScanLine", &PPUViewScanline);
 
 	scanLineEdit = new QSpinBox(this);
 	scanLineEdit->setRange( 0, 255 );
@@ -3095,6 +3121,11 @@ spriteViewerDialog_t::spriteViewerDialog_t(QWidget *parent)
 	resize( minimumSizeHint() );
 
 	restoreGeometry(settings.value("spriteViewer/geometry").toByteArray());
+
+	connect( this, SIGNAL(rejected(void)), this, SLOT(deleteLater(void)));
+
+	g_config->getOption("SDL.OAM_ShowPosHex", &opt);
+	showPosHex->setChecked( opt );
 }
 //----------------------------------------------------
 spriteViewerDialog_t::~spriteViewerDialog_t(void)
@@ -3103,6 +3134,7 @@ spriteViewerDialog_t::~spriteViewerDialog_t(void)
 	{
 		spriteViewWindow = NULL;
 	}
+	g_config->setOption("SDL.OAM_ShowPosHex", showPosHex->isChecked() );
 }
 //----------------------------------------------------
 void spriteViewerDialog_t::closeEvent(QCloseEvent *event)
@@ -3143,6 +3175,7 @@ void spriteViewerDialog_t::scanLineChanged(int value)
 {
 	PPUViewScanline = value;
 	//printf("ScanLine: %i\n", PPUViewScanline );
+	g_config->setOption("SDL.PPU_ViewScanLine", PPUViewScanline);
 }
 //----------------------------------------------------
 void spriteViewerDialog_t::periodicUpdate(void)
@@ -3210,14 +3243,17 @@ oamPatternView_t::oamPatternView_t( QWidget *parent )
 	hover2Focus  = false;
 	showGrid = false;
 
-	//selTileColor.setRgb(255,255,255);
-	//gridColor.setRgb(128,128,128);
-	selSpriteBoxColor.setRgb(255,0,0);
+	selTileColor.setRgb(255,255,255);
+	gridColor.setRgb(128,128,128);
 	
 	selSprite.setX(0);
 	selSprite.setY(0);
 	spriteIdx = 0;
 
+	fceuLoadConfigColor("SDL.OAM_TileSelColor"  , &selTileColor  );
+	fceuLoadConfigColor("SDL.OAM_TileGridColor" , &gridColor  );
+
+	g_config->getOption("SDL.OAM_TileShowGrid", &showGrid);
 	g_config->getOption("SDL.OAM_TileFocusPolicy", &hover2Focus );
 }
 //----------------------------------------------------
@@ -3233,7 +3269,11 @@ void oamPatternView_t::setHover2Focus(bool val)
 	g_config->setOption("SDL.OAM_TileFocusPolicy", hover2Focus );
 }
 //----------------------------------------------------
-void oamPatternView_t::setGridVisibility(bool val){ showGrid = val; }
+void oamPatternView_t::setGridVisibility(bool val)
+{
+	showGrid = val;
+	g_config->setOption("SDL.OAM_TileShowGrid", showGrid);
+}
 //----------------------------------------------------
 int oamPatternView_t::getSpriteIndex(void){ return spriteIdx; }
 //----------------------------------------------------
@@ -3471,7 +3511,7 @@ void oamPatternView_t::paintEvent(QPaintEvent *event)
 	{
 		int tw, th;
 		pen.setWidth( 1 );
-		pen.setColor( QColor(128,128,128) );
+		pen.setColor( gridColor );
 		painter.setPen( pen );
 
 		tw=  8*w;
@@ -3500,18 +3540,16 @@ void oamPatternView_t::paintEvent(QPaintEvent *event)
 		yy = (spriteIdx / 8) * (h*16);
 
 		pen.setWidth( 3 );
-		pen.setColor( QColor(  0,  0,  0) );
+		pen.setColor( QColor(0, 0, 0) );
 		painter.setPen( pen );
 
 		painter.drawRect( xx, yy, w*8, h*16 );
 
 		pen.setWidth( 1 );
-		pen.setColor( QColor(255,255,255) );
+		pen.setColor( selTileColor );
 		painter.setPen( pen );
 
 		painter.drawRect( xx, yy, w*8, h*16 );
-
-		//painter.fillRect( ii, jj, w*8, h*16, selSpriteBoxColor );
 	}
 }
 //----------------------------------------------------
@@ -3734,6 +3772,10 @@ oamPreview_t::oamPreview_t(QWidget *parent)
 	setMinimumHeight( viewHeight );
 	selSprite = 0;
 	cx = cy = 0;
+
+	boxColor.setRgb( 128, 128, 128 );
+
+	fceuLoadConfigColor("SDL.OAM_LocatorColor", &boxColor  );
 }
 //----------------------------------------------------
 oamPreview_t::~oamPreview_t(void)
@@ -3864,7 +3906,7 @@ void oamPreview_t::paintEvent(QPaintEvent *event)
 		spr = &oamPattern.sprite[selSprite];
 
 		pen.setWidth( 1 );
-		pen.setColor( QColor(128,128,128) );
+		pen.setColor( boxColor );
 		painter.setPen( pen );
 
 		yy = (spr->y * h) + cy;

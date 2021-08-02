@@ -43,6 +43,7 @@ struct GamePadConfigLocalData_t
 {
 	std::string guid;
 	std::string profile;
+	bool advBindNeedsSave;
 
 	struct
 	{
@@ -57,7 +58,9 @@ struct GamePadConfigLocalData_t
 		{
 			btn[i].needsSave = 0;
 		}
+		advBindNeedsSave = 0;
 	}
+
 };
 
 static GamePadConfigLocalData_t lcl[GAMEPAD_NUM_DEVICES];
@@ -437,8 +440,8 @@ GamePadConfDialog_t::GamePadConfDialog_t(QWidget *parent)
 
 	item = new QTreeWidgetItem();
 	item->setText(0, QString::fromStdString("GP Button"));
-	item->setText(1, QString::fromStdString("Press Key"));
-	item->setText(2, QString::fromStdString("Release Key"));
+	item->setText(1, QString::fromStdString("Press Func"));
+	item->setText(2, QString::fromStdString("Release Func"));
 	item->setTextAlignment(0, Qt::AlignLeft);
 	item->setTextAlignment(1, Qt::AlignLeft);
 	item->setTextAlignment(2, Qt::AlignLeft);
@@ -645,7 +648,7 @@ void GamePadConfDialog_t::refreshKeyBindTree( bool reset )
 
 	i=0;
 
-	for (it=gpKeySeqList.begin(); it!=gpKeySeqList.end(); it++)
+	for (it=GamePad[portNum].gpKeySeqList.begin(); it!=GamePad[portNum].gpKeySeqList.end(); it++)
 	{
 		binding = *it;
 
@@ -747,6 +750,8 @@ void GamePadConfDialog_t::portSelect(int index)
 	}
 
 	loadMapList();
+
+	refreshKeyBindTree(true);
 }
 //----------------------------------------------------
 void GamePadConfDialog_t::deviceSelect(int index)
@@ -1015,6 +1020,8 @@ void GamePadConfDialog_t::saveConfig(void)
 	{
 		lcl[portNum].btn[i].needsSave = 0;
 	}
+	lcl[portNum].advBindNeedsSave = 0;
+
 	g_config->save();
 }
 //----------------------------------------------------
@@ -1085,6 +1092,8 @@ void GamePadConfDialog_t::loadProfileCallback(void)
 	mapMsg->setText(tr(stmp));
 
 	updateCntrlrDpy();
+
+	refreshKeyBindTree(true);
 }
 //----------------------------------------------------
 void GamePadConfDialog_t::saveProfileCallback(void)
@@ -1149,7 +1158,7 @@ void GamePadConfDialog_t::promptToSave(void)
 
 		for (j = 0; j < GAMEPAD_NUM_BUTTONS; j++)
 		{
-			if (lcl[i].btn[j].needsSave)
+			if (lcl[i].btn[j].needsSave || lcl[i].advBindNeedsSave)
 			{
 				padNeedsSave[i] = 1;
 				saveRequired = 1;
@@ -1199,7 +1208,7 @@ void GamePadConfDialog_t::promptToSave(void)
 //----------------------------------------------------
 void GamePadConfDialog_t::newKeyBindingCallback(void)
 {
-	GamePadFuncConfigDialog *dialog = new GamePadFuncConfigDialog( NULL, this );
+	GamePadFuncConfigDialog *dialog = new GamePadFuncConfigDialog( portNum, NULL, this );
 
 	dialog->show();
 }
@@ -1222,14 +1231,14 @@ void GamePadConfDialog_t::editKeyBindingCallback(void)
 	row = keyBindTree->indexOfTopLevelItem(item);
 
 	i=0;
-	for (it=gpKeySeqList.begin(); it!=gpKeySeqList.end(); it++)
+	for (it=GamePad[portNum].gpKeySeqList.begin(); it!=GamePad[portNum].gpKeySeqList.end(); it++)
 	{
 		if ( i == row )
 		{
 			k = *it; break;
 		}
 	}
-	GamePadFuncConfigDialog *dialog = new GamePadFuncConfigDialog( k, this );
+	GamePadFuncConfigDialog *dialog = new GamePadFuncConfigDialog( portNum, k, this );
 
 	dialog->show();
 }
@@ -1252,12 +1261,12 @@ void GamePadConfDialog_t::delKeyBindingCallback(void)
 	row = keyBindTree->indexOfTopLevelItem(item);
 
 	i=0;
-	for (it=gpKeySeqList.begin(); it!=gpKeySeqList.end(); it++)
+	for (it=GamePad[portNum].gpKeySeqList.begin(); it!=GamePad[portNum].gpKeySeqList.end(); it++)
 	{
 		if ( i == row )
 		{
 			k = *it;
-			gpKeySeqList.erase(it);
+			GamePad[portNum].gpKeySeqList.erase(it);
 			delete k;
 			break;
 		}
@@ -1267,7 +1276,9 @@ void GamePadConfDialog_t::delKeyBindingCallback(void)
 //----------------------------------------------------
 void GamePadConfDialog_t::updatePeriodic(void)
 {
+	bool buttonEnable;
 	char jsFound[ MAX_JOYSTICKS ];
+	QTreeWidgetItem *item;
 
 	memset( jsFound, 0, sizeof(jsFound) );
 
@@ -1350,10 +1361,24 @@ void GamePadConfDialog_t::updatePeriodic(void)
 		efs_chkbox->setChecked(fourScore);
 	}
 
+
 	gpView->setPort(portNum);
 	gpView->update();
 
 	refreshKeyBindTree();
+
+	item = keyBindTree->currentItem();
+
+	if ( item == NULL )
+	{
+		buttonEnable = false;
+	}
+	else
+	{
+		buttonEnable = true;
+	}
+	editKeyBindBtn->setEnabled(buttonEnable);
+	 delKeyBindBtn->setEnabled(buttonEnable);
 }
 
 //----------------------------------------------------
@@ -1725,7 +1750,7 @@ void GamePadView_t::paintEvent(QPaintEvent *event)
 //----------------------------------------------------
 // Game Pad Function Config
 //----------------------------------------------------
-GamePadFuncConfigDialog::GamePadFuncConfigDialog( gamepad_function_key_t *fk, QWidget *parent )
+GamePadFuncConfigDialog::GamePadFuncConfigDialog( int portNumIn, gamepad_function_key_t *fk, QWidget *parent )
 	: QDialog(parent)
 {
 	QHBoxLayout *hbox;
@@ -1736,6 +1761,8 @@ GamePadFuncConfigDialog::GamePadFuncConfigDialog( gamepad_function_key_t *fk, QW
 	QPushButton *okButton, *cancelButton;
 	QPushButton *clearButton[4];
 	const char *keyNameStr;
+
+	portNum = portNumIn;
 
 	if ( fk == NULL )
 	{
@@ -1877,8 +1904,9 @@ GamePadFuncConfigDialog::~GamePadFuncConfigDialog(void)
 	{
 		if ( !editMode )
 		{
-			gpKeySeqList.push_back( k );
+			GamePad[portNum].gpKeySeqList.push_back( k );
 		}
+		lcl[portNum].advBindNeedsSave = 1;
 	}
 	else
 	{

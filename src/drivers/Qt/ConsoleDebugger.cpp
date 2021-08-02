@@ -101,7 +101,6 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 {
 	QMenuBar    *menuBar;
 	QSettings settings;
-	QFont cpuFont;
 	std::string fontString;
 
 	g_config->getOption("SDL.DebuggerCpuStatusFont", &fontString);
@@ -204,6 +203,8 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	    labelColorAct->connectColor( &asmView->labelColor  );
 	  commentColorAct->connectColor( &asmView->commentColor);
 	       pcColorAct->connectColor( &asmView->pcBgColor);
+
+	connect( this, SIGNAL(rejected(void)), this, SLOT(deleteLater(void)));
 }
 //----------------------------------------------------------------------------
 ConsoleDebugger::~ConsoleDebugger(void)
@@ -596,6 +597,8 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 	subMenu = debugMenu->addMenu(tr("&Break On..."));
 
 	// Debug -> Break on -> Bad Opcodes
+	g_config->getOption("SDL.DebuggerBreakOnBadOpcodes", &FCEUI_Debugger().badopbreak );
+
 	act = new QAction(tr("Bad &Opcodes"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Bad Opcodes"));
@@ -606,6 +609,8 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 	subMenu->addAction(act);
 
 	// Debug -> Break on -> Unlogged Code
+	g_config->getOption("SDL.DebuggerBreakOnUnloggedCode", &break_on_unlogged_code );
+
 	act = new QAction(tr("Unlogged &Code"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Unlogged Code"));
@@ -616,6 +621,8 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 	subMenu->addAction(act);
 
 	// Debug -> Break on -> Unlogged Data
+	g_config->getOption("SDL.DebuggerBreakOnUnloggedData", &break_on_unlogged_data );
+
 	act = new QAction(tr("Unlogged &Data"), this);
 	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Unlogged Data"));
@@ -1072,106 +1079,125 @@ void ConsoleDebugger::buildCpuListDisplay(void)
 //----------------------------------------------------------------------------
 void ConsoleDebugger::buildPpuListDisplay(void)
 {
-	QVBoxLayout *vbox, *vbox1;
-	QHBoxLayout /**hbox,*/ *hbox1;
-	QGridLayout *grid, *grid1;
-	QGroupBox   *ctlFrame;
-	QLabel      *bgAddrLbl, *sprAddrLbl;
-	QFont        lblFont;
+	QFontMetrics fm(cpuFont);
+	QVBoxLayout  *vbox1;
+	//QHBoxLayout *hbox;
+	QGridLayout *grid;
+	QLabel      *ppuCtrlLbl, *ppuMaskLbl, *ppuStatLbl, *ppuAddrLbl,
+		    *oamAddrLbl, *ppuLineLbl, *ppuPixLbl;
+	int fontCharWidth;
+
+	fontCharWidth = fm.averageCharWidth();
 
 	ppuStatContainerWidget = new QWidget(this);
 	ppuStatContainerWidget->setSizePolicy( QSizePolicy::Maximum, QSizePolicy::Maximum );
 
-	vbox        = new QVBoxLayout();
-	hbox1       = new QHBoxLayout();
 	ppuFrame    = new QFrame();
-	ppuLbl      = new QLabel( tr("PPU:") );
-	spriteLbl   = new QLabel( tr("Sprite:") );
-	scanLineLbl = new QLabel( tr("Scanline:") );
-	pixLbl      = new QLabel( tr("Pixel:") );
+	grid        = new QGridLayout();
 
+	ppuDataGrid = grid;
 	ppuFrame->setObjectName( tr("debuggerStatusPPU") );
 
-	hbox1->addLayout( vbox );
-	vbox->addWidget( ppuLbl );
-	vbox->addWidget( spriteLbl );
-	vbox->addWidget( scanLineLbl );
-	vbox->addWidget( pixLbl );
+	ppuCtrlLbl = new QLabel( tr("PPUCTRL:") );
+	ppuMaskLbl = new QLabel( tr("PPUMASK:") );
+	ppuStatLbl = new QLabel( tr("PPUSTAT:") );
+	ppuAddrLbl = new QLabel( tr("PPUADDR:") );
+	oamAddrLbl = new QLabel( tr("OAMADDR:") );
+	ppuLineLbl = new QLabel( tr("Scanline:") );
+	 ppuPixLbl = new QLabel( tr("Pixel:") );
 
-	 bgAddrLbl = new QLabel( tr("BG Addr") );
-	sprAddrLbl = new QLabel( tr("Spr Addr") );
+	ppuCtrlLbl->setToolTip( tr("PPU Control Register, Address $2000") );
+	ppuMaskLbl->setToolTip( tr("PPU Mask Register, Address $2001") );
+	ppuStatLbl->setToolTip( tr("PPU Status Register, Address $2002") );
+	oamAddrLbl->setToolTip( tr("OAM Address Register, Address $2003") );
+	ppuAddrLbl->setToolTip( tr("PPU Address Register, Address $2006") );
+	ppuLineLbl->setToolTip( tr("PPU Current Scanline being processed") );
+	 ppuPixLbl->setToolTip( tr("PPU Current Pixel being processed") );
 
-	ctlFrame = new QGroupBox( tr("Control / Mask") );
-	grid1    = new QGridLayout();
-	grid     = new QGridLayout();
+	ppuCtrlReg     = new ppuCtrlRegDpy();
+	ppuMaskReg     = new ppuCtrlRegDpy();
+	ppuStatReg     = new ppuCtrlRegDpy();
+	ppuAddrDsp     = new QLineEdit();
+	oamAddrDsp     = new QLineEdit();
+	ppuScanLineDsp = new QLineEdit();
+	ppuPixelDsp    = new QLineEdit();
+	ppuScrollX     = new QLineEdit();
+	ppuScrollY     = new QLineEdit();
 
-	hbox1->addWidget( ctlFrame );
-	ctlFrame->setLayout( grid1 );
+	ppuAddrDsp->setReadOnly(true);
+	oamAddrDsp->setReadOnly(true);
+	ppuScanLineDsp->setReadOnly(true);
+	ppuPixelDsp->setReadOnly(true);
+	ppuScrollX->setReadOnly(true);
+	ppuScrollY->setReadOnly(true);
 
-	//ppuBgAddr   = new QLineEdit();
-	ppuBgAddr   = new ppuCtrlRegDpy();
-	ppuSprAddr  = new QLineEdit();
+	ppuCtrlReg->setFont( cpuFont );
+	ppuMaskReg->setFont( cpuFont );
+	ppuStatReg->setFont( cpuFont );
+	ppuAddrDsp->setFont( cpuFont );
+	oamAddrDsp->setFont( cpuFont );
+	ppuScanLineDsp->setFont( cpuFont );
+	ppuPixelDsp->setFont( cpuFont );
+	ppuScrollX->setFont( cpuFont );
+	ppuScrollY->setFont( cpuFont );
 
-	grid->addWidget( bgAddrLbl, 0, 0 );
-	grid->addWidget( sprAddrLbl, 1, 0 );
-	grid->addWidget( ppuBgAddr, 0, 1 );
-	grid->addWidget( ppuSprAddr, 1, 1 );
+	ppuCtrlReg->setMinimumWidth( 4 * fontCharWidth );
+	ppuMaskReg->setMinimumWidth( 4 * fontCharWidth );
+	ppuStatReg->setMinimumWidth( 4 * fontCharWidth );
+	ppuAddrDsp->setMinimumWidth( 7 * fontCharWidth );
+	oamAddrDsp->setMinimumWidth( 4 * fontCharWidth );
+	ppuScanLineDsp->setMinimumWidth( 4 * fontCharWidth );
+	ppuPixelDsp->setMinimumWidth( 4 * fontCharWidth );
+	ppuScrollX->setMinimumWidth( 4 * fontCharWidth );
+	ppuScrollY->setMinimumWidth( 4 * fontCharWidth );
 
-	grid1->addLayout( grid, 0, 0, 3, 1 );
+	ppuCtrlReg->setMaximumWidth( 4 * fontCharWidth );
+	ppuMaskReg->setMaximumWidth( 4 * fontCharWidth );
+	ppuStatReg->setMaximumWidth( 4 * fontCharWidth );
+	ppuAddrDsp->setMaximumWidth( 7 * fontCharWidth );
+	oamAddrDsp->setMaximumWidth( 4 * fontCharWidth );
+	ppuScanLineDsp->setMaximumWidth( 4 * fontCharWidth );
+	ppuPixelDsp->setMaximumWidth( 4 * fontCharWidth );
+	ppuScrollX->setMaximumWidth( 8 * fontCharWidth );
+	ppuScrollY->setMaximumWidth( 8 * fontCharWidth );
 
-	bgEnabled_cbox  = new QCheckBox( tr("BG Enabled") );
-	sprites_cbox    = new QCheckBox( tr("Sprites Enabled") );
-	drawLeftBg_cbox = new QCheckBox( tr("Draw Left BG (8px)") );
-	drawLeftFg_cbox = new QCheckBox( tr("Draw Left Sprites (8px)") );
-	vwrite_cbox     = new QCheckBox( tr("Vertical Write") );
-	nmiBlank_cbox   = new QCheckBox( tr("NMI on vBlank") );
-	sprite8x16_cbox = new QCheckBox( tr("8x16 Sprites") );
-	grayscale_cbox  = new QCheckBox( tr("Grayscale") );
-	iRed_cbox       = new QCheckBox( tr("Intensify Red") );
-	iGrn_cbox       = new QCheckBox( tr("Intensify Green") );
-	iBlu_cbox       = new QCheckBox( tr("Intensify Blue") );
+	grid->setColumnMinimumWidth(1, 8 * fontCharWidth);
+	grid->setColumnMinimumWidth(3, 8 * fontCharWidth);
 
-	grid1->addWidget( bgEnabled_cbox , 3, 0 );
-	grid1->addWidget( sprites_cbox   , 4, 0 );
-	grid1->addWidget( drawLeftBg_cbox, 5, 0 );
-	grid1->addWidget( drawLeftFg_cbox, 6, 0 );
+	grid->addWidget( ppuCtrlLbl, 0, 0 );
+	grid->addWidget( ppuCtrlReg, 0, 1 );
 
-	grid1->addWidget( vwrite_cbox    , 0, 1 );
-	grid1->addWidget( nmiBlank_cbox  , 1, 1 );
-	grid1->addWidget( sprite8x16_cbox, 2, 1 );
-	grid1->addWidget( grayscale_cbox , 3, 1 );
-	grid1->addWidget( iRed_cbox      , 4, 1 );
-	grid1->addWidget( iGrn_cbox      , 5, 1 );
-	grid1->addWidget( iBlu_cbox      , 6, 1 );
+	grid->addWidget( ppuMaskLbl, 0, 2 );
+	grid->addWidget( ppuMaskReg, 0, 3 );
 
-	ppuStatContainerWidget->setLayout( hbox1  );
+	grid->addWidget( ppuStatLbl, 0, 4 );
+	grid->addWidget( ppuStatReg, 0, 5 );
+
+	grid->addWidget( oamAddrLbl, 1, 0 );
+	grid->addWidget( oamAddrDsp, 1, 1 );
+
+	grid->addWidget( ppuAddrLbl, 1, 2 );
+	grid->addWidget( ppuAddrDsp, 1, 3 );
+
+	grid->addWidget( ppuLineLbl, 2, 0 );
+	grid->addWidget( ppuScanLineDsp, 2, 1 );
+
+	grid->addWidget( ppuPixLbl, 2, 2 );
+	grid->addWidget( ppuPixelDsp, 2, 3 );
+
+	grid->addWidget( new QLabel( tr("X Scroll:") ), 3, 0 );
+	grid->addWidget( ppuScrollX, 3, 1 );
+
+	grid->addWidget( new QLabel( tr("Y Scroll:") ), 3, 2 );
+	grid->addWidget( ppuScrollY, 3, 3 );
+
+	ppuStatContainerWidget->setLayout( grid  );
 
 	vbox1 = new QVBoxLayout();
 	vbox1->addWidget( ppuStatContainerWidget, 1 );
 	vbox1->addStretch( 10 );
 
 	ppuFrame->setLayout( vbox1  );
-
-	lblFont = bgAddrLbl->font();
-	printf("Point Size: %i \n", lblFont.pointSize() );
-	lblFont.setPointSize(9);
-
-	 bgAddrLbl->setFont( lblFont );
-	sprAddrLbl->setFont( lblFont );
-	bgEnabled_cbox->setFont( lblFont );
-	sprites_cbox->setFont( lblFont );
-	drawLeftBg_cbox->setFont( lblFont );
-	drawLeftFg_cbox->setFont( lblFont );
-	vwrite_cbox->setFont( lblFont );
-	nmiBlank_cbox->setFont( lblFont );
-	sprite8x16_cbox->setFont( lblFont );
-	grayscale_cbox->setFont( lblFont );
-	iRed_cbox->setFont( lblFont );
-	iGrn_cbox->setFont( lblFont );
-	iBlu_cbox->setFont( lblFont );
-
-	//printf("Grid vspc:%i \n", grid1->verticalSpacing() );
-	grid1->setVerticalSpacing( grid1->verticalSpacing() / 2 );
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::buildBpListDisplay(void)
@@ -1520,6 +1546,48 @@ void ConsoleDebugger::setCpuStatusFont( const QFont &font )
 	cpuInstrsVal->setMinimumWidth( 24 * fontCharWidth );
 }
 //----------------------------------------------------------------------------
+void ConsoleDebugger::setPpuStatusFont( const QFont &font )
+{
+	QFontMetrics fm(font);
+	int fontCharWidth;
+
+	fontCharWidth = fm.averageCharWidth();
+
+	ppuCtrlReg->setFont( font );
+	ppuMaskReg->setFont( font );
+	ppuStatReg->setFont( font );
+	ppuAddrDsp->setFont( font );
+	oamAddrDsp->setFont( font );
+	ppuScanLineDsp->setFont( font );
+	ppuPixelDsp->setFont( font );
+	ppuScrollX->setFont( font );
+	ppuScrollY->setFont( font );
+
+	ppuCtrlReg->setMinimumWidth( 4 * fontCharWidth );
+	ppuMaskReg->setMinimumWidth( 4 * fontCharWidth );
+	ppuStatReg->setMinimumWidth( 4 * fontCharWidth );
+	ppuAddrDsp->setMinimumWidth( 7 * fontCharWidth );
+	oamAddrDsp->setMinimumWidth( 4 * fontCharWidth );
+	ppuScanLineDsp->setMinimumWidth( 4 * fontCharWidth );
+	ppuPixelDsp->setMinimumWidth( 4 * fontCharWidth );
+	ppuScrollX->setMinimumWidth( 4 * fontCharWidth );
+	ppuScrollY->setMinimumWidth( 4 * fontCharWidth );
+
+	ppuCtrlReg->setMaximumWidth( 4 * fontCharWidth );
+	ppuMaskReg->setMaximumWidth( 4 * fontCharWidth );
+	ppuStatReg->setMaximumWidth( 4 * fontCharWidth );
+	ppuAddrDsp->setMaximumWidth( 7 * fontCharWidth );
+	oamAddrDsp->setMaximumWidth( 4 * fontCharWidth );
+	ppuScanLineDsp->setMaximumWidth( 4 * fontCharWidth );
+	ppuPixelDsp->setMaximumWidth( 4 * fontCharWidth );
+	ppuScrollX->setMaximumWidth( 8 * fontCharWidth );
+	ppuScrollY->setMaximumWidth( 8 * fontCharWidth );
+
+	ppuDataGrid->setColumnMinimumWidth(1, 8 * fontCharWidth);
+	ppuDataGrid->setColumnMinimumWidth(3, 8 * fontCharWidth);
+
+}
+//----------------------------------------------------------------------------
 void 	ConsoleDebugger::bpItemClicked( QTreeWidgetItem *item, int column)
 {
 	int row = bpTree->indexOfTopLevelItem(item);
@@ -1676,6 +1744,9 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 
 	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
 	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+
+	    okButton->setIcon( style()->standardIcon( QStyle::SP_DialogOkButton ) );
+	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
 
 	okButton->setDefault(true);
 
@@ -2266,18 +2337,24 @@ void ConsoleDebugger::breakOnBadOpcodeCB(bool value)
 {
 	//printf("Value:%i\n", value);
 	FCEUI_Debugger().badopbreak = value;
+
+	g_config->setOption("SDL.DebuggerBreakOnBadOpcodes", value );
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::breakOnNewCodeCB(bool value)
 {
 	//printf("Code Value:%i\n", value);
 	break_on_unlogged_code = value;
+
+	g_config->setOption("SDL.DebuggerBreakOnUnloggedCode", value );
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::breakOnNewDataCB(bool value)
 {
 	//printf("Data Value:%i\n", value);
 	break_on_unlogged_data = value;
+
+	g_config->setOption("SDL.DebuggerBreakOnUnloggedData", value );
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::breakOnCyclesCB( bool value )
@@ -2442,7 +2519,9 @@ void ConsoleDebugger::changeCpuFontCB(void)
 
 	if ( ok )
 	{
+		cpuFont = selFont;
 		setCpuStatusFont( selFont );
+		setPpuStatusFont( selFont );
 
 		//printf("Font Changed to: '%s'\n", font.toString().toStdString().c_str() );
 
@@ -3748,11 +3827,20 @@ void  ConsoleDebugger::updateRegisterView(void)
 	cpuInstrsVal->setText( tr(stmp) );
 
 	// PPU Labels
-	sprintf(stmp, "PPU: 0x%04X", (int)FCEUPPU_PeekAddress());
-	ppuLbl->setText( tr(stmp) );
+	sprintf(stmp, "$%02X", PPU[0] );
+	ppuCtrlReg->setText( tr(stmp) );
 
-	sprintf(stmp, "Sprite: 0x%02X", PPU[3] );
-	spriteLbl->setText( tr(stmp) );
+	sprintf(stmp, "$%02X", PPU[1] );
+	ppuMaskReg->setText( tr(stmp) );
+
+	sprintf(stmp, "$%02X", PPU[2] );
+	ppuStatReg->setText( tr(stmp) );
+
+	sprintf(stmp, "$%04X", (int)FCEUPPU_PeekAddress());
+	ppuAddrDsp->setText( tr(stmp) );
+
+	sprintf(stmp, "$%02X", PPU[3] );
+	oamAddrDsp->setText( tr(stmp) );
 
 	extern int linestartts;
 	#define GETLASTPIXEL    (PAL?((timestamp*48-linestartts)/15) : ((timestamp*48-linestartts)/16) )
@@ -3792,12 +3880,18 @@ void  ConsoleDebugger::updateRegisterView(void)
 		sprintf(str2,"%d",newppu_get_dot());
 	}
 
-	sprintf( stmp, "Scanline: %s", str );
-	scanLineLbl->setText( tr(stmp) );
+	sprintf( stmp, "%s", str );
+	ppuScanLineDsp->setText( tr(stmp) );
 
-	sprintf( stmp, "Pixel: %s", str2 );
-	pixLbl->setText( tr(stmp) );
+	sprintf( stmp, "%s", str2 );
+	ppuPixelDsp->setText( tr(stmp) );
 
+	int ppuScrollPosX, ppuScrollPosY;
+	ppu_getScroll( ppuScrollPosX, ppuScrollPosY);
+	sprintf( stmp, "%i", ppuScrollPosX );
+	ppuScrollX->setText( tr(stmp) );
+	sprintf( stmp, "%i", ppuScrollPosY );
+	ppuScrollY->setText( tr(stmp) );
 }
 //----------------------------------------------------------------------------
 void ConsoleDebugger::updateWindowData(void)
@@ -6682,6 +6776,9 @@ ppuRegPopup::ppuRegPopup( QWidget *parent )
 	QCheckBox *iRed_cbox;
 	QCheckBox *iGrn_cbox;
 	QCheckBox *iBlu_cbox;
+	QCheckBox *vblank_cbox;
+	QCheckBox *sprite0hit_cbox;
+	QCheckBox *spriteOvrflw_cbox;
 	char stmp[32];
 
 	//QPalette pal = this->palette();
@@ -6692,7 +6789,7 @@ ppuRegPopup::ppuRegPopup( QWidget *parent )
 	vbox1    = new QVBoxLayout();
 	vbox     = new QVBoxLayout();
 	winFrame = new QFrame();
-	ctlFrame = new QGroupBox( tr("PPU Control / Mask") );
+	ctlFrame = new QGroupBox( tr("PPU Control / Mask / Status") );
 	grid1    = new QGridLayout();
 	grid     = new QGridLayout();
 
@@ -6716,17 +6813,20 @@ ppuRegPopup::ppuRegPopup( QWidget *parent )
 
 	grid1->addLayout( grid, 0, 0, 3, 1 );
 
-	bgEnabled_cbox  = new QCheckBox( tr("BG Enabled") );
-	sprites_cbox    = new QCheckBox( tr("Sprites Enabled") );
-	drawLeftBg_cbox = new QCheckBox( tr("Draw Left BG (8px)") );
-	drawLeftFg_cbox = new QCheckBox( tr("Draw Left Sprites (8px)") );
-	vwrite_cbox     = new QCheckBox( tr("Vertical Write") );
-	nmiBlank_cbox   = new QCheckBox( tr("NMI on vBlank") );
-	sprite8x16_cbox = new QCheckBox( tr("8x16 Sprites") );
-	grayscale_cbox  = new QCheckBox( tr("Grayscale") );
-	iRed_cbox       = new QCheckBox( tr("Intensify Red") );
-	iGrn_cbox       = new QCheckBox( tr("Intensify Green") );
-	iBlu_cbox       = new QCheckBox( tr("Intensify Blue") );
+	bgEnabled_cbox    = new QCheckBox( tr("BG Enabled") );
+	sprites_cbox      = new QCheckBox( tr("Sprites Enabled") );
+	drawLeftBg_cbox   = new QCheckBox( tr("Draw Left BG (8px)") );
+	drawLeftFg_cbox   = new QCheckBox( tr("Draw Left Sprites (8px)") );
+	vwrite_cbox       = new QCheckBox( tr("Vertical Write") );
+	nmiBlank_cbox     = new QCheckBox( tr("NMI on vBlank") );
+	sprite8x16_cbox   = new QCheckBox( tr("8x16 Sprites") );
+	grayscale_cbox    = new QCheckBox( tr("Grayscale") );
+	iRed_cbox         = new QCheckBox( tr("Intensify Red") );
+	iGrn_cbox         = new QCheckBox( tr("Intensify Green") );
+	iBlu_cbox         = new QCheckBox( tr("Intensify Blue") );
+	vblank_cbox       = new QCheckBox( tr("V-Blank") );
+	sprite0hit_cbox   = new QCheckBox( tr("Sprite 0 Hit") );
+	spriteOvrflw_cbox = new QCheckBox( tr("Sprite Overflow") );
 
 	sprintf( stmp, "$%04X", 0x2000 + (0x400*(PPU[0] & 0x03)));
 	ppuBgAddr->setText( tr(stmp) );
@@ -6746,10 +6846,16 @@ ppuRegPopup::ppuRegPopup( QWidget *parent )
 	      iGrn_cbox->setChecked( PPU[1] & 0x40 );
 	      iBlu_cbox->setChecked( PPU[1] & 0x80 );
 
-	grid1->addWidget( bgEnabled_cbox , 3, 0 );
-	grid1->addWidget( sprites_cbox   , 4, 0 );
-	grid1->addWidget( drawLeftBg_cbox, 5, 0 );
-	grid1->addWidget( drawLeftFg_cbox, 6, 0 );
+	      vblank_cbox->setChecked( PPU[2] & 0x80 );
+	  sprite0hit_cbox->setChecked( PPU[2] & 0x40 );
+	spriteOvrflw_cbox->setChecked( PPU[2] & 0x20 );
+
+	grid1->addWidget( bgEnabled_cbox   , 3, 0 );
+	grid1->addWidget( sprites_cbox     , 4, 0 );
+	grid1->addWidget( drawLeftBg_cbox  , 5, 0 );
+	grid1->addWidget( drawLeftFg_cbox  , 6, 0 );
+	grid1->addWidget( sprite0hit_cbox  , 7, 0 );
+	grid1->addWidget( spriteOvrflw_cbox, 8, 0 );
 
 	grid1->addWidget( vwrite_cbox    , 0, 1 );
 	grid1->addWidget( nmiBlank_cbox  , 1, 1 );
@@ -6758,6 +6864,7 @@ ppuRegPopup::ppuRegPopup( QWidget *parent )
 	grid1->addWidget( iRed_cbox      , 4, 1 );
 	grid1->addWidget( iGrn_cbox      , 5, 1 );
 	grid1->addWidget( iBlu_cbox      , 6, 1 );
+	grid1->addWidget( vblank_cbox    , 7, 1 );
 
 	setLayout( vbox1 );
 }
@@ -7001,7 +7108,7 @@ void DebuggerTabBar::mouseMoveEvent( QMouseEvent *event)
 //----------------------------------------------------------------------------
 void DebuggerTabBar::mousePressEvent( QMouseEvent *event)
 {
-	printf("TabBar Mouse Press: (%i,%i) \n", event->pos().x(), event->pos().y() );;
+	//printf("TabBar Mouse Press: (%i,%i) \n", event->pos().x(), event->pos().y() );;
 	QTabBar::mousePressEvent(event);
 
 	if ( (event->button() == Qt::LeftButton) && (currentIndex() >= 0) )

@@ -326,6 +326,27 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 	return 0;
 }
 
+
+int getHotKeyIndexByName( const char *name )
+{
+	const char *nameOut;
+
+	if ( name[0] == 0 )
+	{
+		return -1;
+	}
+	for (int i=0; i<HK_MAX; i++)
+	{
+		getHotKeyConfig( i, &nameOut, NULL );
+
+		if ( strcmp( name, nameOut ) == 0 )
+		{
+			return i;
+		}
+	}
+	return -1;
+}
+
 /**
  * Read a custom pallete from a file and load it into the core.
  */
@@ -469,6 +490,7 @@ InitConfig()
 	config->addOption("pal", "SDL.PAL", 0);
 	config->addOption("autoPal", "SDL.AutoDetectPAL", 1);
 	config->addOption("frameskip", "SDL.Frameskip", 0);
+	config->addOption("intFrameRate", "SDL.IntFrameRate", 0);
 	config->addOption("clipsides", "SDL.ClipSides", 0);
 	config->addOption("nospritelim", "SDL.DisableSpriteLimit", 1);
 	config->addOption("swapduty", "SDL.SwapDuty", 0);
@@ -506,7 +528,7 @@ InitConfig()
 	config->addOption("SDL.WinSizeY", 0);
 	config->addOption("doublebuf", "SDL.DoubleBuffering", 1);
 	config->addOption("autoscale", "SDL.AutoScale", 1);
-	config->addOption("forceAspect", "SDL.ForceAspect", 1);
+	config->addOption("forceAspect", "SDL.ForceAspect", 0);
 	config->addOption("aspectSelect", "SDL.AspectSelect", 0);
 	config->addOption("aspectX", "SDL.AspectX", 1.000);
 	config->addOption("aspectY", "SDL.AspectY", 1.000);
@@ -554,7 +576,7 @@ InitConfig()
 	config->addOption("inputdisplay", "SDL.InputDisplay", 0);
 
 	// enable / disable opposite directionals (left + right or up + down simultaneously)
-	config->addOption("opposite-directionals", "SDL.Input.EnableOppositeDirectionals", 1);
+	config->addOption("opposite-directionals", "SDL.Input.EnableOppositeDirectionals", 0);
     
 	// pause movie playback at frame x
 	config->addOption("pauseframe", "SDL.PauseFrame", 0);
@@ -592,6 +614,9 @@ InitConfig()
 	config->addOption("SDL.AsmShowRomOffsets", 0);
 	config->addOption("SDL.DebuggerShowSymNames", 1);
 	config->addOption("SDL.DebuggerShowRegNames", 1);
+	config->addOption("SDL.DebuggerBreakOnBadOpcodes", 0);
+	config->addOption("SDL.DebuggerBreakOnUnloggedCode", 0);
+	config->addOption("SDL.DebuggerBreakOnUnloggedData", 0);
 
 	// Code Data Logger Options
 	config->addOption("autoSaveCDL"  , "SDL.AutoSaveCDL", 1);
@@ -697,6 +722,31 @@ InitConfig()
 	config->addOption("SDL.OAM_TileFocusPolicy", 0);
 	config->addOption("SDL.PPU_MaskUnused", 0);
 	config->addOption("SDL.PPU_InvertMask", 0);
+	config->addOption("SDL.PPU_View1_8x16", 0);
+	config->addOption("SDL.PPU_View2_8x16", 0);
+	config->addOption("SDL.PPU_ViewScanLine", 0);
+	config->addOption("SDL.PPU_ViewRefreshFrames", 1);
+	config->addOption("SDL.NT_TileSelColor", "#FFFFFF");
+	config->addOption("SDL.NT_TileGridColor", "#FF0000");
+	config->addOption("SDL.NT_AttrGridColor", "#0000FF");
+	config->addOption("SDL.NT_ViewScanLine", 0);
+	config->addOption("SDL.NT_DrawScrollLines", 1);
+	config->addOption("SDL.NT_DrawTileGridLines", 1);
+	config->addOption("SDL.NT_DrawAttrGridLines", 0);
+	config->addOption("SDL.NT_DrawAttrbView", 0);
+	config->addOption("SDL.NT_IgnoreHidePal", 0);
+	config->addOption("SDL.NT_RefreshFrames", 1);
+	config->addOption("SDL.PPU_TileSelColor0", "#FFFFFF");
+	config->addOption("SDL.PPU_TileGridColor0", "#7F7F7F");
+	config->addOption("SDL.PPU_TileSelColor1", "#FFFFFF");
+	config->addOption("SDL.PPU_TileGridColor1", "#7F7F7F");
+	config->addOption("SDL.PPU_TileShowGrid0", 1);
+	config->addOption("SDL.PPU_TileShowGrid1", 1);
+	config->addOption("SDL.OAM_TileShowGrid", 0);
+	config->addOption("SDL.OAM_TileSelColor", "#FFFFFF");
+	config->addOption("SDL.OAM_TileGridColor", "#7F7F7F");
+	config->addOption("SDL.OAM_LocatorColor", "#7F7F7F");
+	config->addOption("SDL.OAM_ShowPosHex", 0);
 
 	// quit when a+b+select+start is pressed
 	config->addOption("4buttonexit", "SDL.ABStartSelectExit", 0);
@@ -873,6 +923,7 @@ UpdateEMUCore(Config *config)
 	config->getOption("SDL.Hue", &ntschue);
 	FCEUI_SetNTSCTH(ntsccol, ntsctint, ntschue);
 
+	config->getOption("SDL.IntFrameRate"  , &useIntFrameRate);
 	config->getOption("SDL.ForceGrayScale", &force_grayscale);
 	config->getOption("SDL.DeempBitSwap"  , &paldeemphswap);
 	config->getOption("SDL.PalNotch"      , &palnotch);

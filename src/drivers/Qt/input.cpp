@@ -63,7 +63,7 @@ static int buttonConfigInProgress = 0;
 extern int gametype;
 static int DTestButton(ButtConfig *bc);
 
-std::list<gamepad_function_key_t *> gpKeySeqList;
+//std::list<gamepad_function_key_t *> gpKeySeqList;
 
 /**
  * Necessary for proper GUI functioning (configuring when a game isn't loaded).
@@ -463,6 +463,8 @@ gamepad_function_key_t::gamepad_function_key_t(void)
 	}
 	for (int i = 0; i < 2; i++)
 	{
+		bmap[i].ButtType = -1;
+		bmap[i].DeviceNum = -1;
 		bmap[i].ButtonNum = -1;
 		bmap[i].state = 0;
 	}
@@ -1537,14 +1539,17 @@ static void updateGamePadKeyMappings(void)
 {
 	std::list<gamepad_function_key_t *>::iterator it;
 
-	if (gpKeySeqList.size() == 0)
+	for (int i=0; i<4; i++)
 	{
-		return;
-	}
+		if (GamePad[i].gpKeySeqList.size() == 0)
+		{
+			continue;
+		}
 
-	for (it = gpKeySeqList.begin(); it != gpKeySeqList.end(); it++)
-	{
-		(*it)->updateStatus();
+		for (it = GamePad[i].gpKeySeqList.begin(); it != GamePad[i].gpKeySeqList.end(); it++)
+		{
+			(*it)->updateStatus();
+		}
 	}
 }
 
@@ -2039,7 +2044,7 @@ int DWaitButton(const uint8_t *text, ButtConfig *bc, int *buttonConfigStatus)
 				return (1);
 			case SDL_JOYBUTTONDOWN:
 				bc->ButtType = BUTTC_JOYSTICK;
-				bc->DeviceNum = event.jbutton.which;
+				bc->DeviceNum = FindJoystickByInstanceID(event.jbutton.which);
 				bc->ButtonNum = event.jbutton.button;
 				return (1);
 			case SDL_JOYHATMOTION:
@@ -2048,7 +2053,7 @@ int DWaitButton(const uint8_t *text, ButtConfig *bc, int *buttonConfigStatus)
 				else
 				{
 					bc->ButtType = BUTTC_JOYSTICK;
-					bc->DeviceNum = event.jhat.which;
+					bc->DeviceNum = FindJoystickByInstanceID(event.jhat.which);
 					bc->ButtonNum =
 						(0x2000 | ((event.jhat.hat & 0x1F) << 8) | event.jhat.value);
 					return (1);
@@ -2070,7 +2075,7 @@ int DWaitButton(const uint8_t *text, ButtConfig *bc, int *buttonConfigStatus)
 							event.jaxis.value) >= 8192)
 					{
 						bc->ButtType = BUTTC_JOYSTICK;
-						bc->DeviceNum = event.jaxis.which;
+						bc->DeviceNum = FindJoystickByInstanceID(event.jaxis.which);
 						bc->ButtonNum = (0x8000 | event.jaxis.axis |
 										 ((event.jaxis.value < 0)
 											  ? 0x4000

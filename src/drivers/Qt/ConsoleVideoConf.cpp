@@ -26,6 +26,7 @@
 #include "Qt/main.h"
 #include "Qt/dface.h"
 #include "Qt/config.h"
+#include "Qt/throttle.h"
 #include "Qt/fceuWrapper.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
@@ -36,8 +37,8 @@
 ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	: QDialog( parent )
 {
-	QVBoxLayout *main_vbox, *vbox1, *vbox2;
-	QHBoxLayout *main_hbox, *hbox1;
+	QVBoxLayout *main_vbox, *vbox1, *vbox2, *vbox;
+	QHBoxLayout *main_hbox, *hbox1, *hbox;
 	QLabel *lbl;
 	QPushButton *button;
 	QStyle *style;
@@ -45,6 +46,7 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	QGridLayout *grid;
 	QFont font;
 	int opt, fontCharWidth;
+	char stmp[128];
 
 	font.setFamily("Courier New");
 	font.setStyle( QFont::StyleNormal );
@@ -148,6 +150,9 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	// Enable New PPU Checkbox
 	frmskipcbx  = new QCheckBox( tr("Enable Frameskip") );
 
+	// Use Integer Frame Rate Checkbox
+	intFrameRateCbx  = new QCheckBox( tr("Use Integer Frame Rate") );
+
 	// Disable Sprite Limit Checkbox
 	sprtLimCbx  = new QCheckBox( tr("Disable Sprite Limit") );
 
@@ -166,12 +171,13 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	// Draw Input Aids
 	drawInputAidsCbx = new QCheckBox( tr("Draw Input Aids") );
 
-	setCheckBoxFromProperty( autoRegion   , "SDL.AutoDetectPAL");
-	setCheckBoxFromProperty( new_PPU_ena  , "SDL.NewPPU");
-	setCheckBoxFromProperty( frmskipcbx   , "SDL.Frameskip");
-	setCheckBoxFromProperty( sprtLimCbx   , "SDL.DisableSpriteLimit");
-	setCheckBoxFromProperty( clipSidesCbx , "SDL.ClipSides");
-	setCheckBoxFromProperty( showFPS_cbx  , "SDL.ShowFPS");
+	setCheckBoxFromProperty( autoRegion      , "SDL.AutoDetectPAL");
+	setCheckBoxFromProperty( new_PPU_ena     , "SDL.NewPPU");
+	setCheckBoxFromProperty( frmskipcbx      , "SDL.Frameskip");
+	setCheckBoxFromProperty( intFrameRateCbx , "SDL.IntFrameRate");
+	setCheckBoxFromProperty( sprtLimCbx      , "SDL.DisableSpriteLimit");
+	setCheckBoxFromProperty( clipSidesCbx    , "SDL.ClipSides");
+	setCheckBoxFromProperty( showFPS_cbx     , "SDL.ShowFPS");
 	setCheckBoxFromProperty( drawInputAidsCbx, "SDL.DrawInputAids" );
 	
 	if ( consoleWindow )
@@ -191,6 +197,7 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	connect(new_PPU_ena     , SIGNAL(clicked(bool))    , this, SLOT(use_new_PPU_changed(bool)) );
 	connect(autoRegion      , SIGNAL(stateChanged(int)), this, SLOT(autoRegionChanged(int)) );
 	connect(frmskipcbx      , SIGNAL(stateChanged(int)), this, SLOT(frameskip_changed(int)) );
+	connect(intFrameRateCbx , SIGNAL(stateChanged(int)), this, SLOT(intFrameRate_changed(int)) );
 	connect(sprtLimCbx      , SIGNAL(stateChanged(int)), this, SLOT(useSpriteLimitChanged(int)) );
 	connect(clipSidesCbx    , SIGNAL(stateChanged(int)), this, SLOT(clipSidesChanged(int)) );
 	connect(showFPS_cbx     , SIGNAL(stateChanged(int)), this, SLOT(showFPSChanged(int)) );
@@ -201,6 +208,7 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	vbox1->addWidget( autoRegion  );
 	vbox1->addWidget( new_PPU_ena );
 	vbox1->addWidget( frmskipcbx  );
+	vbox1->addWidget( intFrameRateCbx  );
 	vbox1->addWidget( sprtLimCbx  );
 	vbox1->addWidget( drawInputAidsCbx );
 	vbox1->addWidget( showFPS_cbx );
@@ -405,10 +413,25 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	setCheckBoxFromProperty( cursorVisCbx, "SDL.CursorVis" );
 	grid->addWidget( cursorVisCbx, 1, 0, 2, 1, Qt::AlignLeft);
 
-	//grid->addWidget( drawInputAidsCbx, 2, 0, 2, 1, Qt::AlignLeft);
-
 	connect(cursorVisCbx    , SIGNAL(stateChanged(int)), this, SLOT(cursorVisChanged(int)) );
 
+	vbox  = new QVBoxLayout();
+	hbox  = new QHBoxLayout();
+	gbox  = new QGroupBox( tr("Screen") );
+	gbox->setLayout( vbox );
+
+	scrRateReadout = new QLineEdit();
+	scrRateReadout->setFont( font );
+	scrRateReadout->setReadOnly(true);
+	scrRateReadout->setAlignment(Qt::AlignCenter);
+	sprintf( stmp, "%.3f", consoleWindow->getRefreshRate() );
+	scrRateReadout->setText( tr(stmp) );
+
+	hbox->addWidget( new QLabel( tr("Refresh Rate (Hz):") ) );
+	hbox->addWidget( scrRateReadout );
+	vbox->addLayout( hbox );
+
+	vbox2->addWidget( gbox );
 	vbox2->addStretch( 5 );
 
 	setLayout( main_vbox );
@@ -686,6 +709,18 @@ void ConsoleVideoConfDialog_t::frameskip_changed( int value )
 
 	fceuWrapperLock();
 	UpdateEMUCore (g_config);
+	fceuWrapperUnLock();
+}
+//----------------------------------------------------
+void ConsoleVideoConfDialog_t::intFrameRate_changed( int value )
+{
+	//printf("Value:%i \n", value );
+	useIntFrameRate = (value != Qt::Unchecked);
+	g_config->setOption("SDL.IntFrameRate", useIntFrameRate );
+	g_config->save ();
+
+	fceuWrapperLock();
+	RefreshThrottleFPS();
 	fceuWrapperUnLock();
 }
 //----------------------------------------------------

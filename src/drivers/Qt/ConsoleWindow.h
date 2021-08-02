@@ -51,6 +51,7 @@ class  emulatorThread_t : public QThread
 		int getMinSchedPriority(void);
 		int getMaxSchedPriority(void);
 		#endif
+		void signalFrameFinished(void);
 	private:
 		void init(void);
 
@@ -60,7 +61,8 @@ class  emulatorThread_t : public QThread
 		#endif
 
 	signals:
-		void finished();
+		void finished(void);
+		void frameFinished(void);
 };
 
 class  consoleMenuBar : public QMenuBar
@@ -149,6 +151,8 @@ class  consoleWin_t : public QMainWindow
 		#endif
 
 		int loadVideoDriver( int driverId );
+
+		double getRefreshRate(void){ return refreshRate; }
 
 		emulatorThread_t *emulatorThread;
 		AviRecordDiskThread_t *aviDiskThread;
@@ -256,6 +260,7 @@ class  consoleWin_t : public QMainWindow
 		std::vector <autoFireMenuAction*> afActList;
 		autoFireMenuAction *afActCustom;
 
+		double       refreshRate;
 		unsigned int updateCounter;
 	protected:
 		void resizeEvent(QResizeEvent *event) override;
@@ -280,6 +285,7 @@ class  consoleWin_t : public QMainWindow
 		void changeState(int slot);
 		void saveState(int slot);
 		void loadState(int slot);
+		void transferVideoBuffer(void);
 		void syncAutoFirePatternMenu(void);
 
 	public slots:
@@ -413,6 +419,7 @@ class  consoleWin_t : public QMainWindow
 		void wavRecordAsStart(void);
 		void wavRecordStop(void);
 		void winScreenChanged( QScreen *scr );
+		void emuFrameFinish(void);
 
 };
 
