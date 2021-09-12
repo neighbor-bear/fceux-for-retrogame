@@ -431,6 +431,9 @@ void UpdateEMUCore(Config *config) {
 
 	config->getOption("SDL.DisableSpriteLimit", &flag);
 	FCEUI_DisableSpriteLimitation(flag ? 1 : 0);
+	
+	config->getOption("SDL.AutoResume", &flag);
+	FCEUD_SetAutoResume(flag ? 1 : 0);
 
 	//Not used anymore.
 	//config->getOption("SDL.SnapName", &flag);

@@ -193,18 +193,11 @@ void FCEUD_Message(char *s) {
  * Reload game config or default config
  */
 int FCEUD_ReloadConfig(void) {
-        int gg_enabled=0;
-	int autoResume=0;
-
 	if (g_config->reload(FCEU_MakeFName(FCEUMKF_CFG, 0, 0))==-1)
 	    return 0;
 
-	// Enable Game Genie if needed
-	g_config->getOption("SDL.GameGenie", &gg_enabled);
-	FCEUI_SetGameGenie(gg_enabled);
-	
-	g_config->getOption("SDL.AutoResume", &autoResume);
-	FCEUD_SetAutoResume(autoResume);
+	// Update emulator core configs
+	UpdateEMUCore(g_config);
 
 	return 1;
 }
@@ -253,6 +246,8 @@ int LoadGame(const char *path) {
 	g_config->getOption("SDL.ShowFPS", &showfps);
 	g_config->getOption("SDL.FPSThrottle", &fpsthrottle);
 
+	// Update emulator core options from last game loaded
+	UpdateEMUCore(g_config);
 	// Update configs for input system
 	UpdateInputConfig(g_config);
 
@@ -828,6 +823,8 @@ int main(int argc, char *argv[]) {
 			return -1;
 		}
 
+		if (!isloaded)
+			DriverKill();
 		// Is this a movie?
 		if (!(error = FCEUD_LoadMovie(filename, romname)))
 			error = LoadGame(filename);

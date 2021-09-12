@@ -147,6 +147,9 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
+#### 12 September 2021
+  - Fixed enabling Scanline start and end when loading a rom. For this FCEUD_ReloadConfig is refactored to call UpdateEMUCore, also moving enabling autoresume to UpdateEMUCore.
+
 #### 25 July 2021
   - Some refactorings for Game Genie use and assign hotkey to toggle it.
   - Added autoresume. It can be enabled in `Main settings`. This is a feature from upstream FCEUX.
