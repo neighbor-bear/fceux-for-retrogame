@@ -48,7 +48,7 @@
 int NoWaiting = 0;
 extern Config *g_config;
 extern bool bindSavestate, frameAdvanceLagSkip, lagCounterDisplay;
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 int inputmenu = 0;
 #endif
 
@@ -606,7 +606,7 @@ static void UpdatePhysicalInput()
 {
 	SDL_Event event;
 
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 	g_config->getOption("SDL.InputMenu", &inputmenu);
 #endif
 
@@ -627,7 +627,7 @@ static void UpdatePhysicalInput()
 			}
 			break;
 		case SDL_KEYDOWN:
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 			if ( ((inputmenu == 0 || inputmenu == 1) && event.key.keysym.sym == DINGOO_MENU) ||
 			     ((inputmenu == 0 || inputmenu == 2) && (g_keyState[DINGOO_SELECT] && event.key.keysym.sym == DINGOO_START)) )
 #else

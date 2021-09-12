@@ -191,7 +191,7 @@ Config * InitConfig() {
 	config->addOption("mergecontrols", "SDL.MergeControls", 0);
 	config->addOption("analogstick", "SDL.AnalogStick", 0);
 	config->addOption("autofirepattern", "SDL.AutoFirePattern", 0);
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 	config->addOption("inputmenu", "SDL.InputMenu", 0);
 #endif
 

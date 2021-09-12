@@ -2,7 +2,7 @@
 extern Config *g_config;
 
 static int menu_displacement = 0;
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 #define CONTROL_MENUSIZE 9
 #else
 #define CONTROL_MENUSIZE 8
@@ -92,13 +92,13 @@ static void resetMappings(unsigned long key)
 	g_config->setOption("SDL.MergeControls", 0);
 	g_config->setOption("SDL.AnalogStick", 0);
 	g_config->setOption("SDL.AutoFirePattern", 0);
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 	g_config->setOption("SDL.InputMenu", 0);
 #endif
 	UpdateInput(g_config);
 }
 
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 static void InputMenu(unsigned long key)
 {
 	int val;
@@ -122,7 +122,7 @@ static SettingEntry cm_menu[] =
 	{"Merge P1/P2", "Control both players at once", "SDL.MergeControls", MergeControls},
 	{"Analog Stick", "Analog Stick for Directions", "SDL.AnalogStick", setAnalogStick},
 	{"Auto-fire Pattern", "Set auto-fire pattern", "SDL.AutoFirePattern", setAutoFirePattern},
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 	{"Menu", "Input to open the menu", "SDL.InputMenu", InputMenu},
 #endif
 	{"Reset defaults", "Reset default control mappings", "", resetMappings},
@@ -214,7 +214,7 @@ int RunControlSettings()
 			}
 
 			if (parsekey(DINGOO_LEFT, 1)) {
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 				if (index >= 4 && index <= 7) {
 #else
 				if (index >= 4 && index <= 6) {
@@ -224,7 +224,7 @@ int RunControlSettings()
 			}
 
 			if (parsekey(DINGOO_RIGHT, 1)) {
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 			    	if (index >= 4 && index <= 7) {
 #else
 				if (index >= 4 && index <= 6) {
@@ -274,7 +274,7 @@ int RunControlSettings()
 				
 				g_config->getOption(cm_menu[i].option, &iBtnVal);
 
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 				menu_displacement = 1;
 #endif
 				if (i == CONTROL_MENUSIZE-1)
@@ -298,7 +298,7 @@ int RunControlSettings()
 					g_config->getOption("SDL.MergeControls", &mergeValue);
 					sprintf(cBtn, "%s", mergeValue ? "on" : "off");
 				}
-#ifdef RETROFW
+#if defined(RETROFW) || defined(LEPUS)
 				else if (i == CONTROL_MENUSIZE- 1 - menu_displacement)
 				{
 					int inputMenuValue;

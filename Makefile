@@ -245,6 +245,8 @@ else
 endif
 ifeq ($(DEVICE),retrofw)
     OPTIMIZE += -mips32
+else ifeq ($(DEVICE),lepus)
+    OPTIMIZE += -mips32
 else
     OPTIMIZE += -mips32r2
 endif
@@ -262,6 +264,8 @@ CFLAGS += -DDINGUX \
 	  $(SDL_CFLAGS) -D_GNU_SOURCE=1 -D_REENTRANT
 ifeq ($(DEVICE),retrofw)
 CFLAGS += -DRETROFW
+else ifeq ($(DEVICE),lepus)
+CFLAGS += -DLEPUS
 else ifeq ($(ODVERSION),2014)
 CFLAGS += -DOD2014
 endif

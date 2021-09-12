@@ -143,12 +143,15 @@ Examples:
 
 `make TOOLCHAIN=/opt/gcw0-toolchain TARGET=fceux_gcw0 ODVERSION=2014 -f Makefile`
 
+`make TOOLCHAIN=/opt/lepus-toolchain TARGET=fceux_lepus DEVICE=lepus -f Makefile`
+
 Build files are created in the `bin`directory.
 
 ## What's new
 
 #### 12 September 2021
   - Fixed enabling Scanline start and end when loading a rom. For this FCEUD_ReloadConfig is refactored to call UpdateEMUCore, also moving enabling autoresume to UpdateEMUCore.
+  - Build for OpenDingux for lepus.
 
 #### 25 July 2021
   - Some refactorings for Game Genie use and assign hotkey to toggle it.
