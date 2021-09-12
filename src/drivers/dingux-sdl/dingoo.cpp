@@ -193,8 +193,12 @@ void FCEUD_Message(char *s) {
  * Reload game config or default config
  */
 int FCEUD_ReloadConfig(void) {
+	int pal;
+
+	g_config->getOption("SDL.PAL", &pal);
 	if (g_config->reload(FCEU_MakeFName(FCEUMKF_CFG, 0, 0))==-1)
 	    return 0;
+	g_config->setOption("SDL.PAL", pal);
 
 	// Update emulator core configs
 	UpdateEMUCore(g_config);
