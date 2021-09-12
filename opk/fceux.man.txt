@@ -161,6 +161,8 @@ What's new
     For this FCEUD_ReloadConfig is refactored to call UpdateEMUCore, also
     moving enabling autoresume to UpdateEMUCore.
   - Build for OpenDingux for lepus.
+  - Fix video region autoset after last refactorings.
+  - Merge latest commits from upstream.
  
  25 July 2021
   - Some refactorings for Game Genie use and assign hotkey to toggle it.

@@ -18,7 +18,7 @@ This savestates will be created in the `$HOME/.fceux/fcs` directory and it will 
 
 ## Cheats
 
-*Adapted from FCEUX upstream help thay you can [see here](http://fceux.com/web/help/CheatSearch.html)*
+*Adapted from FCEUX upstream help that you can [see here](http://fceux.com/web/help/CheatSearch.html)*
 
 By default cheat files (.cht) are stored in the "cheats" subdirectory under the base FCEUX (`$HOME/.fceux/cheats`). The files are in a simple plain-text format. Each line represents a one-byte memory patch. The format is as follows(text in brackets [] represents optional parameters):
 
@@ -152,6 +152,8 @@ Build files are created in the `bin`directory.
 #### 12 September 2021
   - Fixed enabling Scanline start and end when loading a rom. For this FCEUD_ReloadConfig is refactored to call UpdateEMUCore, also moving enabling autoresume to UpdateEMUCore.
   - Build for OpenDingux for lepus.
+  - Fix video region autoset after last refactorings.
+  - Merge latest commits from upstream.
 
 #### 25 July 2021
   - Some refactorings for Game Genie use and assign hotkey to toggle it.
