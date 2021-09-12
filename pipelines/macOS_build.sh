@@ -67,6 +67,11 @@ echo 'Install Optional Dependency x264'
 echo '****************************************'
 brew  install  x264
 
+echo '****************************************'
+echo 'Install Optional Dependency x265'
+echo '****************************************'
+brew  install  x265
+
 #brew  install  zlib  # Already installed in appveyor macOS
 
 export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/lib/pkgconfig:
@@ -92,9 +97,11 @@ USE_QT6=0;
 fi
 #ls $Qt_DIR;
 
+PATH=$PATH:$Qt_DIR/bin
 echo '**************************'
 echo '***  Building Project  ***'
 echo '**************************'
+./scripts/unix_make_docs.sh;
 mkdir build;
 cd build;
 cmake \

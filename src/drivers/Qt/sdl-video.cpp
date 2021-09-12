@@ -27,6 +27,7 @@
 #include "../../fceu.h"
 #include "../../version.h"
 #include "../../video.h"
+#include "../../input.h"
 
 #include "utils/memory.h"
 
@@ -58,7 +59,6 @@ static int s_srendline, s_erendline;
 static int s_tlines;
 static int s_inited = 0;
 
-static double s_exs = 1.0, s_eys = 1.0;
 static int s_eefx = 0;
 static int s_clipSides = 0;
 static int s_fullscreen = 0;
@@ -71,6 +71,9 @@ static int initBlitToHighDone = 0;
 static int s_paletterefresh = 1;
 
 extern bool MaxSpeed;
+extern int input_display;
+extern int frame_display;
+extern int rerecord_display;
 
 /**
  * Attempts to destroy the graphical video display.  Returns 0 on
@@ -113,18 +116,7 @@ KillVideo(void)
 // this variable contains information about the special scaling filters
 static int s_sponge = 0;
 
-/**
- * These functions determine an appropriate scale factor for fullscreen/
- */
-inline double GetXScale(int xres)
-{
-	return ((double)xres) / NWIDTH;
-}
-inline double GetYScale(int yres)
-{
-	return ((double)yres) / s_tlines;
-}
-void FCEUD_VideoChanged()
+void FCEUD_VideoChanged(void)
 {
 	int buf;
 	g_config->getOption("SDL.PAL", &buf);
@@ -199,7 +191,8 @@ void CalcVideoDimensions(void)
 
 int InitVideo(FCEUGI *gi)
 {
-	int doublebuf, xstretch, ystretch, xres, yres, show_fps;
+	int doublebuf, xstretch, ystretch;
+	int show_fps;
 	int startNTSC, endNTSC, startPAL, endPAL;
 
 	FCEUI_printf("Initializing video...");
@@ -210,13 +203,12 @@ int InitVideo(FCEUGI *gi)
 	g_config->getOption("SDL.SpecialFilter", &s_sponge);
 	g_config->getOption("SDL.XStretch", &xstretch);
 	g_config->getOption("SDL.YStretch", &ystretch);
-	//g_config->getOption("SDL.LastXRes", &xres);
-	//g_config->getOption("SDL.LastYRes", &yres);
 	g_config->getOption("SDL.ClipSides", &s_clipSides);
 	g_config->getOption("SDL.NoFrame", &noframe);
 	g_config->getOption("SDL.ShowFPS", &show_fps);
-	//g_config->getOption("SDL.XScale", &s_exs);
-	//g_config->getOption("SDL.YScale", &s_eys);
+	g_config->getOption("SDL.ShowFrameCount", &frame_display);
+	g_config->getOption("SDL.ShowLagCount", &lagCounterDisplay);
+	g_config->getOption("SDL.ShowRerecordCount", &rerecord_display);
 	g_config->getOption("SDL.ScanLineStartNTSC", &startNTSC);
 	g_config->getOption("SDL.ScanLineEndNTSC", &endNTSC);
 	g_config->getOption("SDL.ScanLineStartPAL", &startPAL);
@@ -227,10 +219,6 @@ int InitVideo(FCEUGI *gi)
 
 	FCEUI_SetRenderedLines(startNTSC, endNTSC, startPAL, endPAL);
 
-	s_exs = 1.0;
-	s_eys = 1.0;
-	xres = gui_draw_area_width;
-	yres = gui_draw_area_height;
 	// check the starting, ending, and total scan lines
 
 	FCEUI_GetCurrentVidSystem(&s_srendline, &s_erendline);
@@ -308,7 +296,7 @@ int InitVideo(FCEUGI *gi)
 	s_curbpp = 32; // Bits per pixel is always 32
 
 	FCEU_printf(" Video Mode: %d x %d x %d bpp %s\n",
-				xres, yres, s_curbpp,
+				nes_shm->video.ncol, nes_shm->video.nrow, s_curbpp,
 				s_fullscreen ? "full screen" : "");
 
 	if (s_curbpp != 8 && s_curbpp != 16 && s_curbpp != 24 && s_curbpp != 32) 
@@ -420,13 +408,10 @@ static void WriteTestPattern(void)
 		}
 	}
 }
-/**
- * Pushes the given buffer of bits to the screen.
- */
-void
-BlitScreen(uint8 *XBuf)
+
+static void
+doBlitScreen(uint8_t *XBuf, uint8_t *dest)
 {
-	uint8 *dest;
 	int w, h, pitch, bw, ixScale, iyScale;
 
 	// refresh the palette if required
@@ -439,7 +424,7 @@ BlitScreen(uint8 *XBuf)
 	// XXX soules - not entirely sure why this is being done yet
 	XBuf += s_srendline * 256;
 
-	dest    = (uint8*)nes_shm->pixbuf;
+	//dest    = (uint8*)nes_shm->pixbuf;
 	ixScale = nes_shm->video.xscale;
 	iyScale = nes_shm->video.yscale;
 
@@ -478,11 +463,28 @@ BlitScreen(uint8 *XBuf)
 	{
 		Blit8ToHigh(XBuf + NOFFSET, dest, bw, s_tlines, pitch, ixScale, iyScale);
 	}
+}
+/**
+ * Pushes the given buffer of bits to the screen.
+ */
+void
+BlitScreen(uint8 *XBuf)
+{
+	doBlitScreen(XBuf, (uint8_t*)nes_shm->pixbuf);
+
 	nes_shm->blit_count++;
 	nes_shm->blitUpdated = 1;
+}
+
+void FCEUI_AviVideoUpdate(const unsigned char* buffer)
+{	// This is not used by Qt Emulator, avi recording pulls from the post processed video buffer
+	// instead of emulation core video buffer. This allows for the video scaler effects
+	// and higher resolution to be seen in recording.
+	doBlitScreen( (uint8_t*)buffer, (uint8_t*)nes_shm->avibuf);
 
 	aviRecordAddFrame();
 
+	return;
 }
 
 /**

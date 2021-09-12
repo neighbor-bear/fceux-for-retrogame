@@ -142,7 +142,10 @@ class QAsmView : public QWidget
 		void setSymbolDebugEnable( bool value );
 		void setRegisterNameEnable( bool value );
 		void setDisplayByteCodes( bool value );
+		void setDisplayTraceData( bool value );
+		int  getCtxMenuLine(void){ return ctxMenuLine; };
 		int  getCtxMenuAddr(void){ return ctxMenuAddr; };
+		int  getCtxMenuAddrType(void){ return ctxMenuAddrType; };
 		int  getCursorAddr(void){ return cursorLineAddr; };
 		void setPC_placement( int mode, int ofs = 0 );
 		void setBreakpointAtSelectedLine(void);
@@ -161,6 +164,8 @@ class QAsmView : public QWidget
 		QColor  commentColor;
 		QColor  labelColor;
 		QColor  pcBgColor;
+
+		QFont getFont(void){ return font; };
 
 	protected:
 		bool event(QEvent *event) override;
@@ -201,7 +206,9 @@ class QAsmView : public QWidget
 		std::vector <dbg_nav_entry_t> navFwdHist;
 		dbg_nav_entry_t  curNavLoc;
 
+		int ctxMenuLine;
 		int ctxMenuAddr;
+		int ctxMenuAddrType;
 		int maxLineLen;
 		int pxCharWidth;
 		int pxCharHeight;
@@ -230,6 +237,7 @@ class QAsmView : public QWidget
 		int  selAddrWidth;
 		int  selAddrValue;
 		char selAddrText[128];
+		char selAddrType;
 
 		int  txtHlgtAnchorChar;
 		int  txtHlgtAnchorLine;
@@ -249,6 +257,7 @@ class QAsmView : public QWidget
 		bool  registerNameEnable;
 		bool  mouseLeftBtnDown;
 		bool  showByteCodes;
+		bool  showTraceData;
 		bool  isPopUp;
 
 };
@@ -439,6 +448,8 @@ class ConsoleDebugger : public QDialog
 		//void keyReleaseEvent(QKeyEvent *event) override;
 
 		//QTreeWidget *tree;
+		QAction     *dbgRunAct[2];
+		QAction     *dbgPauseAct[2];
 		QToolBar    *toolBar;
 		QScrollBar  *vbar;
 		QScrollBar  *hbar;
@@ -490,6 +501,8 @@ class ConsoleDebugger : public QDialog
 
 		QAction   *brkOnCycleExcAct;
 		QAction   *brkOnInstrExcAct;
+		QAction   *stepBackMenuAct;
+		QAction   *stepBackToolAct;
 
 		DebuggerTabWidget *tabView[2][4];
 		QWidget   *asmViewContainerWidget;
@@ -550,6 +563,7 @@ class ConsoleDebugger : public QDialog
 		void debugStepIntoCB(void);
 		void debugStepOutCB(void);
 		void debugStepOverCB(void);
+		void debugStepBackCB(void);
 		void debugRunToCursorCB(void);
 		void debugRunLineCB(void);
 		void debugRunLine128CB(void);
@@ -568,6 +582,7 @@ class ConsoleDebugger : public QDialog
 		void resetCountersCB (void);
 		void reloadSymbolsCB(void);
 		void displayByteCodesCB(bool value);
+		void displayTraceDataCB(bool value);
 		void displayROMoffsetCB(bool value);
 		void symbolDebugEnableCB(bool value);
 		void registerNameEnableCB(bool value);

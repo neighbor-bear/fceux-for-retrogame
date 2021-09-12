@@ -14,6 +14,7 @@
 #include <QLabel>
 #include <QFrame>
 #include <QTimer>
+#include <QThread>
 #include <QGroupBox>
 #include <QScrollBar>
 #include <QCloseEvent>
@@ -38,6 +39,7 @@ struct traceRecord_t
 	uint8_t opCode[3];
 	uint8_t opSize;
 	uint8_t asmTxtSize;
+	uint8_t preWriteVal;
 	char asmTxt[64];
 
 	uint64_t frameCount;
@@ -49,6 +51,8 @@ struct traceRecord_t
 	int32_t romAddr;
 	int32_t bank;
 	int32_t skippedLines;
+
+	int32_t writeAddr;
 
 	traceRecord_t(void);
 
@@ -161,7 +165,7 @@ public:
 	void showBufferWarning(void);
 protected:
 	QTimer *updateTimer;
-	QCheckBox *logLastCbox;
+	QLabel    *logLastLbl;
 	QCheckBox *logFileCbox;
 	QComboBox *logMaxLinesComboBox;
 
@@ -182,6 +186,7 @@ protected:
 
 	QPushButton *selLogFileButton;
 	QPushButton *startStopButton;
+	QPushButton *clearButton;
 
 	QTraceLogView *traceView;
 	QScrollBar *hbar;
@@ -198,6 +203,8 @@ public slots:
 private slots:
 	void updatePeriodic(void);
 	void toggleLoggingOnOff(void);
+	void autoUpdateStateChanged(int state);
+	void logToFileStateChanged(int state);
 	void logRegStateChanged(int state);
 	void logFrameStateChanged(int state);
 	void logEmuMsgStateChanged(int state);
@@ -215,8 +222,13 @@ private slots:
 	void hbarChanged(int value);
 	void vbarChanged(int value);
 	void openLogFile(void);
+	void clearLog(void);
 };
 
 int initTraceLogBuffer(int maxRecs);
 
 void openTraceLoggerWindow(QWidget *parent);
+
+int FCEUD_TraceLoggerStart(void);
+int FCEUD_TraceLoggerRunning(void);
+int FCEUD_TraceLoggerBackUpInstruction(void);

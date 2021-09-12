@@ -68,9 +68,11 @@
 #include "Qt/HotKeyConf.h"
 #include "Qt/PaletteConf.h"
 #include "Qt/PaletteEditor.h"
+#include "Qt/HelpPages.h"
 #include "Qt/GuiConf.h"
 #include "Qt/AviRecord.h"
 #include "Qt/MoviePlay.h"
+#include "Qt/MovieRecord.h"
 #include "Qt/MovieOptions.h"
 #include "Qt/TimingConf.h"
 #include "Qt/FrameTimingStats.h"
@@ -98,7 +100,7 @@
 consoleWin_t::consoleWin_t(QWidget *parent)
 	: QMainWindow( parent )
 {
-	int opt, xWinSize = 256, yWinSize = 240;
+	int opt, xWinPos = -1, yWinPos = -1, xWinSize = 256, yWinSize = 240;
 	int use_SDL_video = false;
 	int setFullScreen = false;
 
@@ -123,6 +125,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 
 	g_config->getOption( "SDL.PauseOnMainMenuAccess", &mainMenuPauseWhenActv );
 	g_config->getOption( "SDL.ContextMenuEnable", &contextMenuEnable );
+	g_config->getOption( "SDL.Sound.UseGlobalFocus", &soundUseGlobalFocus );
 	g_config->getOption ("SDL.VideoDriver", &use_SDL_video);
 
 	if ( use_SDL_video )
@@ -179,12 +182,19 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	}
 
 
+	g_config->getOption( "SDL.WinPosX" , &xWinPos );
+	g_config->getOption( "SDL.WinPosY" , &yWinPos );
 	g_config->getOption( "SDL.WinSizeX", &xWinSize );
 	g_config->getOption( "SDL.WinSizeY", &yWinSize );
 
 	if ( (xWinSize >= 256) && (yWinSize >= 224) )
 	{
 		this->resize( xWinSize, yWinSize );
+
+		if ( (xWinPos >= 0) && (yWinPos >= 0) )
+		{
+			this->move( xWinPos, yWinPos );
+		}
 	}
 	else
 	{
@@ -217,6 +227,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 	refreshRate = 0.0;
 	updateCounter = 0;
 	recentRomMenuReset = false;
+	helpWin = 0;
 
 	// Viewport Cursor Type and Visibility
 	loadCursor();
@@ -233,10 +244,10 @@ consoleWin_t::~consoleWin_t(void)
 	QClipboard *clipboard;
 
 	// Save window size and image scaling parameters at app exit.
-	w = consoleWindow->size();
+	w = size();
 
 	// Only Save window size if not fullscreen and not maximized
-	if ( !consoleWindow->isFullScreen() && !consoleWindow->isMaximized() )
+	if ( !isFullScreen() && !isMaximized() )
 	{
 		// Scaling is only saved when applying video settings
 		//if ( viewport_GL != NULL )
@@ -250,8 +261,22 @@ consoleWin_t::~consoleWin_t(void)
 		//	g_config->setOption( "SDL.YScale", viewport_SDL->getScaleY() );
 		//}
 
+		g_config->setOption( "SDL.WinPosX" , pos().x() );
+		g_config->setOption( "SDL.WinPosY" , pos().y() );
 		g_config->setOption( "SDL.WinSizeX", w.width() );
 		g_config->setOption( "SDL.WinSizeY", w.height() );
+	}
+	else
+	{
+		QRect rect = normalGeometry();
+
+		if ( rect.isValid() )
+		{
+			g_config->setOption( "SDL.WinPosX" , rect.x() );
+			g_config->setOption( "SDL.WinPosY" , rect.y() );
+			g_config->setOption( "SDL.WinSizeX", rect.width() );
+			g_config->setOption( "SDL.WinSizeY", rect.height() );
+		}
 	}
 	g_config->save();
 
@@ -358,6 +383,8 @@ void consoleWin_t::initScreenHandler(void)
 				scrHandlerConnected = true;
 
 				winScreenChanged( hdl->screen() );
+
+				connect( hdl, SIGNAL(activeChanged(void)), this, SLOT(winActiveChanged(void)) );
 			}
 		}
 	}
@@ -377,6 +404,35 @@ void consoleWin_t::winScreenChanged(QScreen *scr)
 	if ( viewport_GL != NULL )
 	{
 		viewport_GL->screenChanged( scr );
+	}
+}
+
+void consoleWin_t::winActiveChanged(void)
+{
+	QWidget *w;
+
+	w = this->window();
+
+	//printf("Active Changed\n");
+
+	if ( w != NULL)
+	{
+		QWindow *hdl = w->windowHandle();
+
+		if (hdl != NULL)
+		{
+			if ( !soundUseGlobalFocus )
+			{
+				if ( hdl->isActive() )
+				{
+					FCEUD_MuteSoundOutput(false);
+				}
+				else
+				{
+					FCEUD_MuteSoundOutput(true);
+				}
+			}
+		}
 	}
 }
 
@@ -506,6 +562,13 @@ void consoleWin_t::setMenuAccessPauseEnable( bool enable )
 void consoleWin_t::setContextMenuEnable( bool enable )
 {
 	contextMenuEnable = enable;
+}
+
+void consoleWin_t::setSoundUseGlobalFocus( bool enable )
+{
+	soundUseGlobalFocus = enable;
+
+	winActiveChanged();
 }
 
 void consoleWin_t::loadCursor(void)
@@ -914,8 +977,8 @@ void consoleWin_t::createMainMenu(void)
 	Hotkeys[ HK_SAVE_STATE ].setAction( quickSaveAct );
 	connect( Hotkeys[ HK_SAVE_STATE ].getShortcut(), SIGNAL(activated()), this, SLOT(quickSave(void)) );
 	
-	// File -> Change State
-	subMenu = fileMenu->addMenu(tr("Change &State"));
+	// File -> Change State Slot
+	subMenu = fileMenu->addMenu(tr("Change &State Slot"));
 	group   = new QActionGroup(this);
 
 	group->setExclusive(true);
@@ -924,7 +987,7 @@ void consoleWin_t::createMainMenu(void)
 	{
 	        char stmp[8];
 
-	        sprintf( stmp, "&%i", i );
+	        sprintf( stmp, "Slot &%i", i );
 
 	        state[i] = new QAction(tr(stmp), this);
 	        state[i]->setCheckable(true);
@@ -1110,6 +1173,22 @@ void consoleWin_t::createMainMenu(void)
 	optMenu->addAction(autoResume);
 	
 	optMenu->addSeparator();
+
+	// Options -> Window Resize
+	subMenu = optMenu->addMenu( tr("Window Resi&ze") );
+
+	for (int i=0; i<4; i++)
+	{
+	        char stmp[8];
+
+	        sprintf( stmp, "&%ix", i+1 );
+
+	        winSizeAct[i] = new QAction(tr(stmp), this);
+
+		subMenu->addAction(winSizeAct[i]);
+
+		connect( winSizeAct[i], &QAction::triggered, [ this, i ]{ consoleWin_t::winResizeIx(i+1); } );
+	}
 
 	// Options -> Full Screen
 	fullscreen = new QAction(tr("&Fullscreen"), this);
@@ -1636,18 +1715,10 @@ void consoleWin_t::createMainMenu(void)
 	recMovAct->setIcon( QIcon(":icons/media-record.png") );
 	connect(recMovAct, SIGNAL(triggered()), this, SLOT(recordMovie(void)) );
 	
+	Hotkeys[ HK_RECORD_MOVIE_TO ].setAction( recMovAct );
+	connect( Hotkeys[ HK_RECORD_MOVIE_TO ].getShortcut(), SIGNAL(activated()), this, SLOT(recordMovie(void)) );
+
 	movieMenu->addAction(recMovAct);
-
-	// Movie -> Record As
-	recAsMovAct = new QAction(tr("Record &As"), this);
-	//recAsMovAct->setShortcut( QKeySequence(tr("Shift+F5")));
-	recAsMovAct->setStatusTip(tr("Record Movie"));
-	connect(recAsMovAct, SIGNAL(triggered()), this, SLOT(recordMovieAs(void)) );
-	
-	Hotkeys[ HK_RECORD_MOVIE_TO ].setAction( recAsMovAct );
-	connect( Hotkeys[ HK_RECORD_MOVIE_TO ].getShortcut(), SIGNAL(activated()), this, SLOT(recordMovieAs(void)) );
-
-	movieMenu->addAction(recAsMovAct);
 
 	movieMenu->addSeparator();
 
@@ -1690,6 +1761,18 @@ void consoleWin_t::createMainMenu(void)
 
 	aviMenu->addAction(stopAviAct);
 
+//#define AVI_DEBUG
+#ifdef AVI_DEBUG
+	// Movie -> Avi Recording -> Debug
+	act = new QAction(tr("&Debug"), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F5")));
+	act->setStatusTip(tr("AVI Debug"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_MediaStop ) );
+	connect(act, SIGNAL(triggered()), this, SLOT(aviDebugFile(void)) );
+	
+	aviMenu->addAction(act);
+#endif
+
 	// Movie -> Avi Recording -> Video Format
 	subMenu = aviMenu->addMenu( tr("Video Format") );
 
@@ -1725,6 +1808,26 @@ void consoleWin_t::createMainMenu(void)
 	act->setChecked( aviGetAudioEnable() );
 	connect(act, SIGNAL(triggered(bool)), this, SLOT(aviAudioEnableChange(bool)) );
 	aviMenu->addAction(act);
+
+	aviMenu->addSeparator();
+
+	// Movie -> Avi Recording -> Enable HUD Recording
+	aviHudAct = new QAction(tr("Enable &HUD Recording"), this);
+	aviHudAct->setCheckable(true);
+	aviHudAct->setChecked( FCEUI_AviEnableHUDrecording() );
+	aviHudAct->setStatusTip(tr("Enable HUD Recording"));
+	connect(aviHudAct, SIGNAL(triggered(bool)), this, SLOT(setAviHudEnable(bool)) );
+
+	aviMenu->addAction(aviHudAct);
+
+	// Movie -> Avi Recording -> Enable Message Recording
+	aviMsgAct = new QAction(tr("Enable &Msg Recording"), this);
+	aviMsgAct->setCheckable(true);
+	aviMsgAct->setChecked( !FCEUI_AviDisableMovieMessages() );
+	aviMsgAct->setStatusTip(tr("Enable Msg Recording"));
+	connect(aviMsgAct, SIGNAL(triggered(bool)), this, SLOT(setAviMsgEnable(bool)) );
+
+	aviMenu->addAction(aviMsgAct);
 
 	// Movie -> WAV Recording
 	subMenu = movieMenu->addMenu( tr("&WAV Recording") );
@@ -1795,13 +1898,25 @@ void consoleWin_t::createMainMenu(void)
 	
 	helpMenu->addAction(msgLogAct);
 
-	// Help -> Documentation
-	act = new QAction(tr("&Docs (Online)"), this);
+	// Help -> Documentation Online
+	subMenu = helpMenu->addMenu( tr("&Documentation") );
+	subMenu->setIcon( style()->standardIcon( QStyle::SP_DialogHelpButton ) );
+
+	// Help -> Documentation Online
+	act = new QAction(tr("&Online"), this);
 	act->setStatusTip(tr("Documentation"));
-	act->setIcon( style()->standardIcon( QStyle::SP_DialogHelpButton ) );
+	//act->setIcon( style()->standardIcon( QStyle::SP_DialogHelpButton ) );
 	connect(act, SIGNAL(triggered()), this, SLOT(openOnlineDocs(void)) );
 	
-	helpMenu->addAction(act);
+	subMenu->addAction(act);
+
+	// Help -> Documentation Offline
+	act = new QAction(tr("&Local"), this);
+	act->setStatusTip(tr("Documentation"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_DialogHelpButton ) );
+	connect(act, SIGNAL(triggered()), this, SLOT(openOfflineDocs(void)) );
+
+	subMenu->addAction(act);
 };
 //---------------------------------------------------------------------------
 int consoleWin_t::loadVideoDriver( int driverId )
@@ -2847,6 +2962,70 @@ void consoleWin_t::toggleAutoResume(void)
 	AutoResumePlay = autoResume->isChecked();
 }
 
+void consoleWin_t::winResizeIx(int iscale)
+{
+	QSize w, v;
+	double xscale = 1.0, yscale = 1.0, aspectRatio = 1.0;
+	int texture_width  = nes_shm->video.ncol;
+	int texture_height = nes_shm->video.nrow;
+	int l=0, r=texture_width;
+	int t=0, b=texture_height;
+	int dw=0, dh=0, rw, rh;
+	bool forceAspect = false;
+
+	xscale = (double)iscale;
+	yscale = (double)iscale;
+
+	w = size();
+
+	if ( viewport_GL )
+	{
+		v = viewport_GL->size();
+		aspectRatio = viewport_GL->getAspectRatio();
+		forceAspect = viewport_GL->getForceAspectOpt();
+	}
+	else if ( viewport_SDL )
+	{
+		v = viewport_SDL->size();
+		aspectRatio = viewport_SDL->getAspectRatio();
+		forceAspect = viewport_SDL->getForceAspectOpt();
+	}
+
+	dw = w.width()  - v.width();
+	dh = w.height() - v.height();
+
+	if ( forceAspect )
+	{
+		xscale = xscale / nes_shm->video.xscale;
+		yscale = xscale * (double)nes_shm->video.xyRatio;
+	}
+	else
+	{
+		xscale = xscale / nes_shm->video.xscale;
+		yscale = yscale / nes_shm->video.yscale;
+	}
+	rw=(int)((r-l)*xscale);
+	rh=(int)((b-t)*yscale);
+
+	if ( forceAspect )
+	{
+		double rr;
+
+		rr = (double)rh / (double)rw;
+
+		if ( rr > aspectRatio )
+		{
+			rw = (int)( (((double)rh) / aspectRatio) + 0.50);
+		}
+		else
+		{
+			rh = (int)( (((double)rw) * aspectRatio) + 0.50);
+		}
+	}
+
+	resize( rw + dw, rh + dh );
+}
+
 void consoleWin_t::toggleFullscreen(void)
 {
 	if ( isFullScreen() )
@@ -3450,73 +3629,10 @@ void consoleWin_t::recordMovie(void)
 	fceuWrapperLock();
 	if (fceuWrapperGameLoaded())
 	{
-		std::string name = FCEU_MakeFName (FCEUMKF_MOVIE, 0, 0);
-		FCEUI_printf ("Recording movie to %s\n", name.c_str ());
-		FCEUI_SaveMovie (name.c_str (), MOVIE_FLAG_NONE, L"");
+		MovieRecordDialog_t dialog(this);
+		dialog.exec();
 	}
 	fceuWrapperUnLock();
-   return;
-}
-
-void consoleWin_t::recordMovieAs(void)
-{
-	int ret, useNativeFileDialogVal;
-	QString filename;
-	std::string last;
-	char dir[512];
-	QFileDialog  dialog(this, tr("Save FM2 Movie for Recording") );
-
-	dialog.setFileMode(QFileDialog::AnyFile);
-
-	dialog.setNameFilter(tr("FM2 Movies (*.fm2) ;; All files (*)"));
-
-	dialog.setViewMode(QFileDialog::List);
-	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
-	dialog.setLabelText( QFileDialog::Accept, tr("Save") );
-
-	g_config->getOption ("SDL.LastOpenMovie", &last );
-
-	getDirFromFile( last.c_str(), dir );
-
-	dialog.setDirectory( tr(dir) );
-
-	// Check config option to use native file dialog or not
-	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
-
-	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
-
-	ret = dialog.exec();
-
-	if ( ret )
-	{
-		QStringList fileList;
-		fileList = dialog.selectedFiles();
-
-		if ( fileList.size() > 0 )
-		{
-			filename = fileList[0];
-		}
-	}
-
-	if ( filename.isNull() )
-	{
-	   return;
-	}
-	qDebug() << "selected file path : " << filename.toUtf8();
-
-	int pauseframe;
-	g_config->getOption ("SDL.PauseFrame", &pauseframe);
-	g_config->setOption ("SDL.PauseFrame", 0);
-
-	FCEUI_printf ("Recording movie to %s\n", filename.toStdString().c_str() );
-
-	fceuWrapperLock();
-	std::string s = GetUserText ("Author name");
-	std::wstring author (s.begin (), s.end ());
-
-	FCEUI_SaveMovie ( filename.toStdString().c_str(), MOVIE_FLAG_NONE, author);
-	fceuWrapperUnLock();
-
 	return;
 }
 
@@ -3620,11 +3736,95 @@ void consoleWin_t::aviRecordStop(void)
 	}
 }
 
+void consoleWin_t::aviDebugFile(void)
+{
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	std::string last;
+	//char dir[512];
+	const char *base;
+	QFileDialog  dialog(this, tr("Select AVI Movie for Debug") );
+	QList<QUrl> urls;
+	QDir d;
+
+	dialog.setFileMode(QFileDialog::AnyFile);
+
+	dialog.setNameFilter(tr("AVI Movies (*.avi) ;; All files (*)"));
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Select") );
+
+	base = FCEUI_GetBaseDirectory();
+
+	urls << QUrl::fromLocalFile( QDir::rootPath() );
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
+
+	if ( base )
+	{
+		urls << QUrl::fromLocalFile( QDir( base ).absolutePath() );
+
+		d.setPath( QString(base) + "/avi");
+
+		if ( d.exists() )
+		{
+			urls << QUrl::fromLocalFile( d.absolutePath() );
+		}
+
+		dialog.setDirectory( d.absolutePath() );
+	}
+	dialog.setDefaultSuffix( tr(".avi") );
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+	dialog.setSidebarUrls(urls);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return;
+	}
+	qDebug() << "selected file path : " << filename.toUtf8();
+
+	FCEUI_printf ("AVI Debug movie to %s\n", filename.toStdString().c_str() );
+
+	aviDebugOpenFile( filename.toStdString().c_str() );
+}
+
 void consoleWin_t::aviAudioEnableChange(bool checked)
 {
 	aviSetAudioEnable( checked );
 
 	return;
+}
+
+void consoleWin_t::setAviHudEnable(bool checked)
+{
+	FCEUI_SetAviEnableHUDrecording( checked );
+
+	g_config->setOption("SDL.RecordHUD", checked );
+}
+
+void consoleWin_t::setAviMsgEnable(bool checked)
+{
+	FCEUI_SetAviDisableMovieMessages( !checked );
+
+	g_config->setOption("SDL.MovieMsg", checked );
 }
 
 void consoleWin_t::aviVideoFormatChanged(int idx)
@@ -3797,6 +3997,12 @@ void consoleWin_t::openOnlineDocs(void)
 	{
 		QueueErrorMsgWindow("Error: Failed to open link to: http://fceux.com/web/help/fceux.html");
 	}
+	return;
+}
+
+void consoleWin_t::openOfflineDocs(void)
+{
+	OpenHelpWindow();
 	return;
 }
 
@@ -4041,9 +4247,8 @@ void consoleWin_t::updatePeriodic(void)
 		saveStateAct->setEnabled( FCEU_IsValidUI( FCEUI_SAVESTATE ) );
 		openMovAct->setEnabled( FCEU_IsValidUI( FCEUI_PLAYMOVIE ) );
 		recMovAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) );
-		recAsMovAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) );
-		recAviAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) );
-		recAsAviAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) );
+		recAviAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEU_IsValidUI( FCEUI_STOPAVI ) );
+		recAsAviAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEU_IsValidUI( FCEUI_STOPAVI ) );
 		stopAviAct->setEnabled( FCEU_IsValidUI( FCEUI_STOPAVI ) );
 		recWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );
 		recAsWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );

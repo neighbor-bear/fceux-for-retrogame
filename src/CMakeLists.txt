@@ -13,13 +13,13 @@ else()
 endif()
 
 if ( ${QT6} )
-  	find_package( Qt6 COMPONENTS Widgets OpenGL OpenGLWidgets REQUIRED)
-  	add_definitions( ${Qt6Widgets_DEFINITIONS} ${Qt6OpenGLWidgets_DEFINITIONS} )
-  	include_directories( ${Qt6Widgets_INCLUDE_DIRS} ${Qt6OpenGLWidgets_INCLUDE_DIRS} )
+	find_package( Qt6 COMPONENTS Widgets Help OpenGL OpenGLWidgets REQUIRED)
+  	add_definitions( ${Qt6Widgets_DEFINITIONS} ${Qt6Help_DEFINITIONS} ${Qt6OpenGLWidgets_DEFINITIONS} )
+  	include_directories( ${Qt6Widgets_INCLUDE_DIRS} ${Qt6Help_INCLUDE_DIRS} ${Qt6OpenGLWidgets_INCLUDE_DIRS} )
 else()
-  	find_package( Qt5 COMPONENTS Widgets OpenGL REQUIRED)
-  	add_definitions( ${Qt5Widgets_DEFINITIONS}  )
-  	include_directories( ${Qt5Widgets_INCLUDE_DIRS} )
+	find_package( Qt5 COMPONENTS Widgets OpenGL Help REQUIRED)
+	add_definitions( ${Qt5Widgets_DEFINITIONS} ${Qt5Help_DEFINITIONS} )
+	include_directories( ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Help_INCLUDE_DIRS} )
 endif()
 
 if(WIN32)
@@ -34,7 +34,7 @@ if(WIN32)
      include_directories( ${CMAKE_CURRENT_SOURCE_DIR}/drivers/win/zlib )
      set( OPENGL_LDFLAGS  OpenGL::GL )
      set( SDL2_LDFLAGS  ${SDL_INSTALL_PREFIX}/SDL2/lib/x64/SDL2.lib )
-     set( SYS_LIBS  wsock32 ws2_32 vfw32 )
+     set( SYS_LIBS  wsock32 ws2_32 vfw32 Htmlhelp )
      set(APP_ICON_RESOURCES_WINDOWS  ${CMAKE_SOURCE_DIR}/icons/fceux.rc )
 else(WIN32)
   # Non Windows System
@@ -81,6 +81,13 @@ else(WIN32)
   if ( ${X264_FOUND} )
 	  message( STATUS "Using System X264 Encoder Library ${X264_VERSION}" )
 	  add_definitions( -D_USE_X264 ${X264_CFLAGS} )
+  endif()
+
+  pkg_check_modules( X265 x265)
+
+  if ( ${X265_FOUND} )
+	  message( STATUS "Using System X265 Encoder Library ${X265_VERSION}" )
+	  add_definitions( -D_USE_X265 ${X265_CFLAGS} )
   endif()
 
   #pkg_check_modules( GL gl) # Use built in find package instead for OpenGL
@@ -460,7 +467,9 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/PaletteEditor.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/ColorMenu.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/GuiConf.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/HelpPages.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/MoviePlay.cpp  
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/MovieRecord.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/MovieOptions.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/LuaControl.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/CheatsConf.cpp  
@@ -532,12 +541,13 @@ endif()
 
 target_link_libraries( ${APP_NAME}  
    ${${Qt}Widgets_LIBRARIES}
+   ${${Qt}Help_LIBRARIES}
    ${${Qt}OpenGL_LIBRARIES}
    ${${Qt}OpenGLWidgets_LIBRARIES}
    ${OPENGL_LDFLAGS}  
  	${SDL2_LDFLAGS}
 	${MINIZIP_LDFLAGS} ${ZLIB_LIBRARIES}
-	${LUA_LDFLAGS} ${X264_LDFLAGS}
+	${LUA_LDFLAGS} ${X264_LDFLAGS} ${X265_LDFLAGS}
  	${SYS_LIBS}
 )
 

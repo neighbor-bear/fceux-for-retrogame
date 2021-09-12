@@ -24,11 +24,15 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <string>
 
 #ifdef WIN32
 #include <windows.h>
 #include <vfw.h>
 #endif
+
+#include <QObject>
+#include <QMessageBox>
 
 #include "driver.h"
 #include "common/os_utils.h"
@@ -36,10 +40,14 @@
 #ifdef _USE_X264
 #include "x264.h"
 #endif
+#ifdef _USE_X265
+#include "x265.h"
+#endif
 
 #include "Qt/AviRecord.h"
 #include "Qt/avi/gwavi.h"
 #include "Qt/nes_shm.h"
+#include "Qt/throttle.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/fceuWrapper.h"
@@ -257,6 +265,7 @@ static int encode_frame( unsigned char *inBuf, int width, int height )
 	int chroma_size = luma_size / 4;
 	int i_frame_size = 0;
 	int ofs;
+	unsigned int flags = 0;
 
 	ofs = 0;
 	memcpy( pic.img.plane[0], &inBuf[ofs], luma_size   ); ofs += luma_size;
@@ -273,7 +282,11 @@ static int encode_frame( unsigned char *inBuf, int width, int height )
 	}
 	else if ( i_frame_size )
 	{
-		gwavi->add_frame( nal->p_payload, i_frame_size );
+		if ( pic_out.b_keyframe )
+		{
+			flags |= gwavi_t::IF_KEYFRAME;
+		}
+		gwavi->add_frame( nal->p_payload, i_frame_size, flags );
 	}
 	return i_frame_size;
 }
@@ -281,6 +294,7 @@ static int encode_frame( unsigned char *inBuf, int width, int height )
 static int close(void)
 {
 	int i_frame_size;
+	unsigned int flags = 0;
 
 	/* Flush delayed frames */
 	while( x264_encoder_delayed_frames( hdl ) )
@@ -291,9 +305,15 @@ static int close(void)
 	    {
 	        break;
 	    }
-	    else if( i_frame_size )
+	    else if ( i_frame_size )
 	    {
-		gwavi->add_frame( nal->p_payload, i_frame_size );
+		flags = 0;
+
+		if ( pic_out.b_keyframe )
+		{
+			flags |= gwavi_t::IF_KEYFRAME;
+		}
+		gwavi->add_frame( nal->p_payload, i_frame_size, flags );
 	    }
 	}
 	
@@ -306,32 +326,194 @@ static int close(void)
 }; // End X264 namespace
 #endif
 //**************************************************************************************
+#ifdef _USE_X265
+
+namespace X265
+{
+static x265_param *param = NULL;
+static x265_picture *pic = NULL;
+static x265_picture pic_out;
+static x265_encoder *hdl = NULL;
+static x265_nal *nal = NULL;
+static unsigned int i_nal = 0;
+
+static int init( int width, int height )
+{
+	double fps;
+	unsigned int usec;
+
+	fps = getBaseFrameRate();
+
+	usec = (unsigned int)((1000000.0 / fps)+0.50);
+	
+	param = x265_param_alloc();
+
+	x265_param_default( param);
+
+	/* Get default params for preset/tuning */
+	//if( x265_param_default_preset( param, "medium", NULL ) < 0 )
+	//{
+	//    goto x265_init_fail;
+	//}
+	
+	/* Configure non-default params */
+	param->internalCsp = X265_CSP_I420;
+	param->sourceWidth  = width;
+	param->sourceHeight = height;
+	param->bRepeatHeaders = 1;
+	param->fpsNum   = 1000000;
+	param->fpsDenom = usec;
+	
+	/* Apply profile restrictions. */
+	//if( x265_param_apply_profile( param, "high" ) < 0 )
+	//{
+	//    goto x265_init_fail;
+	//}
+	
+	if( (pic = x265_picture_alloc()) == NULL )
+	{
+	    goto x265_init_fail;
+	}
+	x265_picture_init( param, pic );
+
+	hdl = x265_encoder_open( param );
+	if ( hdl == NULL )
+	{
+		goto x265_init_fail;
+	}
+
+	return 0;
+
+x265_init_fail:
+	return -1;
+}
+
+static int encode_frame( unsigned char *inBuf, int width, int height )
+{
+	int luma_size = width * height;
+	int chroma_size = luma_size / 4;
+	int ret = 0;
+	int ofs;
+	unsigned int flags = 0, totalPayload = 0;
+
+	ofs = 0;
+	pic->planes[0] = &inBuf[ofs]; ofs += luma_size;
+	pic->planes[1] = &inBuf[ofs]; ofs += chroma_size;
+	pic->planes[2] = &inBuf[ofs]; ofs += chroma_size;
+	pic->stride[0] = width;
+	pic->stride[1] = width/2;
+	pic->stride[2] = width/2;
+
+	ret = x265_encoder_encode( hdl, &nal, &i_nal, pic, &pic_out );
+
+	if ( ret <= 0 )
+	{
+		return -1;
+	}
+	else if ( i_nal > 0 )
+	{
+		flags = 0;
+		totalPayload = 0;
+
+		if ( IS_X265_TYPE_I(pic_out.sliceType) )
+		{
+			flags |= gwavi_t::IF_KEYFRAME;
+		}
+
+		for (unsigned int i=0; i<i_nal; i++)
+		{
+			totalPayload += nal[i].sizeBytes;
+		}
+		gwavi->add_frame( nal[0].payload, totalPayload, flags );
+	}
+	return ret;
+}
+
+static int close(void)
+{
+	int ret;
+	unsigned int flags = 0, totalPayload = 0;
+
+	/* Flush delayed frames */
+	while( hdl != NULL )
+	{
+	    ret = x265_encoder_encode( hdl, &nal, &i_nal, NULL, &pic_out );
+
+	    if ( ret <= 0 )
+	    {
+	        break;
+	    }
+	    else if ( i_nal > 0 )
+	    {
+		totalPayload = 0;
+		flags = 0;
+
+		if ( IS_X265_TYPE_I(pic_out.sliceType) )
+		{
+			flags |= gwavi_t::IF_KEYFRAME;
+		}
+		for (unsigned int i=0; i<i_nal; i++)
+		{
+			totalPayload += nal[i].sizeBytes;
+		}
+		gwavi->add_frame( nal[0].payload, totalPayload, flags );
+	    }
+	}
+	
+	x265_encoder_close( hdl );
+	x265_picture_free( pic ); 
+	x265_param_free( param );
+
+	return 0;
+}
+
+}; // End X265 namespace
+#endif
+//**************************************************************************************
 // Windows VFW Interface
 #ifdef WIN32
 namespace VFW
 {
 static bool cmpSet = false;
 static COMPVARS  cmpvars;
-static DWORD dwFlags = 0;
+//static DWORD dwFlags = 0;
 static BITMAPINFOHEADER   bmapIn;
 static LPBITMAPINFOHEADER bmapOut = NULL;
 static DWORD frameNum = 0;
 static DWORD dwQuality = 0;
+static DWORD icErrCount = 0;
+static DWORD flagsOut = 0;
 static LPVOID outBuf = NULL;
 
 static int chooseConfig(int width, int height)
 {
 	bool ret;
+	char fccHandler[8];
+	std::string fccHandlerString;
 
 	if ( cmpSet )
 	{
 		ICCompressorFree( &cmpvars );
 		cmpSet = false;
 	}
+	memset( fccHandler, 0, sizeof(fccHandler));
 	memset( &cmpvars, 0, sizeof(COMPVARS));
 	cmpvars.cbSize = sizeof(COMPVARS);
+
+	g_config->getOption("SDL.AviVfwFccHandler", &fccHandlerString);
+
+	if ( fccHandlerString.size() > 0 )
+	{
+		strcpy( fccHandler, fccHandlerString.c_str() );
+		memcpy( &cmpvars.fccHandler, fccHandler, 4 );
+		cmpvars.dwFlags = ICMF_COMPVARS_VALID;
+	}
+
 	ret = ICCompressorChoose( HWND(consoleWindow->winId()), ICMF_CHOOSE_ALLCOMPRESSORS,
 			0, NULL, &cmpvars, 0);
+
+	memcpy( fccHandler, &cmpvars.fccHandler, 4 );
+	fccHandler[4] = 0;
 
 	printf("FCC:%08X  %c%c%c%c \n", cmpvars.fccHandler,
 	    (cmpvars.fccHandler & 0x000000FF) ,
@@ -341,6 +523,7 @@ static int chooseConfig(int width, int height)
 
 	if ( ret )
 	{
+		g_config->setOption("SDL.AviVfwFccHandler", fccHandler);
 		cmpSet = true;
 	}
 	return (cmpSet == false) ? -1 : 0;
@@ -349,7 +532,9 @@ static int chooseConfig(int width, int height)
 static int init( int width, int height )
 {
 	void *h;
+	ICINFO icInfo;
 	DWORD dwFormatSize, dwCompressBufferSize;
+	bool qualitySupported = false;
 
 	memset( &bmapIn, 0, sizeof(bmapIn));
 	bmapIn.biSize = sizeof(BITMAPINFOHEADER);
@@ -361,6 +546,45 @@ static int init( int width, int height )
 	bmapIn.biSizeImage = width * height * 3;
 
 	dwFormatSize = ICCompressGetFormatSize( cmpvars.hic, &bmapIn );
+
+	if ( ICGetInfo( cmpvars.hic, &icInfo, sizeof(icInfo) ) )
+	{
+		printf("Name : %ls\n" , icInfo.szName );
+		printf("Flags: 0x%08X", icInfo.dwFlags );
+
+		if ( icInfo.dwFlags & VIDCF_CRUNCH )
+		{
+			printf("  VIDCF_CRUNCH  ");
+		}
+
+		if ( icInfo.dwFlags & VIDCF_TEMPORAL )
+		{
+			printf("  VIDCF_TEMPORAL  ");
+		}
+
+		if ( icInfo.dwFlags & VIDCF_TEMPORAL )
+		{
+			printf("  VIDCF_TEMPORAL  ");
+		}
+
+		if ( icInfo.dwFlags & VIDCF_QUALITY )
+		{
+			printf("  VIDCF_QUALITY  ");
+			qualitySupported = true;
+		}
+
+		if ( icInfo.dwFlags & VIDCF_FASTTEMPORALC )
+		{
+			printf("  VIDCF_FASTTEMPORALC  ");
+		}
+
+		if ( icInfo.dwFlags & VIDCF_FASTTEMPORALD )
+		{
+			printf("  VIDCF_FASTTEMPORALD  ");
+		}
+		printf("\n");
+
+	}
 
 	//printf("Format Size:%i  %zi\n", dwFormatSize, sizeof(BITMAPINFOHEADER));
 
@@ -378,14 +602,31 @@ static int init( int width, int height )
 	// Allocate a buffer and get lpOutput to point to it. 
 	h = GlobalAlloc(GHND, dwCompressBufferSize); 
 	outBuf = (LPVOID)GlobalLock(h);
+	memset( outBuf, 0, dwCompressBufferSize);
 
 	//dwQuality = ICGetDefaultQuality( cmpvars.hic ); 
-	dwQuality = cmpvars.lQ; 
+	if ( qualitySupported )
+	{
+		dwQuality = cmpvars.lQ; 
+	}
+	else
+	{
+		dwQuality = 0;
+	}
 
 	//printf("Quality Setting: %i\n", dwQuality );
 
-	ICCompressBegin( cmpvars.hic, &bmapIn, bmapOut );
+	if ( ICCompressBegin( cmpvars.hic, &bmapIn, bmapOut ) != ICERR_OK )
+	{
+		printf("Error: ICCompressBegin\n");
+		icErrCount = 9999;
+		return -1;
+	}
 	
+	frameNum   = 0;
+	flagsOut   = 0;
+	icErrCount = 0;
+
 	return 0;
 }
 
@@ -407,12 +648,17 @@ static int close(void)
 static int encode_frame( unsigned char *inBuf, int width, int height )
 {
 	DWORD ret;
-	DWORD flagsOut = 0, reserved = 0;
+	DWORD reserved = 0;
 	int bytesWritten = 0;
+
+	if ( icErrCount > 10 )
+	{
+		return -1;
+	}
 
 	ret = ICCompress( 
 		cmpvars.hic, 
-		dwFlags, 
+		0, 
 		bmapOut,
 		outBuf,
 		&bmapIn, 
@@ -426,9 +672,15 @@ static int encode_frame( unsigned char *inBuf, int width, int height )
 
 	if ( ret == ICERR_OK )
 	{
-		//printf("Compressing Frame:%i   Size:%i\n", frameNum, bmapOut->biSizeImage);
+		//printf("Compressing Frame:%i   Size:%i  Flags:%08X\n",
+		//		frameNum, bmapOut->biSizeImage, flagsOut );
 		bytesWritten = bmapOut->biSizeImage;
-		gwavi->add_frame( (unsigned char*)outBuf, bytesWritten );
+		gwavi->add_frame( (unsigned char*)outBuf, bytesWritten, flagsOut );
+	}
+	else
+	{
+		printf("Compression Error Frame:%i\n", frameNum);
+		icErrCount++;
 	}
 
 	return bytesWritten;
@@ -441,18 +693,8 @@ int aviRecordOpenFile( const char *filepath )
 {
 	char fourcc[8];
 	gwavi_audio_t  audioConfig;
-	unsigned int fps;
+	double fps;
 	char fileName[1024];
-
-#ifdef WIN32
-	if ( videoFormat == AVI_VFW )
-	{
-		if ( VFW::chooseConfig( nes_shm->video.ncol, nes_shm->video.nrow ) )
-		{
-			return -1;
-		}
-	}
-#endif
 
 	if ( filepath != NULL )
 	{
@@ -490,11 +732,43 @@ int aviRecordOpenFile( const char *filepath )
 		}
 	}
 
+	if ( fileName[0] != 0 )
+	{
+		QFile file(fileName);
+
+		if ( file.exists() )
+		{
+			int ret;
+			std::string msg;
+
+			msg = "Pre-existing AVI file will be overwritten:\n\n" +
+				std::string(fileName) +	"\n\nReplace file?";
+
+			ret = QMessageBox::warning( consoleWindow, QObject::tr("Overwrite Warning"),
+					QString::fromStdString(msg), QMessageBox::Yes | QMessageBox::No );
+
+			if ( ret == QMessageBox::No )
+			{
+				return -1;
+			}
+		}
+	}
+
+#ifdef WIN32
+	if ( videoFormat == AVI_VFW )
+	{
+		if ( VFW::chooseConfig( nes_shm->video.ncol, nes_shm->video.nrow ) )
+		{
+			return -1;
+		}
+	}
+#endif
+
 	if ( gwavi != NULL )
 	{
 		delete gwavi; gwavi = NULL;
 	}
-	fps = FCEUI_GetDesiredFPS() >> 24;
+	fps = getBaseFrameRate();
 
 	g_config->getOption("SDL.Sound.Rate", &audioSampleRate);
 
@@ -514,11 +788,21 @@ int aviRecordOpenFile( const char *filepath )
 		strcpy( fourcc, "X264");
 	}
 	#endif 
+	#ifdef _USE_X265
+	else if ( videoFormat == AVI_X265 )
+	{
+		strcpy( fourcc, "H265");
+	}
+	#endif
 	#ifdef WIN32
 	else if ( videoFormat == AVI_VFW )
 	{
 		memcpy( fourcc, &VFW::cmpvars.fccHandler, 4);
-		printf("Set VFW FourCC: %s", fourcc);
+		for (int i=0; i<4; i++)
+		{
+			fourcc[i] = toupper(fourcc[i]);
+		}
+		printf("Set VFW FourCC: %s\n", fourcc);
 	}
 	#endif 
 
@@ -588,7 +872,7 @@ int aviRecordAddFrame( void )
 
 	while ( i < numPixels )
 	{
-		rawVideoBuf[ head ] = nes_shm->pixbuf[i]; i++;
+		rawVideoBuf[ head ] = nes_shm->avibuf[i]; i++;
 
 		head = (head + 1) % vbufSize;
 	}
@@ -648,6 +932,21 @@ int aviRecordClose(void)
 	return 0;
 }
 //**************************************************************************************
+int aviDebugOpenFile( const char *filepath )
+{
+	gwavi_t inAvi;
+
+	if ( inAvi.openIn( filepath ) )
+	{
+		printf("Failed to open AVI File: '%s'\n", filepath);
+		return -1;
+	}
+
+	inAvi.printHeaders();
+
+	return 0;
+}
+//**************************************************************************************
 bool aviGetAudioEnable(void)
 {
 	return recordAudio;
@@ -677,12 +976,11 @@ void FCEUD_AviStop(void)
 	return;
 }
 //**************************************************************************************
-void FCEUI_AviVideoUpdate(const unsigned char* buffer)
-{	// This is not used by Qt Emulator, avi recording pulls from the post processed video buffer
-	// instead of emulation core video buffer. This allows for the video scaler effects
-	// and higher resolution to be seen in recording.
-	return;
-}
+// // This function is implemented in sdl-video.cpp
+//void FCEUI_AviVideoUpdate(const unsigned char* buffer)
+//{
+//	return;
+//}
 //**************************************************************************************
 int aviGetSelVideoFormat(void)
 {
@@ -709,7 +1007,7 @@ int FCEUD_AviGetFormatOpts( std::vector <std::string> &formatList )
 				s.assign("Unknown");
 			break;
 			case AVI_RGB24:
-				s.assign("RGB 24");
+				s.assign("RGB24 (Uncompressed)");
 			break;
 			case AVI_I420:
 				s.assign("I420 (YUV 4:2:0)");
@@ -717,6 +1015,11 @@ int FCEUD_AviGetFormatOpts( std::vector <std::string> &formatList )
 			#ifdef _USE_X264
 			case AVI_X264:
 				s.assign("X264 (H.264)");
+			break;
+			#endif
+			#ifdef _USE_X265
+			case AVI_X265:
+				s.assign("X265 (H.265)");
 			break;
 			#endif
 			#ifdef WIN32
@@ -746,7 +1049,8 @@ AviRecordDiskThread_t::~AviRecordDiskThread_t(void)
 void AviRecordDiskThread_t::run(void)
 {
 	int numPixels, width, height, numPixelsReady = 0;
-	int fps = 60, numSamples = 0;
+	int numSamples = 0;
+	double fps = 60.0;
 	unsigned char *rgb24;
 	int16_t *audioOut;
 	uint32_t *videoOut;
@@ -757,9 +1061,9 @@ void AviRecordDiskThread_t::run(void)
 
 	setPriority( QThread::HighestPriority );
 
-	fps = FCEUI_GetDesiredFPS() >> 24;
+	fps = getBaseFrameRate();
 
-	avgAudioPerFrame = (audioSampleRate / fps) + 1;
+	avgAudioPerFrame = ( audioSampleRate / fps) + 1;
 
 	printf("Avg Audio Rate per Frame: %i \n", avgAudioPerFrame );
 
@@ -784,6 +1088,12 @@ void AviRecordDiskThread_t::run(void)
 	if ( localVideoFormat == AVI_X264)
 	{
 		X264::init( width, height );
+	}
+#endif
+#ifdef _USE_X265
+	if ( localVideoFormat == AVI_X265)
+	{
+		X265::init( width, height );
 	}
 #endif
 #ifdef WIN32
@@ -822,6 +1132,13 @@ void AviRecordDiskThread_t::run(void)
 			{
 				Convert_4byte_To_I420Frame<4>(videoOut,rgb24,numPixels,width);
 				X264::encode_frame( rgb24, width, height );
+			}
+			#endif
+			#ifdef _USE_X265
+			else if ( localVideoFormat == AVI_X265)
+			{
+				Convert_4byte_To_I420Frame<4>(videoOut,rgb24,numPixels,width);
+				X265::encode_frame( rgb24, width, height );
 			}
 			#endif
 			#ifdef WIN32
@@ -878,6 +1195,12 @@ void AviRecordDiskThread_t::run(void)
 	if ( localVideoFormat == AVI_X264)
 	{
 		X264::close();
+	}
+#endif
+#ifdef _USE_X265
+	if ( localVideoFormat == AVI_X265)
+	{
+		X265::close();
 	}
 #endif
 #ifdef WIN32

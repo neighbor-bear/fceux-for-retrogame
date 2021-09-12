@@ -36,6 +36,7 @@ class ConsoleVideoConfDialog_t : public QDialog
 		QComboBox   *regionSelect;
 		QComboBox   *cursorSelect;
 		QComboBox   *aspectSelect;
+		QComboBox   *inputDisplaySel;
 		QCheckBox   *autoRegion;
 		QCheckBox   *gl_LF_chkBox;
 		QCheckBox   *new_PPU_ena;
@@ -48,6 +49,9 @@ class ConsoleVideoConfDialog_t : public QDialog
 		QCheckBox   *cursorVisCbx;
 		QCheckBox   *drawInputAidsCbx;
 		QCheckBox   *intFrameRateCbx;
+		QCheckBox   *showFrameCount_cbx;
+		QCheckBox   *showLagCount_cbx;
+		QCheckBox   *showRerecordCount_cbx;
 		QDoubleSpinBox *xScaleBox;
 		QDoubleSpinBox *yScaleBox;
 		QLabel         *aspectSelectLabel;
@@ -63,6 +67,7 @@ class ConsoleVideoConfDialog_t : public QDialog
 
 		void  setCheckBoxFromProperty( QCheckBox *cbx, const char *property );
 		void  setComboBoxFromProperty( QComboBox *cbx, const char *property );
+		void  setComboBoxFromValue( QComboBox *cbx, int pval );
 		//void  setSliderFromProperty( QSlider *slider, QLabel *lbl, const char *property );
 
 		void  resetVideo(void);
@@ -91,6 +96,10 @@ class ConsoleVideoConfDialog_t : public QDialog
 		void  cursorShapeChanged(int index);
 		void  cursorVisChanged(int value);
 		void  drawInputAidsChanged(int value);
+		void  showFrameCountChanged(int value);
+		void  showLagCountChanged( int value );
+		void  showRerecordCountChanged( int value );
+		void  inputDisplayChanged(int index);
 		void  applyChanges( void );
 		void  ntscStartScanLineChanged(int value);
 		void  ntscEndScanLineChanged(int value);

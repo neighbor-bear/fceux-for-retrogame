@@ -23,6 +23,8 @@
 #include <QMessageBox>
 
 #include "../../fceu.h"
+#include "../../input.h"
+#include "../../video.h"
 #include "Qt/main.h"
 #include "Qt/dface.h"
 #include "Qt/config.h"
@@ -33,11 +35,14 @@
 #include "Qt/ConsoleVideoConf.h"
 #include "Qt/nes_shm.h"
 
+extern int input_display;
+extern int frame_display;
+extern int rerecord_display;
 //----------------------------------------------------
 ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	: QDialog( parent )
 {
-	QVBoxLayout *main_vbox, *vbox1, *vbox2, *vbox;
+	QVBoxLayout *main_vbox, *vbox1, *vbox2, *vbox3, *vbox4, *vbox;
 	QHBoxLayout *main_hbox, *hbox1, *hbox;
 	QLabel *lbl;
 	QPushButton *button;
@@ -160,7 +165,19 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	clipSidesCbx  = new QCheckBox( tr("Clip Left/Right Sides (8 px on each)") );
 
 	// Show FPS Checkbox
-	showFPS_cbx  = new QCheckBox( tr("Show FPS") );
+	showFPS_cbx  = new QCheckBox( tr("Frames Per Second") );
+
+	// Show Frame Count Checkbox
+	showFrameCount_cbx  = new QCheckBox( tr("Frame Count") );
+	showFrameCount_cbx->setChecked( frame_display );
+
+	// Show Lag Count Checkbox
+	showLagCount_cbx  = new QCheckBox( tr("Lag Count") );
+	showLagCount_cbx->setChecked( lagCounterDisplay );
+
+	// Show Re-Record Count Checkbox
+	showRerecordCount_cbx  = new QCheckBox( tr("Re-Record Count") );
+	showRerecordCount_cbx->setChecked( rerecord_display );
 
 	// Auto Scale on Resize
 	autoScaleCbx  = new QCheckBox( tr("Auto Scale on Resize") );
@@ -170,6 +187,16 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 
 	// Draw Input Aids
 	drawInputAidsCbx = new QCheckBox( tr("Draw Input Aids") );
+
+	// Input Display Select
+	inputDisplaySel = new QComboBox();
+
+	inputDisplaySel->addItem( tr("None"), 0 );
+	inputDisplaySel->addItem( tr("1"), 1 );
+	inputDisplaySel->addItem( tr("1 & 2"), 2 );
+	inputDisplaySel->addItem( tr("1, 2, 3 & 4"), 4 );
+
+	setComboBoxFromProperty( inputDisplaySel , "SDL.InputDisplay");
 
 	setCheckBoxFromProperty( autoRegion      , "SDL.AutoDetectPAL");
 	setCheckBoxFromProperty( new_PPU_ena     , "SDL.NewPPU");
@@ -205,19 +232,25 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 	connect(autoScaleCbx    , SIGNAL(stateChanged(int)), this, SLOT(autoScaleChanged(int)) );
 	connect(drawInputAidsCbx, SIGNAL(stateChanged(int)), this, SLOT(drawInputAidsChanged(int)) );
 
+	connect(   showFrameCount_cbx, SIGNAL(stateChanged(int)), this, SLOT(showFrameCountChanged(int))   );
+	connect(     showLagCount_cbx, SIGNAL(stateChanged(int)), this, SLOT(showLagCountChanged(int))     );
+	connect(showRerecordCount_cbx, SIGNAL(stateChanged(int)), this, SLOT(showRerecordCountChanged(int)));
+
+	connect(inputDisplaySel, SIGNAL(currentIndexChanged(int)), this, SLOT(inputDisplayChanged(int)) );
+
 	vbox1->addWidget( autoRegion  );
 	vbox1->addWidget( new_PPU_ena );
 	vbox1->addWidget( frmskipcbx  );
 	vbox1->addWidget( intFrameRateCbx  );
 	vbox1->addWidget( sprtLimCbx  );
-	vbox1->addWidget( drawInputAidsCbx );
-	vbox1->addWidget( showFPS_cbx );
+	//vbox1->addWidget( drawInputAidsCbx );
+	//vbox1->addWidget( showFPS_cbx );
 	vbox1->addWidget( autoScaleCbx);
 	vbox1->addWidget( aspectCbx   );
 
 	aspectSelect = new QComboBox();
 
-	aspectSelect->addItem( tr("Default (1:1)"), 0 );
+	aspectSelect->addItem( tr("Square Pixels (1:1)"), 0 );
 	aspectSelect->addItem( tr("NTSC (8:7)"), 1 );
 	aspectSelect->addItem( tr("PAL (11:8)"), 2 );
 	aspectSelect->addItem( tr("Standard (4:3)"), 3 );
@@ -303,10 +336,31 @@ ConsoleVideoConfDialog_t::ConsoleVideoConfDialog_t(QWidget *parent)
 
 	main_vbox->addLayout( hbox1 );
 
+	gbox  = new QGroupBox( tr("Overlay Options") );
+	vbox3 = new QVBoxLayout();
+	vbox4 = new QVBoxLayout();
+	vbox  = new QVBoxLayout();
+
+	vbox3->addWidget( gbox, 1 );
+	vbox3->addStretch(5);
+	 gbox->setLayout( vbox );
+
+	vbox->addWidget( drawInputAidsCbx );
+	vbox->addWidget( showFPS_cbx );
+	vbox->addWidget( showFrameCount_cbx );
+	vbox->addWidget( showLagCount_cbx );
+	vbox->addWidget( showRerecordCount_cbx );
+
+	gbox  = new QGroupBox( tr("Show Controllers:") );
+	gbox->setLayout( vbox4 );
+	vbox->addWidget( gbox  );
+	vbox4->addWidget( inputDisplaySel );
+
 	gbox  = new QGroupBox( tr("Drawing Area") );
 	vbox2 = new QVBoxLayout();
 	grid  = new QGridLayout();
 
+	main_hbox->addLayout( vbox3 );
 	main_hbox->addLayout( vbox2 );
 	vbox2->addWidget( gbox, 1 );
 	gbox->setLayout(grid);
@@ -473,6 +527,12 @@ void ConsoleVideoConfDialog_t::periodicUpdate(void)
 		regionSelect->setCurrentIndex(actRegion); 
 	}
 
+	setComboBoxFromValue( inputDisplaySel, input_display );
+
+	   showFrameCount_cbx->setChecked( frame_display );
+	     showLagCount_cbx->setChecked( lagCounterDisplay );
+	showRerecordCount_cbx->setChecked( rerecord_display );
+
 	// Update Window Size Readouts
 	updateReadouts();
 }
@@ -614,6 +674,17 @@ void  ConsoleVideoConfDialog_t::setComboBoxFromProperty( QComboBox *cbx, const c
 	}
 }
 //----------------------------------------------------
+void  ConsoleVideoConfDialog_t::setComboBoxFromValue( QComboBox *cbx, int pval )
+{
+	for (int i=0; i<cbx->count(); i++)
+	{
+		if ( pval == cbx->itemData(i).toInt() )
+		{
+			cbx->setCurrentIndex(i); break;
+		}
+	}
+}
+//----------------------------------------------------
 void ConsoleVideoConfDialog_t::openGL_linearFilterChanged( int value )
 {
    bool opt =  (value != Qt::Unchecked);
@@ -695,6 +766,7 @@ void ConsoleVideoConfDialog_t::use_new_PPU_changed( bool value )
 	}
 
 	g_config->setOption("SDL.NewPPU", newppu );
+	g_config->setOption("SDL.OverClockEnable", overclock_enabled );
 	g_config->save ();
 
 	UpdateEMUCore (g_config);
@@ -721,6 +793,8 @@ void ConsoleVideoConfDialog_t::intFrameRate_changed( int value )
 
 	fceuWrapperLock();
 	RefreshThrottleFPS();
+	KillSound();
+	InitSound();
 	fceuWrapperUnLock();
 }
 //----------------------------------------------------
@@ -753,6 +827,7 @@ void ConsoleVideoConfDialog_t::showFPSChanged( int value )
 	g_config->save ();
 
 	fceuWrapperLock();
+	FCEUI_SetShowFPS( (value == Qt::Checked) );
 	UpdateEMUCore (g_config);
 	fceuWrapperUnLock();
 }
@@ -835,6 +910,17 @@ void ConsoleVideoConfDialog_t::regionChanged(int index)
 	}
 }
 //----------------------------------------------------
+void ConsoleVideoConfDialog_t::inputDisplayChanged(int index)
+{
+	//printf("Scaler: %i : %i \n", index, scalerSelect->itemData(index).toInt() );
+	fceuWrapperLock();
+	input_display = inputDisplaySel->itemData(index).toInt();
+	fceuWrapperUnLock();
+
+	g_config->setOption ("SDL.InputDisplay", input_display);
+	g_config->save ();
+}
+//----------------------------------------------------
 void ConsoleVideoConfDialog_t::aspectChanged(int index)
 {
 	int aspectID;
@@ -884,7 +970,45 @@ void ConsoleVideoConfDialog_t::drawInputAidsChanged( int value )
 	g_config->setOption("SDL.DrawInputAids", draw );
 	g_config->save ();
 
+	fceuWrapperLock();
 	drawInputAidsEnable = draw;
+	fceuWrapperUnLock();
+}
+//----------------------------------------------------
+void ConsoleVideoConfDialog_t::showFrameCountChanged( int value )
+{
+	fceuWrapperLock();
+	frame_display = (value != Qt::Unchecked);
+	fceuWrapperUnLock();
+
+	//printf("Value:%i \n", value );
+	g_config->setOption("SDL.ShowFrameCount", frame_display );
+	g_config->save ();
+
+}
+//----------------------------------------------------
+void ConsoleVideoConfDialog_t::showLagCountChanged( int value )
+{
+	fceuWrapperLock();
+	lagCounterDisplay = (value != Qt::Unchecked);
+	fceuWrapperUnLock();
+
+	//printf("Value:%i \n", value );
+	g_config->setOption("SDL.ShowLagCount", lagCounterDisplay );
+	g_config->save ();
+
+}
+//----------------------------------------------------
+void ConsoleVideoConfDialog_t::showRerecordCountChanged( int value )
+{
+	fceuWrapperLock();
+	rerecord_display = (value != Qt::Unchecked);
+	fceuWrapperUnLock();
+
+	//printf("Value:%i \n", value );
+	g_config->setOption("SDL.ShowRerecordCount", rerecord_display );
+	g_config->save ();
+
 }
 //----------------------------------------------------
 QSize ConsoleVideoConfDialog_t::calcNewScreenSize(void)

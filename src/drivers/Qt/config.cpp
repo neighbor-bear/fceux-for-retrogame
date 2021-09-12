@@ -32,6 +32,7 @@
 
 #include "Qt/sdl.h"
 #include "Qt/sdl-video.h"
+#include "Qt/AviRecord.h"
 #include "Qt/unix-netplay.h"
 
 #ifdef WIN32
@@ -62,183 +63,184 @@ extern  int palsharpness;
 extern  int palcontrast;
 extern  int palbrightness;
 
-int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const char **titleOut )
+int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const char **titleOut, const char **groupOut )
 {
 	const char *name = "";
 	const char *keySeq = "";
 	const char *title = NULL;
+	const char *group = "Misc";
 
 	switch ( i )
 	{
 		case HK_OPEN_ROM: 
-			name = "OpenROM"; keySeq = "Ctrl+O"; title = "Open ROM";
+			name = "OpenROM"; keySeq = "Ctrl+O"; title = "Open ROM"; group = "Tools";
 		break;
 		case HK_CLOSE_ROM: 
-			name = "CloseROM"; keySeq = "Ctrl+C"; title = "Close ROM";
+			name = "CloseROM"; keySeq = "Ctrl+C"; title = "Close ROM"; group = "Tools";
 		break;
 		case HK_CHEAT_MENU:
-			name = "CheatMenu"; keySeq = ""; title = "Open Cheat Window";
+			name = "CheatMenu"; keySeq = ""; title = "Open Cheat Window"; group = "Tools";
 		break;
 		case HK_BIND_STATE:
-			name = "BindState"; keySeq = ""; title = "Bind Save State to Movie";
+			name = "BindState"; keySeq = ""; title = "Bind Save State to Movie"; group = "Movie";
 		break;
 		case HK_LOAD_LUA:
-			name = "LoadLua"; keySeq = "Ctrl+L";	
+			name = "LoadLua"; keySeq = "Ctrl+L"; group = "Tools";
 		break;
 		case HK_TOGGLE_BG:
-			name = "ToggleBG"; keySeq = "";	title = "Toggle Background Display";
+			name = "ToggleBG"; keySeq = "";	title = "Toggle Background Display"; group = "Misc";
 		break;
 		case HK_TOGGLE_FG:
-			name = "ToggleFG"; keySeq = "";	title = "Toggle Object Display";
+			name = "ToggleFG"; keySeq = "";	title = "Toggle Object Display"; group = "Misc";
 		break;
 		// Save States
 		case HK_SAVE_STATE:
-			name = "SaveState"; keySeq = "I"; title = "Save State";
+			name = "SaveState"; keySeq = "I"; title = "Save State"; group = "State";
 		break;
 		case HK_SAVE_STATE_0:
-			name = "SaveState0"; keySeq = "Shift+F10"; title = "Save State to Slot 0";
+			name = "SaveState0"; keySeq = "Shift+F10"; title = "Save State to Slot 0"; group = "State";
 		break;
 		case HK_SAVE_STATE_1:
-			name = "SaveState1"; keySeq = "Shift+F1"; title = "Save State to Slot 1";
+			name = "SaveState1"; keySeq = "Shift+F1"; title = "Save State to Slot 1"; group = "State";
 		break;
 		case HK_SAVE_STATE_2:
-			name = "SaveState2"; keySeq = "Shift+F2"; title = "Save State to Slot 2";
+			name = "SaveState2"; keySeq = "Shift+F2"; title = "Save State to Slot 2"; group = "State";
 		break;
 		case HK_SAVE_STATE_3:
-			name = "SaveState3"; keySeq = "Shift+F3"; title = "Save State to Slot 3";
+			name = "SaveState3"; keySeq = "Shift+F3"; title = "Save State to Slot 3"; group = "State";
 		break;
 		case HK_SAVE_STATE_4:
-			name = "SaveState4"; keySeq = "Shift+F4"; title = "Save State to Slot 4";
+			name = "SaveState4"; keySeq = "Shift+F4"; title = "Save State to Slot 4"; group = "State";
 		break;
 		case HK_SAVE_STATE_5:
-			name = "SaveState5"; keySeq = "Shift+F5"; title = "Save State to Slot 5";
+			name = "SaveState5"; keySeq = "Shift+F5"; title = "Save State to Slot 5"; group = "State";
 		break;
 		case HK_SAVE_STATE_6:
-			name = "SaveState6"; keySeq = "Shift+F6"; title = "Save State to Slot 6";
+			name = "SaveState6"; keySeq = "Shift+F6"; title = "Save State to Slot 6"; group = "State";
 		break;
 		case HK_SAVE_STATE_7:
-			name = "SaveState7"; keySeq = "Shift+F7"; title = "Save State to Slot 7";
+			name = "SaveState7"; keySeq = "Shift+F7"; title = "Save State to Slot 7"; group = "State";
 		break;
 		case HK_SAVE_STATE_8:
-			name = "SaveState8"; keySeq = "Shift+F8"; title = "Save State to Slot 8";
+			name = "SaveState8"; keySeq = "Shift+F8"; title = "Save State to Slot 8"; group = "State";
 		break;
 		case HK_SAVE_STATE_9:
-			name = "SaveState9"; keySeq = "Shift+F9"; title = "Save State to Slot 9";
+			name = "SaveState9"; keySeq = "Shift+F9"; title = "Save State to Slot 9"; group = "State";
 		break;
 		// Load States
 		case HK_LOAD_STATE:
-			name = "LoadState"; keySeq = "P";	title = "Load State";
+			name = "LoadState"; keySeq = "P";	title = "Load State"; group = "State";
 		break;
 		case HK_LOAD_STATE_0:
-			name = "LoadState0"; keySeq = "F10"; title = "Load State From Slot 0";
+			name = "LoadState0"; keySeq = "F10"; title = "Load State From Slot 0"; group = "State";
 		break;
 		case HK_LOAD_STATE_1:
-			name = "LoadState1"; keySeq = "F1"; title = "Load State From Slot 1";
+			name = "LoadState1"; keySeq = "F1"; title = "Load State From Slot 1"; group = "State";
 		break;
 		case HK_LOAD_STATE_2:
-			name = "LoadState2"; keySeq = "F2"; title = "Load State From Slot 2";
+			name = "LoadState2"; keySeq = "F2"; title = "Load State From Slot 2"; group = "State";
 		break;
 		case HK_LOAD_STATE_3:
-			name = "LoadState3"; keySeq = "F3"; title = "Load State From Slot 3";
+			name = "LoadState3"; keySeq = "F3"; title = "Load State From Slot 3"; group = "State";
 		break;
 		case HK_LOAD_STATE_4:
-			name = "LoadState4"; keySeq = "F4"; title = "Load State From Slot 4";
+			name = "LoadState4"; keySeq = "F4"; title = "Load State From Slot 4"; group = "State";
 		break;
 		case HK_LOAD_STATE_5:
-			name = "LoadState5"; keySeq = "F5"; title = "Load State From Slot 5";
+			name = "LoadState5"; keySeq = "F5"; title = "Load State From Slot 5"; group = "State";
 		break;
 		case HK_LOAD_STATE_6:
-			name = "LoadState6"; keySeq = "F6"; title = "Load State From Slot 6";
+			name = "LoadState6"; keySeq = "F6"; title = "Load State From Slot 6"; group = "State";
 		break;
 		case HK_LOAD_STATE_7:
-			name = "LoadState7"; keySeq = "F7"; title = "Load State From Slot 7";
+			name = "LoadState7"; keySeq = "F7"; title = "Load State From Slot 7"; group = "State";
 		break;
 		case HK_LOAD_STATE_8:
-			name = "LoadState8"; keySeq = "F8"; title = "Load State From Slot 8";
+			name = "LoadState8"; keySeq = "F8"; title = "Load State From Slot 8"; group = "State";
 		break;
 		case HK_LOAD_STATE_9:
-			name = "LoadState9"; keySeq = "F9"; title = "Load State From Slot 9";
+			name = "LoadState9"; keySeq = "F9"; title = "Load State From Slot 9"; group = "State";
 		break;
 		case HK_FDS_SELECT:
-			name = "FDSSelect"; keySeq = ""; title = "Switch FDS Disk Side";
+			name = "FDSSelect"; keySeq = ""; title = "Switch FDS Disk Side"; group = "FDS";
 		break;
 		case HK_FDS_EJECT:
-			name = "FDSEject"; keySeq = "";	title = "Eject FDS Disk";
+			name = "FDSEject"; keySeq = "";	title = "Eject FDS Disk"; group = "FDS";
 		break;
 		case HK_VS_INSERT_COIN:
-			name = "VSInsertCoin"; keySeq = ""; title = "VS Insert Coin";
+			name = "VSInsertCoin"; keySeq = ""; title = "VS Insert Coin"; group = "VS";
 		break;
 		case HK_VS_TOGGLE_DIPSWITCH:
-			name = "VSToggleDip"; keySeq = ""; title = "VS Toggle Dipswitch";
+			name = "VSToggleDip"; keySeq = ""; title = "VS Toggle Dipswitch"; group = "VS";
 		break;
 		case HK_TOGGLE_FRAME_DISPLAY:
-			name = "MovieToggleFrameDisplay"; keySeq = ".";	title = "Toggle Frame Display";
+			name = "MovieToggleFrameDisplay"; keySeq = ".";	title = "Toggle Frame Display"; group = "Movie";
 		break;
 		case HK_TOGGLE_SUBTITLE:
-			name = "SubtitleDisplay"; keySeq = ""; title = "Toggle Movie Subtitles";
+			name = "SubtitleDisplay"; keySeq = ""; title = "Toggle Movie Subtitles"; group = "Movie";
 		break;
 		case HK_POWER:
-			name = "Power"; keySeq = ""; title = "Power";
+			name = "Power"; keySeq = ""; title = "Power"; group = "Emulation";
 		break;
 		case HK_RESET:
-			name = "Reset"; keySeq = "Ctrl+R"; title = "Reset";
+			name = "Reset"; keySeq = "Ctrl+R"; title = "Reset"; group = "Emulation";
 		break;
 		case HK_PAUSE:
-			name = "Pause"; keySeq = "Pause"; title = "Pause";
+			name = "Pause"; keySeq = "Pause"; title = "Pause"; group = "Emulation";
 		break;
 		case HK_QUIT:
-			name = "Quit"; keySeq = "Ctrl+Q"; title = "Exit Application";
+			name = "Quit"; keySeq = "Ctrl+Q"; title = "Exit Application"; group = "Misc";
 		break;
 		case HK_SCREENSHOT:
-			name = "Screenshot"; keySeq = "F12";
+			name = "Screenshot"; keySeq = "F12"; group = "Tools";
 		break;
 		case HK_DECREASE_SPEED:
-			name = "DecreaseSpeed"; keySeq = "-";
+			name = "DecreaseSpeed"; keySeq = "-"; group = "Speed";
 		break;
 		case HK_INCREASE_SPEED:
-			name = "IncreaseSpeed"; keySeq = "=";
+			name = "IncreaseSpeed"; keySeq = "="; group = "Speed";
 		break;
 		case HK_FRAME_ADVANCE:
-			name = "FrameAdvance"; keySeq = "\\";
+			name = "FrameAdvance"; keySeq = "\\"; group = "Speed";
 		break;
 		case HK_TURBO:
-			name = "Turbo"; keySeq = "Tab";
+			name = "Turbo"; keySeq = "Tab"; group = "Speed";
 		break;
 		case HK_TOGGLE_INPUT_DISPLAY:
-			name = "ToggleInputDisplay"; keySeq = ",";
+			name = "ToggleInputDisplay"; keySeq = ","; group = "Misc";
 		break;
 		case HK_MOVIE_TOGGLE_RW:
-			name = "ToggleMovieRW"; keySeq = "Q";
+			name = "ToggleMovieRW"; keySeq = "Q"; group = "Movie";
 		break;
 		case HK_PLAY_MOVIE_FROM:
-			name = "PlayMovieFrom"; keySeq = "";
+			name = "PlayMovieFrom"; keySeq = ""; group = "Movie";
 		break;
 		case HK_MOVIE_PLAY_RESTART:
-			name = "PlayMovieFromBeginning"; keySeq = "";
+			name = "PlayMovieFromBeginning"; keySeq = ""; group = "Movie";
 		break;
 		case HK_RECORD_MOVIE_TO:
-			name = "RecordMovieTo"; keySeq = "";
+			name = "RecordMovieTo"; keySeq = ""; group = "Movie";
 		break;
 		case HK_STOP_MOVIE:
-			name = "StopMovie"; keySeq = "";
+			name = "StopMovie"; keySeq = ""; group = "Movie";
 		break;
 		case HK_RECORD_AVI:
-			name = "RecordAvi"; keySeq = "";
+			name = "RecordAvi"; keySeq = ""; group = "AVI";
 		break;
 		case HK_RECORD_AVI_TO:
-			name = "RecordAviTo"; keySeq = "";
+			name = "RecordAviTo"; keySeq = ""; group = "AVI";
 		break;
 		case HK_STOP_AVI:
-			name = "StopAvi"; keySeq = "";
+			name = "StopAvi"; keySeq = ""; group = "AVI";
 		break;
 		case HK_RECORD_WAV:
-			name = "RecordWav"; keySeq = "";
+			name = "RecordWav"; keySeq = ""; group = "WAV";
 		break;
 		case HK_RECORD_WAV_TO:
-			name = "RecordWavTo"; keySeq = "";
+			name = "RecordWavTo"; keySeq = ""; group = "WAV";
 		break;
 		case HK_STOP_WAV:
-			name = "StopWav"; keySeq = "";
+			name = "StopWav"; keySeq = ""; group = "WAV";
 		break;
 		case HK_MUTE_CAPTURE:
 			name = "MuteCapture"; keySeq = "'";
@@ -250,40 +252,40 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 			name = "LagCounterDisplay"; keySeq = "/";
 		break;
 		case HK_SELECT_STATE_0:
-			name = "SelectState0"; keySeq = "0"; title = "Select State Slot 0";
+			name = "SelectState0"; keySeq = "0"; title = "Select State Slot 0"; group = "State";
 		break;
 		case HK_SELECT_STATE_1:
-			name = "SelectState1"; keySeq = "1"; title = "Select State Slot 1";
+			name = "SelectState1"; keySeq = "1"; title = "Select State Slot 1"; group = "State";
 		break;
 		case HK_SELECT_STATE_2:
-			name = "SelectState2"; keySeq = "2"; title = "Select State Slot 2";
+			name = "SelectState2"; keySeq = "2"; title = "Select State Slot 2"; group = "State";
 		break;
 		case HK_SELECT_STATE_3:
-			name = "SelectState3"; keySeq = "3"; title = "Select State Slot 3";
+			name = "SelectState3"; keySeq = "3"; title = "Select State Slot 3"; group = "State";
 		break;
 		case HK_SELECT_STATE_4:
-			name = "SelectState4"; keySeq = "4"; title = "Select State Slot 4";
+			name = "SelectState4"; keySeq = "4"; title = "Select State Slot 4"; group = "State";
 		break;
 		case HK_SELECT_STATE_5:
-			name = "SelectState5"; keySeq = "5"; title = "Select State Slot 5";
+			name = "SelectState5"; keySeq = "5"; title = "Select State Slot 5"; group = "State";
 		break;
 		case HK_SELECT_STATE_6:
-			name = "SelectState6"; keySeq = "6"; title = "Select State Slot 6";
+			name = "SelectState6"; keySeq = "6"; title = "Select State Slot 6"; group = "State";
 		break;
 		case HK_SELECT_STATE_7:
-			name = "SelectState7"; keySeq = "7"; title = "Select State Slot 7";
+			name = "SelectState7"; keySeq = "7"; title = "Select State Slot 7"; group = "State";
 		break;
 		case HK_SELECT_STATE_8:
-			name = "SelectState8"; keySeq = "8"; title = "Select State Slot 8";
+			name = "SelectState8"; keySeq = "8"; title = "Select State Slot 8"; group = "State";
 		break;
 		case HK_SELECT_STATE_9:
-			name = "SelectState9"; keySeq = "9"; title = "Select State Slot 9";
+			name = "SelectState9"; keySeq = "9"; title = "Select State Slot 9"; group = "State";
 		break;
 		case HK_SELECT_STATE_NEXT:
-			name = "SelectStateNext"; keySeq = ""; title = "Select Next State Slot";
+			name = "SelectStateNext"; keySeq = ""; title = "Select Next State Slot"; group = "State";
 		break;
 		case HK_SELECT_STATE_PREV:
-			name = "SelectStatePrev"; keySeq = ""; title = "Select Previous State Slot";
+			name = "SelectStatePrev"; keySeq = ""; title = "Select Previous State Slot"; group = "State";
 		break;
 		case HK_VOLUME_DOWN:
 			name = "VolumeDown"; keySeq = "";
@@ -322,6 +324,10 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 			title = name;
 		}
 		*titleOut = title;
+	}
+	if ( groupOut )
+	{
+		*groupOut = group;
 	}
 	return 0;
 }
@@ -485,6 +491,7 @@ InitConfig()
 	config->addOption("soundrecord", "SDL.Sound.RecordFile", "");
 	config->addOption("soundbufsize", "SDL.Sound.BufSize", 128);
 	config->addOption("lowpass", "SDL.Sound.LowPass", 0);
+	config->addOption("SDL.Sound.UseGlobalFocus", 1);
     
 	config->addOption('g', "gamegenie", "SDL.GameGenie", 0);
 	config->addOption("pal", "SDL.PAL", 0);
@@ -524,12 +531,14 @@ InitConfig()
 	config->addOption('y', "yres", "SDL.YResolution", 0);
 	config->addOption("SDL.LastXRes", 0);
 	config->addOption("SDL.LastYRes", 0);
+	config->addOption("SDL.WinPosX" , 0);
+	config->addOption("SDL.WinPosY" , 0);
 	config->addOption("SDL.WinSizeX", 0);
 	config->addOption("SDL.WinSizeY", 0);
 	config->addOption("doublebuf", "SDL.DoubleBuffering", 1);
 	config->addOption("autoscale", "SDL.AutoScale", 1);
 	config->addOption("forceAspect", "SDL.ForceAspect", 0);
-	config->addOption("aspectSelect", "SDL.AspectSelect", 0);
+	config->addOption("aspectSelect", "SDL.AspectSelect", 3); // Standard (4:3)
 	config->addOption("aspectX", "SDL.AspectX", 1.000);
 	config->addOption("aspectY", "SDL.AspectY", 1.000);
 	config->addOption("xscale", "SDL.XScale", 2.000);
@@ -543,6 +552,9 @@ InitConfig()
 	config->addOption("cursorType", "SDL.CursorType", 0);
 	config->addOption("cursorVis" , "SDL.CursorVis", 1);
 	config->addOption("SDL.DrawInputAids", 1);
+	config->addOption("SDL.ShowFrameCount", 0);
+	config->addOption("SDL.ShowLagCount", 0);
+	config->addOption("SDL.ShowRerecordCount", 0);
 
 	// OpenGL options
 	config->addOption("opengl", "SDL.OpenGL", 1);
@@ -580,13 +592,29 @@ InitConfig()
     
 	// pause movie playback at frame x
 	config->addOption("pauseframe", "SDL.PauseFrame", 0);
-	config->addOption("recordhud", "SDL.RecordHUD", 1);
-	config->addOption("moviemsg", "SDL.MovieMsg", 1);
-	config->addOption("SDL.AviVideoFormat", 0);
+	config->addOption("recordhud", "SDL.RecordHUD", 0);
+	config->addOption("moviemsg", "SDL.MovieMsg", 0);
+
+#ifdef _USE_X264
+	config->addOption("SDL.AviVideoFormat", AVI_X264);
+#elif  WIN32
+	config->addOption("SDL.AviVideoFormat", AVI_VFW);
+#else
+	config->addOption("SDL.AviVideoFormat", AVI_RGB24);
+#endif
+
+#ifdef  WIN32
+	config->addOption("SDL.AviVfwFccHandler", "");
+#endif
+
+	// Cheat Options
+	config->addOption("SDL.CheatsDisabled", 0);
+	config->addOption("SDL.CheatsDisableAutoLS", 0);
+	config->addOption("SDL.CheatsWindowPause", 0);
 
 	// Hex Editor Options
-	config->addOption("hexEditBgColor", "SDL.HexEditBgColor", "#000000");
-	config->addOption("hexEditFgColor", "SDL.HexEditFgColor", "#FFFFFF");
+	config->addOption("SDL.HexEditBgColor", "#000000");
+	config->addOption("SDL.HexEditFgColor", "#FFFFFF");
 	config->addOption("SDL.HexEditCursorColorRC", "#000080");
 	config->addOption("SDL.HexEditAltColColor"  , "#545454");
 	config->addOption("SDL.HexEditFont"  , "");
@@ -611,6 +639,7 @@ InitConfig()
 	config->addOption("SDL.AsmSyntaxColorComment", "");
 	config->addOption("SDL.AsmSyntaxColorPC", "");
 	config->addOption("SDL.AsmShowByteCodes", 0);
+	config->addOption("SDL.AsmShowTraceData", 0);
 	config->addOption("SDL.AsmShowRomOffsets", 0);
 	config->addOption("SDL.DebuggerShowSymNames", 1);
 	config->addOption("SDL.DebuggerShowRegNames", 1);
@@ -624,6 +653,9 @@ InitConfig()
 	config->addOption("autoResumeCDL", "SDL.AutoResumeCDL", 0);
 
 	// Trace Logger Options
+	config->addOption("SDL.TraceLogSaveToFile", 0);
+	config->addOption("SDL.TraceLogSaveFilePath", "");
+	config->addOption("SDL.TraceLogPeriodicWindowUpdate", 1);
 	config->addOption("SDL.TraceLogRegisterState", 1);
 	config->addOption("SDL.TraceLogProcessorState", 1);
 	config->addOption("SDL.TraceLogNewInstructions", 0);
@@ -679,6 +711,7 @@ InitConfig()
 	config->addOption("_lastsavestateas", "SDL.LastSaveStateAs", savPath );
 	config->addOption("_lastopenmovie", "SDL.LastOpenMovie", movPath);
 	config->addOption("_lastloadlua", "SDL.LastLoadLua", "");
+	config->addOption("SDL.HelpFilePath", "");
 
 	for (unsigned int i=0; i<10; i++)
 	{
@@ -706,6 +739,10 @@ InitConfig()
 	config->addOption("_guiSchedNice"       , "SDL.GuiSchedNice"  , 0);
 	config->addOption("_guiSchedPrioRt"     , "SDL.GuiSchedPrioRt", 40);
 	config->addOption("_emuTimingMech"      , "SDL.EmuTimingMech" , 0);
+	config->addOption("SDL.OverClockEnable"     , 0);
+	config->addOption("SDL.PostRenderScanlines" , 0);
+	config->addOption("SDL.VBlankScanlines"     , 0);
+	config->addOption("SDL.Skip7bitOverClocking", 1);
 
 	// fcm -> fm2 conversion
 	config->addOption("fcmconvert", "SDL.FCMConvert", "");
@@ -939,6 +976,10 @@ UpdateEMUCore(Config *config)
 	}
 
 	config->getOption("SDL.NewPPU", &newppu);
+	config->getOption("SDL.OverClockEnable"     , &overclock_enabled      );
+	config->getOption("SDL.PostRenderScanlines" , &postrenderscanlines    );
+	config->getOption("SDL.VBlankScanlines"     , &vblankscanlines        );
+	config->getOption("SDL.Skip7bitOverClocking", &skip_7bit_overclocking );
 
 	config->getOption("SDL.PAL", &region);
 	FCEUI_SetRegion(region);

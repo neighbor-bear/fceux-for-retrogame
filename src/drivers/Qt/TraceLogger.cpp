@@ -121,7 +121,7 @@ static HANDLE logFile = INVALID_HANDLE_VALUE;
 #else
 static int logFile = -1;
 #endif
-static char  logFilePath[512] = { 0 };
+static std::string  logFilePath;
 //----------------------------------------------------
 static void initLogOption( const char *name, int bitmask )
 {
@@ -151,7 +151,7 @@ TraceLoggerDialog_t::TraceLoggerDialog_t(QWidget *parent)
 	QMenu *fileMenu;
 	QAction *act;
 	QLabel *lbl;
-	int useNativeMenuBar;
+	int opt, useNativeMenuBar;
 
 	if (recBufMax == 0)
 	{
@@ -216,10 +216,9 @@ TraceLoggerDialog_t::TraceLoggerDialog_t(QWidget *parent)
 	mainLayout->addLayout(grid, 1);
 
 	lbl = new QLabel(tr("Lines"));
-	logLastCbox = new QCheckBox(tr("Log Last"));
+	logLastLbl = new QLabel(tr("Log Last"));
 	logMaxLinesComboBox = new QComboBox();
 
-	logLastCbox->setChecked(true);
 	logMaxLinesComboBox->addItem(tr("3,000,000"), 3000000);
 	logMaxLinesComboBox->addItem(tr("1,000,000"), 1000000);
 	logMaxLinesComboBox->addItem(tr("300,000"), 300000);
@@ -242,30 +241,48 @@ TraceLoggerDialog_t::TraceLoggerDialog_t(QWidget *parent)
 	selLogFileButton = new QPushButton(tr("Browse..."));
 	startStopButton = new QPushButton(tr("Start Logging"));
 	autoUpdateCbox = new QCheckBox(tr("Automatically update this window while logging"));
+	clearButton = new QPushButton(tr("Clear Log"));
 
-	autoUpdateCbox->setChecked(true);
+	g_config->getOption("SDL.TraceLogSaveFilePath", &logFilePath);
+
+	g_config->getOption("SDL.TraceLogSaveToFile", &opt );
+	logFileCbox->setChecked( opt );
+	connect(logFileCbox, SIGNAL(stateChanged(int)), this, SLOT(logToFileStateChanged(int)));
+
+	g_config->getOption("SDL.TraceLogPeriodicWindowUpdate", &opt );
+	autoUpdateCbox->setChecked( opt );
+	connect(autoUpdateCbox, SIGNAL(stateChanged(int)), this, SLOT(autoUpdateStateChanged(int)));
 
 	if (logging)
 	{
 		startStopButton->setText(tr("Stop Logging"));
+		startStopButton->setIcon( style()->standardIcon( QStyle::SP_MediaStop ) );
 	}
-	connect(startStopButton, SIGNAL(clicked(void)), this, SLOT(toggleLoggingOnOff(void)));
+	else
+	{
+		startStopButton->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
+	}
+	clearButton->setIcon( style()->standardIcon( QStyle::SP_DialogResetButton ) );
+
+	connect( startStopButton, SIGNAL(clicked(void)), this, SLOT(toggleLoggingOnOff(void)));
 	connect(selLogFileButton, SIGNAL(clicked(void)), this, SLOT(openLogFile(void)));
+	connect(     clearButton, SIGNAL(clicked(void)), this, SLOT(clearLog(void)));
 
 	hbox = new QHBoxLayout();
-	hbox->addWidget(logLastCbox);
+	hbox->addWidget(logLastLbl);
 	hbox->addWidget(logMaxLinesComboBox);
 	hbox->addWidget(lbl);
 
 	grid->addLayout(hbox, 0, 0, Qt::AlignLeft);
-	grid->addWidget(startStopButton, 0, 1, Qt::AlignCenter);
+	grid->addWidget(startStopButton, 0, 1, Qt::AlignLeft);
+	grid->addWidget(    clearButton, 0, 2, Qt::AlignLeft);
 
 	hbox = new QHBoxLayout();
 	hbox->addWidget(logFileCbox);
 	hbox->addWidget(selLogFileButton);
 
 	grid->addLayout(hbox, 1, 0, Qt::AlignLeft);
-	grid->addWidget(autoUpdateCbox, 1, 1, Qt::AlignCenter);
+	grid->addWidget(autoUpdateCbox, 1, 1, Qt::AlignLeft);
 
 	grid = new QGridLayout();
 	frame = new QGroupBox(tr("Log Options"));
@@ -373,7 +390,7 @@ TraceLoggerDialog_t::~TraceLoggerDialog_t(void)
 {
 	updateTimer->stop();
 
-	logging = 0;
+	//logging = 0;
 	msleep(1);
 	diskThread->requestInterruption();
 	diskThread->quit();
@@ -407,20 +424,13 @@ void TraceLoggerDialog_t::updatePeriodic(void)
 {
 	char traceViewDrawEnable;
 
-	if (logLastCbox->isChecked())
+	if (FCEUI_EmulationPaused())
 	{
-		if (FCEUI_EmulationPaused())
-		{
-			traceViewDrawEnable = 1;
-		}
-		else
-		{
-			traceViewDrawEnable = autoUpdateCbox->isChecked();
-		}
+		traceViewDrawEnable = 1;
 	}
 	else
 	{
-		traceViewDrawEnable = 0;
+		traceViewDrawEnable = autoUpdateCbox->isChecked();
 	}
 
 	if ( !logging || !logFileCbox->isChecked())
@@ -461,6 +471,27 @@ void TraceLoggerDialog_t::logMaxLinesChanged(int index)
 	vbar->setValue(0);
 
 	logging = logPrev;
+
+	traceView->update();
+}
+//----------------------------------------------------
+void TraceLoggerDialog_t::clearLog(void)
+{
+	int logPrev;
+
+	logPrev = logging;
+	logging = 0;
+
+	msleep(1);
+
+	recBufNum = recBufHead = 0;
+
+	vbar->setMaximum(0);
+	vbar->setValue(0);
+
+	logging = logPrev;
+
+	traceView->update();
 }
 //----------------------------------------------------
 void TraceLoggerDialog_t::toggleLoggingOnOff(void)
@@ -471,16 +502,19 @@ void TraceLoggerDialog_t::toggleLoggingOnOff(void)
 		msleep(1);
 		pushMsgToLogBuffer("Logging Finished");
 		startStopButton->setText(tr("Start Logging"));
+		startStopButton->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
 
 		diskThread->requestInterruption();
 		diskThread->quit();
 		diskThread->wait(1000);
+
+		traceView->update();
 	}
 	else
 	{
 		if (logFileCbox->isChecked())
 		{
-			if ( logFilePath[0] == 0 )
+			if ( logFilePath.size() == 0 )
 			{
 				openLogFile();
 			}
@@ -489,6 +523,7 @@ void TraceLoggerDialog_t::toggleLoggingOnOff(void)
 		}
 		pushMsgToLogBuffer("Log Start");
 		startStopButton->setText(tr("Stop Logging"));
+		startStopButton->setIcon( style()->standardIcon( QStyle::SP_MediaStop ) );
 		logging = 1;
 	}
 }
@@ -530,8 +565,15 @@ void TraceLoggerDialog_t::openLogFile(void)
 
 	if (romFile != NULL)
 	{
-		char dir[512];
+		char dir[1024];
 		getDirFromFile(romFile, dir);
+		dialog.setDirectory(tr(dir));
+	}
+
+	if ( logFilePath.size() != 0 )
+	{
+		char dir[1024];
+		getDirFromFile(logFilePath.c_str(), dir);
 		dialog.setDirectory(tr(dir));
 	}
 
@@ -559,7 +601,9 @@ void TraceLoggerDialog_t::openLogFile(void)
 	}
 	//qDebug() << "selected file path : " << filename.toUtf8();
 
-	strcpy( logFilePath, filename.toStdString().c_str() );
+	logFilePath = filename.toStdString();
+
+	g_config->setOption("SDL.TraceLogSaveFilePath", logFilePath);
 
 	return;
 }
@@ -573,6 +617,16 @@ void TraceLoggerDialog_t::vbarChanged(int val)
 {
 	//printf("VBAR: %i \n", val );
 	traceView->update();
+}
+//----------------------------------------------------
+void TraceLoggerDialog_t::logToFileStateChanged(int state)
+{
+	g_config->setOption("SDL.TraceLogSaveToFile", state != Qt::Unchecked );
+}
+//----------------------------------------------------
+void TraceLoggerDialog_t::autoUpdateStateChanged(int state)
+{
+	g_config->setOption("SDL.TraceLogPeriodicWindowUpdate", state != Qt::Unchecked );
 }
 //----------------------------------------------------
 void TraceLoggerDialog_t::logRegStateChanged(int state)
@@ -1137,6 +1191,24 @@ static void pushMsgToLogBuffer(const char *msg)
 	pushToLogBuffer(rec);
 }
 //----------------------------------------------------
+int FCEUD_TraceLoggerStart(void)
+{
+	if ( !logging )
+	{
+		if (recBufMax == 0)
+		{
+			initTraceLogBuffer(1000000);
+		}
+		logging = 1;
+	}
+	return logging;
+}
+//----------------------------------------------------
+int FCEUD_TraceLoggerRunning(void)
+{
+	return logging;
+}
+//----------------------------------------------------
 //todo: really speed this up
 void FCEUD_TraceInstruction(uint8 *opcode, int size)
 {
@@ -1148,7 +1220,7 @@ void FCEUD_TraceInstruction(uint8 *opcode, int size)
 	char asmTxt[256];
 	unsigned int addr = X.PC;
 	static int unloggedlines = 0;
-	int asmFlags = 0;
+	int asmFlags = ASM_DEBUG_TRACES;
 
 	rec.cpu.PC = X.PC;
 	rec.cpu.A = X.A;
@@ -1178,7 +1250,7 @@ void FCEUD_TraceInstruction(uint8 *opcode, int size)
 
 	if (logging_options & LOG_SYMBOLIC)
 	{
-		asmFlags = ASM_DEBUG_SYMS | ASM_DEBUG_REGS;
+		asmFlags |= ASM_DEBUG_SYMS | ASM_DEBUG_REGS;
 	}
 
 	// if instruction executed from the RAM, skip this, log all instead
@@ -1259,6 +1331,59 @@ void FCEUD_TraceInstruction(uint8 *opcode, int size)
 		{
 			rec.appendAsmText(a);
 		}
+	}
+
+	switch ( opcode[0] )
+	{
+		// Zero page
+		case 0x85: // STA - Store Accumulator
+		case 0x86: // STX - Store X Register
+		case 0x84: // STY - Store Y Register
+		case 0xC6: // DEC - Decrement Memory
+		case 0xE6: // INC - Increment Memory
+			rec.writeAddr = opcode[1];
+		break;
+		// Absolute
+		case 0x8D: // STA - Store Accumulator
+		case 0x8E: // STX - Store X Register
+		case 0x8C: // STY - Store Y Register
+		case 0xCE: // DEC - Decrement Memory
+		case 0xEE: // INC - Increment Memory
+			rec.writeAddr = opcode[1] | opcode[2] << 8;
+		break;
+		// Indirect X
+		case 0x81: // STA - Store A Register
+			rec.writeAddr = (opcode[1] + X.X) & 0xFF;
+			rec.writeAddr = GetMem((rec.writeAddr)) | (GetMem(((rec.writeAddr)+1)&0xff))<<8;
+		break;
+		// Indirect Y
+		case 0x91: // STA - Store A Register
+			rec.writeAddr  = GetMem(opcode[1]) | (GetMem((opcode[1]+1)&0xff))<<8;
+			rec.writeAddr += X.Y;
+		break;
+		// Zero Page X
+		case 0x95: // STA - Store Accumulator
+		case 0x94: // STY - Store Y Register
+		case 0xD6: // DEC - Decrement Memory
+		case 0xF6: // INC - Increment Memory
+			rec.writeAddr = (opcode[1]+ X.X) & 0xFF;
+		break;
+		// Zero Page Y
+		case 0x96: // STX - Store X Register
+			rec.writeAddr = (opcode[1]+ X.Y) & 0xFF;
+		break;
+		default:
+			rec.writeAddr = -1;
+		break;
+	}
+
+	if ( rec.writeAddr >= 0 )
+	{
+		rec.preWriteVal = GetMem( rec.writeAddr );
+	}
+	else
+	{
+		rec.preWriteVal = 0;
 	}
 
 	pushToLogBuffer(rec);
@@ -2304,24 +2429,24 @@ void TraceLogDiskThread_t::run(void)
 	setPriority( QThread::HighestPriority );
 
 #ifdef WIN32
-	logFile = CreateFileA( logFilePath, GENERIC_WRITE, 
+	logFile = CreateFileA( logFilePath.c_str(), GENERIC_WRITE, 
 			0, NULL, OPEN_ALWAYS, FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING, NULL );
 
 	if ( logFile == INVALID_HANDLE_VALUE )
 	{
 		char stmp[1024];
-		sprintf( stmp, "Error: Failed to open log file for writing: %s", logFilePath );
+		sprintf( stmp, "Error: Failed to open log file for writing: %s", logFilePath.c_str() );
 		consoleWindow->QueueErrorMsgWindow(stmp);
 		return;
 	}
 #else
-	logFile = open( logFilePath, O_CREAT | O_WRONLY | O_TRUNC, 
+	logFile = open( logFilePath.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 
 			S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
 
 	if ( logFile == -1 )
 	{
 		char stmp[1024];
-		sprintf( stmp, "Error: Failed to open log file for writing: %s", logFilePath );
+		sprintf( stmp, "Error: Failed to open log file for writing: %s", logFilePath.c_str() );
 		consoleWindow->QueueErrorMsgWindow(stmp);
 		return;
 	}
@@ -2398,5 +2523,60 @@ void TraceLogDiskThread_t::run(void)
 	
 	printf("Trace Log Disk Exit\n");
 	emit finished();
+}
+//----------------------------------------------------
+//---  Trace Logger BackUp (Undo) Instruction
+//----------------------------------------------------
+static int undoInstruction( traceRecord_t &rec )
+{
+	// TODO Undo memory writes
+	//printf("BackUp (Undo) Instruction\n");
+	X.PC = rec.cpu.PC;
+	X.A  = rec.cpu.A;
+	X.X  = rec.cpu.X;
+	X.Y  = rec.cpu.Y;
+	X.S  = rec.cpu.S;
+	X.P  = rec.cpu.P;
+
+	if ( rec.writeAddr >= 0 )
+	{
+		if ( rec.writeAddr < 0x8000 )
+		{
+			writefunc wfunc;
+        
+			wfunc = GetWriteHandler (rec.writeAddr);
+        
+			if (wfunc)
+			{
+				wfunc ((uint32) rec.writeAddr,
+				       (uint8) (rec.preWriteVal & 0x000000ff));
+			}
+		}
+	}
+	return 0;
+}
+//----------------------------------------------------
+int FCEUD_TraceLoggerBackUpInstruction(void)
+{
+	int ret, idx;
+
+	if ( recBufNum <= 0 )
+	{
+		return -1;
+	}
+	idx = recBufHead - 1;
+
+	if ( idx < 0 )
+	{
+		idx += recBufMax;
+	}
+	ret = undoInstruction( recBuf[idx] );
+
+	if ( ret == 0 )
+	{
+		recBufNum--;
+		recBufHead = idx;
+	}
+	return ret;
 }
 //----------------------------------------------------

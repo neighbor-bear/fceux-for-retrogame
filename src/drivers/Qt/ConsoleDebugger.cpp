@@ -76,6 +76,7 @@
 #include "Qt/HexEditor.h"
 #include "Qt/ConsoleDebugger.h"
 #include "Qt/ConsoleUtilities.h"
+#include "Qt/TraceLogger.h"
 #include "Qt/ColorMenu.h"
 
 // Where are these defined?
@@ -88,6 +89,7 @@ static ConsoleDebugger* dbgWin = NULL;
 static void DeleteBreak(int sel);
 static bool waitingAtBp = false;
 static bool bpDebugEnable = true;
+static bool bpNotifyReq = false;
 static int  lastBpIdx   = 0;
 static bool breakOnCycleOneShot = 0;
 static bool breakOnInstrOneShot = 0;
@@ -205,6 +207,9 @@ ConsoleDebugger::ConsoleDebugger(QWidget *parent)
 	       pcColorAct->connectColor( &asmView->pcBgColor);
 
 	connect( this, SIGNAL(rejected(void)), this, SLOT(deleteLater(void)));
+
+	// Start Trace Logger for Step Back Function 
+	FCEUD_TraceLoggerStart();
 }
 //----------------------------------------------------------------------------
 ConsoleDebugger::~ConsoleDebugger(void)
@@ -513,6 +518,18 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 
 	viewMenu->addAction(act);
 
+	// View -> Show Trace Data
+	g_config->getOption( "SDL.AsmShowTraceData", &opt );
+
+	act = new QAction(tr("Show &Trace Data"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setStatusTip(tr("Show &Trace Data"));
+	act->setCheckable(true);
+	act->setChecked(opt);
+	connect( act, SIGNAL(triggered(bool)), this, SLOT(displayTraceDataCB(bool)) );
+
+	viewMenu->addAction(act);
+
 	// View -> Display ROM Offsets
 	g_config->getOption( "SDL.AsmShowRomOffsets", &opt );
 
@@ -529,12 +546,22 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 	debugMenu = menuBar->addMenu(tr("&Debug"));
 
 	// Debug -> Run
-	act = new QAction(tr("&Run"), this);
+	dbgRunAct[0] = act = new QAction(tr("&Run"), this);
 	act->setShortcut(QKeySequence( tr("F5") ) );
 	act->setStatusTip(tr("Run"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
 	act->setIcon( QIcon(":icons/debug-run.png") );
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunCB(void)) );
+
+	debugMenu->addAction(act);
+
+	// Debug -> Pause
+	dbgPauseAct[0] = act = new QAction(tr("&Pause"), this);
+	act->setShortcut(QKeySequence( tr("F6") ) );
+	act->setStatusTip(tr("Pause"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_MediaPause ) );
+	act->setIcon( QIcon(":icons/debug-pause.png") );
+	connect( act, SIGNAL(triggered()), this, SLOT(debugStepIntoCB(void)) );
 
 	debugMenu->addAction(act);
 
@@ -565,6 +592,16 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 
 	debugMenu->addAction(act);
 
+	// Debug -> Step Back
+	stepBackMenuAct = act = new QAction(tr("Step &Back"), this);
+	act->setShortcut(QKeySequence( tr("F9") ) );
+	act->setStatusTip(tr("Step Back"));
+	act->setIcon( QIcon(":icons/StepBack.png") );
+	act->setEnabled(false);
+	connect( act, SIGNAL(triggered()), this, SLOT(debugStepBackCB(void)) );
+
+	debugMenu->addAction(act);
+
 	// Debug -> Run to Selected Line
 	act = new QAction(tr("Run to S&elected Line"), this);
 	act->setShortcut(QKeySequence( tr("F1") ) );
@@ -576,7 +613,7 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 
 	// Debug -> Run Line
 	act = new QAction(tr("Run &Line"), this);
-	act->setShortcut(QKeySequence( tr("F6") ) );
+	act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Run Line"));
 	act->setIcon( QIcon(":icons/RunPpuScanline.png") );
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunLineCB(void)) );
@@ -585,9 +622,9 @@ QMenuBar *ConsoleDebugger::buildMenuBar(void)
 
 	// Debug -> Run 128 Lines
 	act = new QAction(tr("Run &128 Lines"), this);
-	act->setShortcut(QKeySequence( tr("F7") ) );
+	act->setShortcut(QKeySequence( tr("F8") ) );
 	act->setStatusTip(tr("Run 128 Lines"));
-	act->setIcon( QIcon(":icons/RunPpuFrame.png") );
+	act->setIcon( QIcon(":icons/RunPpuHalfFrame.png") );
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunLine128CB(void)) );
 
 	debugMenu->addAction(act);
@@ -762,12 +799,32 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addSeparator();
 
 	// Debug -> Run
-	act = new QAction(tr("&Run (F5)"), this);
+	dbgRunAct[1] = act = new QAction(tr("&Run (F5)"), this);
 	//act->setShortcut(QKeySequence( tr("F5") ) );
 	act->setStatusTip(tr("Run"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
 	act->setIcon( QIcon(":icons/debug-run.png") );
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunCB(void)) );
+
+	toolBar->addAction(act);
+
+	// Debug -> Pause
+	dbgPauseAct[1] = act = new QAction(tr("&Pause (F6)"), this);
+	//act->setShortcut(QKeySequence( tr("F6") ) );
+	act->setStatusTip(tr("Pause"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_MediaPause ) );
+	act->setIcon( QIcon(":icons/debug-pause.png") );
+	connect( act, SIGNAL(triggered()), this, SLOT(debugStepIntoCB(void)) );
+
+	toolBar->addAction(act);
+
+	// Debug -> Step Back
+	stepBackToolAct = act = new QAction(tr("Step &Back (F9)"), this);
+	//act->setShortcut(QKeySequence( tr("F9") ) );
+	act->setStatusTip(tr("Step Back"));
+	act->setIcon( QIcon(":icons/StepBack.png") );
+	act->setEnabled(false);
+	connect( act, SIGNAL(triggered()), this, SLOT(debugStepBackCB(void)) );
 
 	toolBar->addAction(act);
 
@@ -801,8 +858,8 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addSeparator();
 
 	// Debug -> Run Line
-	act = new QAction(tr("Run &Line (F6)"), this);
-	//act->setShortcut(QKeySequence( tr("F6") ) );
+	act = new QAction(tr("Run &Line (F7)"), this);
+	//act->setShortcut(QKeySequence( tr("F7") ) );
 	act->setStatusTip(tr("Run Line"));
 	act->setIcon( QIcon(":icons/RunPpuScanline.png") );
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunLineCB(void)) );
@@ -810,10 +867,10 @@ QToolBar *ConsoleDebugger::buildToolBar(void)
 	toolBar->addAction(act);
 
 	// Debug -> Run 128 Lines
-	act = new QAction(tr("Run &128 Lines (F7)"), this);
-	//act->setShortcut(QKeySequence( tr("F7") ) );
+	act = new QAction(tr("Run &128 Lines (F8)"), this);
+	//act->setShortcut(QKeySequence( tr("F8") ) );
 	act->setStatusTip(tr("Run 128 Lines"));
-	act->setIcon( QIcon(":icons/RunPpuFrame.png") );
+	act->setIcon( QIcon(":icons/RunPpuHalfFrame.png") );
 	connect( act, SIGNAL(triggered()), this, SLOT(debugRunLine128CB(void)) );
 
 	toolBar->addAction(act);
@@ -1807,8 +1864,11 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 		{
 			if ( editIdx < 0 )
 			{
+				// If new breakpoint, default enable checkbox to true
+				ebp->setChecked(true);
+
 				// If new breakpoint, suggest condition if in ROM Mapping area of memory.
-				if ( wp->address >= 0x8000 )
+				if ( cpu_radio->isChecked() && (wp->address >= 0x8000) )
 				{
 					int romAddr = GetNesFileAddress(wp->address);
 
@@ -1833,6 +1893,11 @@ void ConsoleDebugger::openBpEditWindow( int editIdx, watchpointinfo *wp, bool fo
 		{
 			name->setText( tr(wp->desc) );
 		}
+	}
+	else
+	{
+		// If new breakpoint, default enable checkbox to true
+		ebp->setChecked(true);
 	}
 
 	dialog.setLayout( mainLayout );
@@ -2440,6 +2505,13 @@ void ConsoleDebugger::displayByteCodesCB( bool value )
 	asmView->setDisplayByteCodes(value);
 }
 //----------------------------------------------------------------------------
+void ConsoleDebugger::displayTraceDataCB( bool value )
+{
+	g_config->setOption( "SDL.AsmShowTraceData", value );
+
+	asmView->setDisplayTraceData(value);
+}
+//----------------------------------------------------------------------------
 void ConsoleDebugger::displayROMoffsetCB( bool value )
 {
 	g_config->setOption( "SDL.AsmShowRomOffsets", value );
@@ -2674,6 +2746,20 @@ void ConsoleDebugger::debugStepOverCB(void)
 			FCEUI_Debugger().step = true;
 		}
 		FCEUI_SetEmulationPaused(0);
+	}
+}
+//----------------------------------------------------------------------------
+void ConsoleDebugger::debugStepBackCB(void)
+{
+	if (FCEUI_EmulationPaused()) 
+	{
+		fceuWrapperLock();
+		FCEUD_TraceLoggerBackUpInstruction();
+		updateWindowData();
+		hexEditorUpdateMemoryValues(true);
+		hexEditorRequestUpdateAll();
+		lastBpIdx = BREAK_TYPE_STEP;
+		fceuWrapperUnLock();
 	}
 }
 //----------------------------------------------------------------------------
@@ -3013,6 +3099,11 @@ void ConsoleDebugger::asmViewCtxMenuAddBP(void)
 	wp.condText = 0;
 	wp.desc = NULL;
 
+	if ( asmView->getCtxMenuAddrType() )
+	{
+		wp.flags |= BT_R;
+	}
+
 	bpNum = asmView->isBreakpointAtAddr( wp.address, GetNesFileAddress(wp.address) );
 
 	if ( bpNum >= 0 )
@@ -3029,7 +3120,7 @@ void ConsoleDebugger::asmViewCtxMenuAddBP(void)
 //----------------------------------------------------------------------------
 void ConsoleDebugger::asmViewCtxMenuAddBM(void)
 {
-	int addr = asmView->getCtxMenuAddr();
+	int addr = asmView->getAsmAddrFromLine( asmView->getCtxMenuLine() );
 
 	dbgBmMgr.addBookmark( addr );
 
@@ -3043,9 +3134,16 @@ void ConsoleDebugger::asmViewCtxMenuOpenHexEdit(void)
 	int romAddr = -1;
 	int addr = asmView->getCtxMenuAddr();
 
-	if (addr >= 0x8000)
+	if ( asmView->getCtxMenuAddrType() )
 	{
-		romAddr  = GetNesFileAddress(addr);
+		romAddr = addr;
+	}
+	else
+	{
+		if (addr >= 0x8000)
+		{
+			romAddr  = GetNesFileAddress(addr);
+		}
 	}
 
 	if ( romAddr >= 0 )
@@ -3071,7 +3169,9 @@ void ConsoleDebugger::setBookmarkSelectedAddress( int addr )
 //----------------------------------------------------------------------------
 void ConsoleDebugger::asmViewCtxMenuAddSym(void)
 {
-	openDebugSymbolEditWindow( asmView->getCtxMenuAddr() );
+	int addr = asmView->getAsmAddrFromLine( asmView->getCtxMenuLine() );
+
+	openDebugSymbolEditWindow( addr );
 }
 //----------------------------------------------------------------------------
 void QAsmView::setPC_placement( int mode, int ofs )
@@ -3426,6 +3526,11 @@ void  QAsmView::updateAssemblyView(void)
 		{
 			asmFlags |= ASM_DEBUG_REGS;
 		}
+	}
+
+	if ( showTraceData )
+	{
+		asmFlags |= ASM_DEBUG_TRACES;
 	}
 
 	for (int i=0; i < 0xFFFF; i++)
@@ -3917,6 +4022,14 @@ void ConsoleDebugger::updatePeriodic(void)
 
 	//printf("Update Periodic\n");
 
+	if ( bpNotifyReq )
+	{
+		fceuWrapperLock();
+		breakPointNotify( lastBpIdx );
+		fceuWrapperUnLock();
+		bpNotifyReq = false;
+	}
+
 	if ( windowUpdateReq )
 	{
 		fceuWrapperLock();
@@ -3976,6 +4089,32 @@ void ConsoleDebugger::updatePeriodic(void)
 	{
 		emuStatLbl->setText( tr(" Emulator is Running") );
 		emuStatLbl->setStyleSheet("background-color: green; color: white;");
+	}
+
+	if ( FCEUI_EmulationPaused() )
+	{
+		dbgRunAct[0]->setEnabled(true);
+		dbgRunAct[1]->setEnabled(true);
+		dbgPauseAct[0]->setEnabled(false);
+		dbgPauseAct[1]->setEnabled(false);
+	}
+	else
+	{
+		dbgRunAct[0]->setEnabled(false);
+		dbgRunAct[1]->setEnabled(false);
+		dbgPauseAct[0]->setEnabled(true);
+		dbgPauseAct[1]->setEnabled(true);
+	}
+
+	if ( FCEUD_TraceLoggerRunning() && FCEUI_EmulationPaused() )
+	{
+		stepBackMenuAct->setEnabled(true);
+		stepBackToolAct->setEnabled(true);
+	}
+	else
+	{
+		stepBackMenuAct->setEnabled(false);
+		stepBackToolAct->setEnabled(false);
 	}
 
 	if ( waitingAtBp && (lastBpIdx == BREAK_TYPE_CYCLES_EXCEED) )
@@ -4088,7 +4227,6 @@ void bpDebugSetEnable(bool val)
 //----------------------------------------------------------------------------
 void FCEUD_DebugBreakpoint( int bpNum )
 {
-	std::list <ConsoleDebugger*>::iterator it;
 
 	if ( !nes_shm->runEmulator || !bpDebugEnable )
 	{
@@ -4096,6 +4234,7 @@ void FCEUD_DebugBreakpoint( int bpNum )
 	}
 	lastBpIdx   = bpNum;
 	waitingAtBp = true;
+	bpNotifyReq = true;
 
 	if (bpNum == BREAK_TYPE_CYCLES_EXCEED)
 	{
@@ -4133,15 +4272,12 @@ void FCEUD_DebugBreakpoint( int bpNum )
 			}
 		}
 	}
+	hexEditorUpdateMemoryValues(true);
+	hexEditorRequestUpdateAll();
 
 	printf("Breakpoint Hit: %i \n", bpNum );
 
 	fceuWrapperUnLock();
-
-	if ( dbgWin )
-	{
-		dbgWin->breakPointNotify( bpNum );
-	}
 
 	while ( nes_shm->runEmulator && bpDebugEnable &&
 			FCEUI_EmulationPaused() && !FCEUI_EmulationFrameStepped())
@@ -4193,8 +4329,6 @@ bool debuggerWaitingAtBreakpoint(void)
 //----------------------------------------------------------------------------
 void updateAllDebuggerWindows( void )
 {
-	std::list <ConsoleDebugger*>::iterator it;
-
 	if ( dbgWin )
 	{
 		dbgWin->queueUpdate();
@@ -4631,11 +4765,13 @@ QAsmView::QAsmView(QWidget *parent)
 
 	isPopUp = false;
 	showByteCodes = false;
+	showTraceData = false;
 	displayROMoffsets = false;
 	symbolicDebugEnable = true;
 	registerNameEnable = true;
 
 	g_config->getOption( "SDL.AsmShowByteCodes" , &showByteCodes );
+	g_config->getOption( "SDL.AsmShowTraceData" , &showTraceData );
 	g_config->getOption( "SDL.AsmShowRomOffsets", &displayROMoffsets );
 	g_config->getOption( "SDL.DebuggerShowSymNames", &symbolicDebugEnable );
 	g_config->getOption( "SDL.DebuggerShowRegNames", &registerNameEnable );
@@ -4650,6 +4786,8 @@ QAsmView::QAsmView(QWidget *parent)
 	lineOffset = 0;
 	maxLineOffset = 0;
 	ctxMenuAddr = -1;
+	ctxMenuAddrType = 0;
+	ctxMenuLine = 0;
 	cursorPosX = 0;
 	cursorPosY = 0;
 
@@ -4671,6 +4809,7 @@ QAsmView::QAsmView(QWidget *parent)
 	selAddrChar  =  0;
 	selAddrWidth =  0;
 	selAddrValue = -1;
+	selAddrType  =  0;
 	memset( selAddrText, 0, sizeof(selAddrText) );
 
 	cursorLineAddr    = -1;
@@ -4892,6 +5031,7 @@ void QAsmView::setSelAddrToLine( int line )
 		selAddrChar  = pcLocLinePos + 3;
 		selAddrWidth = 4;
 		selAddrValue = addr;
+		selAddrType  =  0;
 		sprintf( selAddrText, "%04X", addr );
 
 
@@ -4919,6 +5059,18 @@ void QAsmView::setDisplayByteCodes( bool value )
 
 		calcLineOffsets();
 		calcMinimumWidth();
+
+		fceuWrapperLock();
+		updateAssemblyView();
+		fceuWrapperUnLock();
+	}
+}
+//----------------------------------------------------------------------------
+void QAsmView::setDisplayTraceData( bool value )
+{
+	if ( value != showTraceData )
+	{
+		showTraceData = value;
 
 		fceuWrapperLock();
 		updateAssemblyView();
@@ -4985,7 +5137,7 @@ void QAsmView::calcFontData(void)
 	pxLineLead     = pxLineSpacing - metrics.height();
 	pxCursorHeight = metrics.height();
 
-	printf("W:%i  H:%i  LS:%i  \n", pxCharWidth, pxCharHeight, pxLineSpacing );
+	//printf("W:%i  H:%i  LS:%i  \n", pxCharWidth, pxCharHeight, pxLineSpacing );
 
 	viewLines   = (viewHeight / pxLineSpacing) + 1;
 
@@ -5019,7 +5171,7 @@ bool QAsmView::event(QEvent *event)
 		bool showAddrDesc = false, showOperandAddrDesc = false;
 		char stmp[256];
 
-		printf("QEvent::ToolTip\n");
+		//printf("QEvent::ToolTip\n");
 
 		QPoint c = convPixToCursor(helpEvent->pos());
 
@@ -5246,6 +5398,8 @@ void QAsmView::keyPressEvent(QKeyEvent *event)
 	else if ( selAddrValue >= 0 )
 	{
 		ctxMenuAddr = selAddrValue;
+		ctxMenuAddrType = selAddrType;
+		ctxMenuLine = selAddrLine;
 
 		if ( event->key() == Qt::Key_B )
 		{
@@ -5541,7 +5695,7 @@ void QAsmView::mouseDoubleClickEvent(QMouseEvent * event)
 {
 	//printf("Double Click\n");
 
-	if ( selAddrValue >= 0 )
+	if ( (selAddrType == 0) && (selAddrValue >= 0) )
 	{
 		gotoAddr( selAddrValue );
 
@@ -5585,6 +5739,7 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 	selAddrChar  =  0;
 	selAddrWidth =  0;
 	selAddrValue = -1;
+	selAddrType  =  0;
 	selAddrText[0] = 0;
 
 	if ( line < asmEntry.size() )
@@ -5620,6 +5775,7 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 					selAddrChar  = symTextStart;
 					selAddrWidth = symTextEnd - symTextStart;
 					selAddrValue = addr = asmEntry[line]->sym.ofs;
+					selAddrType  = 0;
 
 					if ( selAddrWidth >= (int)sizeof(selAddrText) )
 					{
@@ -5638,7 +5794,7 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 						addrTextLoc = i;
 						i--;
 					}
-					if ( asmEntry[line]->text[i] == '$' || asmEntry[line]->text[i] == ':' )
+					if ( asmEntry[line]->text[i] == '$' || asmEntry[line]->text[i] == ':' || asmEntry[line]->text[i] == ' ' )
 					{
 						i--;
 					}
@@ -5668,6 +5824,7 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 						selAddrChar  = addrTextLoc;
 						selAddrWidth = j;
 						selAddrValue = addr;
+						selAddrType  = displayROMoffsets && (addrTextLoc < byteCodeLinePos) && (asmEntry[line]->rom >= 0);
 						strcpy( selAddrText, stmp );
 					}
 				}
@@ -5697,11 +5854,31 @@ void QAsmView::mousePressEvent(QMouseEvent * event)
 		if ( addr < 0 )
 		{
 			addr = asmEntry[line]->addr;
+			selAddrType = 0;
+
+			if ( displayROMoffsets )
+			{
+				if ( asmEntry[line]->rom >= 0 )
+				{
+					addr = asmEntry[line]->rom;
+					selAddrType = 1;
+				}
+			}
+
+			if ( selAddrType )
+			{
+				sprintf( selAddrText, "%06X", addr );
+				selAddrWidth = 6;
+				selAddrChar  = pcLocLinePos+1;
+			}
+			else
+			{
+				sprintf( selAddrText, "%04X", addr );
+				selAddrWidth = 4;
+				selAddrChar  = pcLocLinePos+3;
+			}
 			selAddrLine  = line;
-			selAddrChar  = pcLocLinePos+3;
-			selAddrWidth = 4;
 			selAddrValue = addr;
-			sprintf( selAddrText, "%04X", addr );
 		}
 		//printf("Line: '%s'\n", asmEntry[line]->text.c_str() );
 
@@ -5792,12 +5969,16 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 		if ( selAddrValue < 0 )
 		{
 			ctxMenuAddr = addr = asmEntry[line]->addr;
+			ctxMenuAddrType = 0;
+			ctxMenuLine = line;;
 
 			enableRunToCursor = true;
 		}
 		else
 		{
 			ctxMenuAddr = addr = selAddrValue;
+			ctxMenuAddrType = selAddrType;
+			ctxMenuLine = selAddrLine;
 
 			enableRunToCursor = (selAddrValue == asmEntry[line]->addr);
 		}
@@ -5811,11 +5992,14 @@ void QAsmView::contextMenuEvent(QContextMenuEvent *event)
 			connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuRunToCursor(void)) );
 		}
 
-		sprintf( stmp, "Go to $%04X\tDouble+Click", ctxMenuAddr );
-		act = new QAction(tr(stmp), &menu);
-		menu.addAction(act);
-		//act->setShortcut( QKeySequence(tr("Ctrl+F10")));
-		connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuGoTo(void)) );
+		if ( ctxMenuAddrType == 0 )
+		{
+			sprintf( stmp, "Go to $%04X\tDouble+Click", ctxMenuAddr );
+			act = new QAction(tr(stmp), &menu);
+			menu.addAction(act);
+			//act->setShortcut( QKeySequence(tr("Ctrl+F10")));
+			connect( act, SIGNAL(triggered(void)), parent, SLOT(asmViewCtxMenuGoTo(void)) );
+		}
 
 		if ( isBreakpointAtAddr( addr, romAddr ) >= 0 )
 		{
@@ -6696,27 +6880,135 @@ bool ppuCtrlRegDpy::event(QEvent *event)
 asmLookAheadPopup::asmLookAheadPopup( int addr, QWidget *parent )
 	: fceuCustomToolTip( parent )
 {
-	int line;
+	int line, bank = -1, romOfs = -1;
+	int pxCharWidth;
 	QVBoxLayout *vbox, *vbox1;
+	QHBoxLayout *hbox;
 	QGridLayout *grid;
 	QScrollBar  *hbar, *vbar;
-	QFrame      *winFrame;
+	QFrame      *asmFrame, *dataFrame;
+	QLineEdit   *cpuAddr, *cpuVal, *romAddr;
+	QLabel      *lbl;
+	QFont        font;
+	char stmp[128];
+
+	fceuWrapperLock();
 
 	vbox    = new QVBoxLayout();
 	vbox1   = new QVBoxLayout();
 
-	winFrame   = new QFrame();
-	grid       = new QGridLayout();
+	asmFrame   = new QFrame();
+	dataFrame  = new QFrame();
 	asmView    = new QAsmView(this);
 	vbar       = new QScrollBar( Qt::Vertical, this );
 	hbar       = new QScrollBar( Qt::Horizontal, this );
 
+	font = asmView->getFont();
+	QFontMetrics fm(font);
+#if QT_VERSION > QT_VERSION_CHECK(5, 11, 0)
+	pxCharWidth = fm.horizontalAdvance(QLatin1Char('2'));
+#else
+	pxCharWidth = fm.width(QLatin1Char('2'));
+#endif
 	setHideOnMouseMove(true);
 	asmView->setIsPopUp(true);
 
-	winFrame->setLayout( vbox );
-	vbox1->addWidget( winFrame );
-	winFrame->setFrameShape(QFrame::Box);
+	if (addr >= 0x8000)
+	{
+		bank   = getBank(addr);
+		romOfs = GetNesFileAddress(addr);
+	}
+	dataFrame->setLayout( vbox );
+
+	cpuAddr = new QLineEdit();
+	cpuVal  = new QLineEdit();
+	romAddr = NULL;
+
+	if ( bank >= 0 )
+	{
+		romAddr = new QLineEdit();
+		hbox = new QHBoxLayout();
+		vbox->addLayout( hbox );
+
+		sprintf( stmp, "%02X : $%04X", bank, addr );
+		cpuAddr->setText( tr(stmp) );
+		sprintf( stmp, "#$%02X", GetMem(addr) );
+		cpuVal->setText( tr(stmp) );
+		sprintf( stmp, "$%06X", romOfs );
+		romAddr->setText( tr(stmp) );
+
+		lbl = new QLabel( tr("CPU ADDR:") );
+		lbl->setFont(font);
+		hbox->addWidget( lbl, 1 );
+		hbox->addWidget( cpuAddr, 1 );
+
+		lbl = new QLabel( tr(" = ") );
+		lbl->setFont(font);
+		hbox->addWidget( lbl, 1 );
+		hbox->addWidget( cpuVal, 1 );
+		hbox->addStretch(5);
+
+		hbox = new QHBoxLayout();
+		vbox->addLayout( hbox );
+		lbl = new QLabel( tr("ROM ADDR:") );
+		lbl->setFont(font);
+		hbox->addWidget( lbl, 1 );
+		hbox->addWidget( romAddr, 1 );
+		hbox->addStretch(5);
+	}
+	else
+	{
+		hbox = new QHBoxLayout();
+		vbox->addLayout( hbox );
+
+		sprintf( stmp, "$%04X", addr );
+		cpuAddr->setText( tr(stmp) );
+		sprintf( stmp, "#$%02X", GetMem(addr) );
+		cpuVal->setText( tr(stmp) );
+
+		lbl = new QLabel( tr("CPU ADDR:") );
+		lbl->setFont(font);
+		hbox->addWidget( lbl, 1 );
+		hbox->addWidget( cpuAddr, 1 );
+
+		lbl = new QLabel( tr(" = ") );
+		lbl->setFont(font);
+		hbox->addWidget( lbl, 1 );
+		hbox->addWidget( cpuVal, 1 );
+		hbox->addStretch(5);
+	}
+
+	cpuAddr->setFont(font);
+	 cpuVal->setFont(font);
+	cpuAddr->setAlignment( Qt::AlignCenter );
+	 cpuVal->setAlignment( Qt::AlignCenter );
+
+	cpuAddr->setMinimumWidth( pxCharWidth * (cpuAddr->text().size()+2) );
+	 cpuVal->setMinimumWidth( pxCharWidth * ( cpuVal->text().size()+2) );
+
+	cpuAddr->setMaximumWidth( cpuAddr->minimumWidth() );
+	 cpuVal->setMaximumWidth(  cpuVal->minimumWidth() );
+
+	if ( romAddr )
+	{
+		romAddr->setFont(font);
+		romAddr->setAlignment( Qt::AlignCenter );
+		romAddr->setMinimumWidth( pxCharWidth * (romAddr->text().size()+2) );
+		romAddr->setMaximumWidth( romAddr->minimumWidth() );
+
+		if ( romAddr->minimumWidth() < cpuAddr->minimumWidth() )
+		{
+			romAddr->setMinimumWidth( cpuAddr->minimumWidth() );
+			romAddr->setMaximumWidth( cpuAddr->minimumWidth() );
+		}
+	}
+
+	vbox    = new QVBoxLayout();
+	asmFrame->setLayout( vbox );
+	vbox1->addWidget( dataFrame, 1 );
+	vbox1->addWidget( asmFrame, 100 );
+	dataFrame->setFrameShape(QFrame::Box);
+	asmFrame->setFrameShape(QFrame::Box);
 
 	hbar->setMinimum(0);
 	hbar->setMaximum(100);
@@ -6725,6 +7017,7 @@ asmLookAheadPopup::asmLookAheadPopup( int addr, QWidget *parent )
 
 	asmView->setScrollBars( hbar, vbar );
 
+	grid = new QGridLayout();
 	grid->addWidget( asmView, 0, 0 );
 	grid->addWidget( vbar   , 0, 1 );
 	grid->addWidget( hbar   , 1, 0 );
@@ -6735,7 +7028,6 @@ asmLookAheadPopup::asmLookAheadPopup( int addr, QWidget *parent )
 
 	resize(512, 512);
 
-	fceuWrapperLock();
 	asmView->updateAssemblyView();
 	fceuWrapperUnLock();
 
