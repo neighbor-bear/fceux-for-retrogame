@@ -18,6 +18,9 @@ enum aviEncoderList
 	#ifdef _USE_X264
 	AVI_X264,
 	#endif
+	#ifdef _USE_X265
+	AVI_X265,
+	#endif
 	#ifdef WIN32
 	AVI_VFW,
 	#endif
@@ -43,6 +46,8 @@ int aviGetSelVideoFormat(void);
 void aviSetSelVideoFormat(int idx);
 
 int FCEUD_AviGetFormatOpts( std::vector <std::string> &formatList );
+
+int aviDebugOpenFile( const char *filepath );
 
 class  AviRecordDiskThread_t : public QThread
 {

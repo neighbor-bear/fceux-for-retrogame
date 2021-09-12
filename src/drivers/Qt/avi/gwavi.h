@@ -35,24 +35,53 @@
 
 #include <stdint.h> /* for size_t */
 #include <stddef.h> /* for size_t */
+#include <vector>
+
+#pragma pack( push, 2 )
 
 /* structures */
 struct gwavi_header_t
 {
-	unsigned int time_delay;	/* dwMicroSecPerFrame */
-	unsigned int data_rate;		/* dwMaxBytesPerSec */
-	unsigned int reserved;
-	unsigned int flags;		/* dwFlags */
-	unsigned int number_of_frames;	/* dwTotalFrames */
-	unsigned int initial_frames;	/* dwInitialFrames */
-	unsigned int data_streams;	/* dwStreams */
-	unsigned int buffer_size;	/* dwSuggestedBufferSize */
-	unsigned int width;		/* dwWidth */
-	unsigned int height;		/* dwHeight */
-	unsigned int time_scale;
-	unsigned int playback_data_rate;
-	unsigned int starting_time;
-	unsigned int data_length;
+	uint32_t time_delay;	/* dwMicroSecPerFrame */
+	uint32_t data_rate;	/* dwMaxBytesPerSec */
+	uint32_t reserved;
+	uint32_t flags;		/* dwFlags */
+	uint32_t number_of_frames;	/* dwTotalFrames */
+	uint32_t initial_frames;	/* dwInitialFrames */
+	uint32_t data_streams;	/* dwStreams */
+	uint32_t buffer_size;	/* dwSuggestedBufferSize */
+	uint32_t width;		/* dwWidth */
+	uint32_t height;	/* dwHeight */
+	uint32_t time_scale;
+	uint32_t playback_data_rate;
+	uint32_t starting_time;
+	uint32_t data_length;
+};
+
+
+struct gwavi_AVIStreamHeader
+{
+	char fccType[4];
+	char fccHandler[4];
+	uint32_t  dwFlags;
+	uint16_t  wPriority;
+	uint16_t  wLanguage;
+	uint32_t  dwInitialFrames;
+	uint32_t  dwScale;
+	uint32_t  dwRate;
+	uint32_t  dwStart;
+	uint32_t  dwLength;
+	uint32_t  dwSuggestedBufferSize;
+	uint32_t  dwQuality;
+	uint32_t  dwSampleSize;
+
+	struct
+	{
+		int16_t  left;
+		int16_t  top;
+		int16_t  right;
+		int16_t  bottom;
+	} rcFrame;
 };
 
 struct gwavi_stream_header_t
@@ -74,6 +103,8 @@ struct gwavi_stream_header_t
 	 */
 	int audio_quality;
 	unsigned int sample_size;   /* dwSampleSize */
+	int image_width;
+	int image_height;
 };
 
 struct gwavi_stream_format_v_t
@@ -111,19 +142,49 @@ struct gwavi_audio_t
 	unsigned int samples_per_second;
 };
 
+struct gwavi_super_indx_t
+{
+	unsigned long long fpos;
+	unsigned int nEntriesInUse;
+	char         chunkId[7];
+	char         streamId;
+
+	struct {
+	   unsigned long long qwOffset;
+	   unsigned int       dwSize;
+	   unsigned int       dwDuration;
+	} aIndex[32];
+};
+
+struct gwavi_index_rec_t
+{
+	long long     fofs;
+	unsigned int  len;
+	unsigned char type;
+	unsigned char keyFrame;
+	unsigned char resv[2];
+};
+
+#pragma pack( pop )
+
 class gwavi_t
 {
 	public:
+	static const int WORD_SIZE = 2;
+	static const unsigned int IF_LIST     = 0x00000001;
+	static const unsigned int IF_KEYFRAME = 0x00000010;
+	static const unsigned int IF_NO_TIME  = 0x00000100;
+
 	gwavi_t(void);
 	~gwavi_t(void);
 
 	int open(const char *filename, unsigned int width,
-		   unsigned int height, const char *fourcc, unsigned int fps,
+		   unsigned int height, const char *fourcc, double fps,
 			   struct gwavi_audio_t *audio);
 
 	int close(void);
 
-	int add_frame( unsigned char *buffer, size_t len);
+	int add_frame( unsigned char *buffer, size_t len, unsigned int flags = IF_KEYFRAME);
 
 	int add_audio( unsigned char *buffer, size_t len);
 
@@ -131,40 +192,65 @@ class gwavi_t
 
 	int set_size( unsigned int width, unsigned int height);
 
-	int set_framerate(unsigned int fps);
+	int set_framerate(double fps);
+
+	int openIn(const char *filename);
+
+	int printHeaders(void);
 
 	private:
+	FILE *in;
 	FILE *out;
 	struct gwavi_header_t avi_header;
 	struct gwavi_stream_header_t stream_header_v;
 	struct gwavi_stream_format_v_t stream_format_v;
+	struct gwavi_super_indx_t stream_index_v;
 	struct gwavi_stream_header_t stream_header_a;
 	struct gwavi_stream_format_a_t stream_format_a;
-	long marker;
-	int offsets_ptr;
-	int offsets_len;
-	long offsets_start;
-	unsigned int *offsets;
-	int offset_count;
+	struct gwavi_super_indx_t stream_index_a;
+	long long marker;
+	long long std_index_base_ofs_v;
+	long long std_index_base_ofs_a;
+	std::vector <gwavi_index_rec_t> offsets;
+	long long movi_fpos;
 	int bits_per_pixel;
+	int avi_std;
 	char fourcc[8];
 
 	// helper functions
-	int write_avi_header(FILE *out, struct gwavi_header_t *avi_header);
-	int write_stream_header(FILE *out,
+	long long ftell(FILE *fp);
+	int fseek(FILE *stream, long long offset, int whence);
+	int write_avi_header(FILE *fp, struct gwavi_header_t *avi_header);
+	int write_stream_header(FILE *fp,
 			struct gwavi_stream_header_t *stream_header);
-	int write_stream_format_v(FILE *out,
+	int write_stream_format_v(FILE *fp,
 			  struct gwavi_stream_format_v_t *stream_format_v);
-	int write_stream_format_a(FILE *out,
+	int write_stream_format_a(FILE *fp,
 			  struct gwavi_stream_format_a_t *stream_format_a);
-	int write_avi_header_chunk(void);
-	int write_index(FILE *out, int count, unsigned int *offsets);
+	int write_stream_std_indx(FILE *fp, struct gwavi_super_indx_t *indx);
+	int write_stream_super_indx(FILE *fp, struct gwavi_super_indx_t *indx);
+	int write_avi_header_chunk( FILE *fp );
+	int write_index1(FILE *fp);
 	int check_fourcc(const char *fourcc);
-	int write_int(FILE *out, unsigned int n);
-	int write_short(FILE *out, unsigned int n);
-	int write_chars(FILE *out, const char *s);
-	int write_chars_bin(FILE *out, const char *s, int count);
+	int write_int(FILE *fp, unsigned int n);
+	int write_int64(FILE *out, unsigned long long int n);
+	int write_byte(FILE *fp, unsigned char n);
+	int write_short(FILE *fp, unsigned int n);
+	int write_chars(FILE *fp, const char *s);
+	int write_chars_bin(FILE *fp, const char *s, int count);
+	int peak_chunk( FILE *fp, long int idx, char *fourcc, unsigned int *size );
 
+	int read_int(FILE *fp, int &n);
+	int read_uint(FILE *fp, unsigned int &n);
+	int read_short(FILE *fp, int16_t &n);
+	int read_short(FILE *fp, int &n);
+	int read_ushort(FILE *fp, uint16_t &n);
+	int read_chars_bin(FILE *fp, char *s, int count);
+	unsigned int readList(int lvl);
+	unsigned int readChunk(const char *id, int lvl);
+	unsigned int readAviHeader(void);
+	unsigned int readStreamHeader(void);
+	unsigned int readIndexBlock( unsigned int chunkSize );
 };
 
 #endif /* ndef H_GWAVI */

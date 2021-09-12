@@ -23,10 +23,12 @@
 
 #include "../../fceu.h"
 #include "../../driver.h"
+#include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleSoundConf.h"
 #include "Qt/main.h"
 #include "Qt/dface.h"
 #include "Qt/config.h"
+#include "Qt/nes_shm.h"
 #include "Qt/fceuWrapper.h"
 
 //----------------------------------------------------
@@ -37,6 +39,7 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 	QHBoxLayout *hbox, *hbox1, *hbox2;
 	QVBoxLayout *mainLayout, *vbox1, *vbox2;
 	QPushButton *closeButton;
+	QPushButton *resetCountBtn;
 	QLabel *lbl;
 	QGroupBox *frame;
 	QSlider *vslider;
@@ -129,6 +132,23 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 	vbox1->addWidget(bufSizeSlider);
 
 	connect(bufSizeSlider, SIGNAL(valueChanged(int)), this, SLOT(bufSizeChanged(int)));
+
+	bufUsage = new QProgressBar();
+	bufUsage->setToolTip( tr("% use of audio samples FIFO buffer.\n\nThe emulation thread fills the buffer and the audio thread drains it.") );
+	bufUsage->setOrientation( Qt::Horizontal );
+	bufUsage->setMinimum(   0 );
+	bufUsage->setMaximum( 100 );
+	bufUsage->setValue( 0 );
+	vbox1->addWidget(bufUsage);
+
+	// Use Global Focus
+	useGlobalFocus = new QCheckBox(tr("Use Global Focus"));
+	useGlobalFocus->setToolTip( tr("Mute sound when window is not in focus") );
+	vbox1->addWidget(useGlobalFocus);
+
+	setCheckBoxFromProperty(useGlobalFocus, "SDL.Sound.UseGlobalFocus");
+
+	connect(useGlobalFocus, SIGNAL(stateChanged(int)), this, SLOT(useGlobalFocusChanged(int)));
 
 	// Swap Duty Cycles
 	swapDutyChkbox = new QCheckBox(tr("Swap Duty Cycles"));
@@ -241,7 +261,15 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 	closeButton->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
 	connect(closeButton, SIGNAL(clicked(void)), this, SLOT(closeWindow(void)));
 
+	starveLbl = new QLabel( tr("Sink Starve Count:") );
+	starveLbl->setToolTip( tr("Running count of the number of samples that the audio sink is starved of.") );
+	resetCountBtn = new QPushButton( tr("Reset") );
+	resetCountBtn->setIcon(style()->standardIcon(QStyle::SP_DialogResetButton));
+	connect(resetCountBtn, SIGNAL(clicked(void)), this, SLOT(resetCounters(void)));
+
 	hbox = new QHBoxLayout();
+	hbox->addWidget(resetCountBtn, 1);
+	hbox->addWidget(starveLbl,1);
 	hbox->addStretch(5);
 	hbox->addWidget( closeButton, 1 );
 
@@ -252,11 +280,16 @@ ConsoleSndConfDialog_t::ConsoleSndConfDialog_t(QWidget *parent)
 	setLayout(mainLayout);
 
 	setSliderEnables();
+
+	updateTimer = new QTimer(this);
+	connect( updateTimer, &QTimer::timeout, this, &ConsoleSndConfDialog_t::periodicUpdate );
+	updateTimer->start(1000);
 }
 //----------------------------------------------------
 ConsoleSndConfDialog_t::~ConsoleSndConfDialog_t(void)
 {
 	printf("Destroy Sound Config Window\n");
+	updateTimer->stop();
 }
 //----------------------------------------------------------------------------
 void ConsoleSndConfDialog_t::closeEvent(QCloseEvent *event)
@@ -272,6 +305,31 @@ void ConsoleSndConfDialog_t::closeWindow(void)
 	//printf("Sound Close Window\n");
 	done(0);
 	deleteLater();
+}
+//----------------------------------------------------
+void ConsoleSndConfDialog_t::resetCounters(void)
+{
+	nes_shm->sndBuf.starveCounter = 0;
+
+	periodicUpdate();
+}
+//----------------------------------------------------
+void ConsoleSndConfDialog_t::periodicUpdate(void)
+{
+	uint32_t c, m;
+	double percBufUse;
+	char stmp[64];
+
+	c = GetWriteSound();
+	m = GetMaxSound();
+
+	percBufUse = 100.0f - (100.0f * (double)c / (double)m );
+
+	bufUsage->setValue( (int)(percBufUse) );
+
+	sprintf( stmp, "Sink Starve Count: %u", nes_shm->sndBuf.starveCounter );
+
+	starveLbl->setText( tr(stmp) );
 }
 //----------------------------------------------------
 void ConsoleSndConfDialog_t::setSliderEnables(void)
@@ -497,6 +555,20 @@ void ConsoleSndConfDialog_t::enaSoundLowPassChange(int value)
 		fceuWrapperUnLock();
 	}
 	g_config->save();
+}
+//----------------------------------------------------
+void ConsoleSndConfDialog_t::useGlobalFocusChanged(int value)
+{
+	bool bval = value != Qt::Unchecked;
+
+	//printf("SDL.Sound.UseGlobalFocus = %i\n", bval);
+	g_config->setOption("SDL.Sound.UseGlobalFocus", bval);
+	g_config->save();
+
+	if ( consoleWindow )
+	{
+		consoleWindow->setSoundUseGlobalFocus(bval);
+	}
 }
 //----------------------------------------------------
 void ConsoleSndConfDialog_t::swapDutyCallback(int value)

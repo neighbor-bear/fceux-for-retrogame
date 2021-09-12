@@ -13,6 +13,7 @@ void WriteSound(int32 *Buffer, int Count);
 int KillSound(void);
 uint32 GetMaxSound(void);
 uint32 GetWriteSound(void);
+void FCEUD_MuteSoundOutput(bool value);
 
 void SilenceSound(int s); /* DOS and SDL */
 
@@ -20,6 +21,7 @@ int InitJoysticks(void);
 int KillJoysticks(void);
 int AddJoystick( int which );
 int RemoveJoystick( int which );
+int FindJoystickByInstanceID( int which );
 uint32 *GetJSOr(void);
 
 int InitVideo(FCEUGI *gi);

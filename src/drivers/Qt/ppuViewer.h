@@ -22,6 +22,7 @@
 #include <QPropertyAnimation>
 
 #include "Qt/main.h"
+#include "Qt/ConsoleUtilities.h"
 
 struct ppuPatternTable_t
 {
@@ -60,6 +61,9 @@ class ppuPatternView_t : public QWidget
 
 		bool getHoverFocus(void){ return hover2Focus; };
 		bool getDrawTileGrid(void){ return drawTileGrid; };
+
+		QColor  selTileColor;
+		QColor  gridColor;
 	protected:
 		void paintEvent(QPaintEvent *event);
 		void resizeEvent(QResizeEvent *event);
@@ -67,8 +71,6 @@ class ppuPatternView_t : public QWidget
 		void mouseMoveEvent(QMouseEvent *event);
 		void mousePressEvent(QMouseEvent * event);
 		void contextMenuEvent(QContextMenuEvent *event);
-
-		void openColorPicker( QColor *c );
 
 		int patternIndex;
 		int viewWidth;
@@ -79,13 +81,9 @@ class ppuPatternView_t : public QWidget
 		bool hover2Focus;
 		QLabel *tileLabel;
 		QPoint  selTile;
-		QColor  selTileColor;
-		QColor  gridColor;
 		ppuPatternTable_t *pattern;
    public slots:
 	void toggleTileGridLines(void);
-   	void setTileSelectorColor(void);
-   	void setTileGridColor(void);
    private slots:
 	void showTileMode(void);
 	void exitTileMode(void);
@@ -291,6 +289,8 @@ class ppuViewerDialog_t : public QDialog
 		void periodicUpdate(void);
 		void sprite8x16Changed0(int state);
 		void sprite8x16Changed1(int state);
+		void invertMaskChanged(int state);
+		void maskUnusedGraphicsChanged(int state);
 		void refreshSliderChanged(int value);
 		void scanLineChanged(int value);
 		void setClickFocus(void);
@@ -345,6 +345,9 @@ class oamPatternView_t : public QWidget
 		bool getHoverFocus(void){ return hover2Focus; };
 		void setGridVisibility(bool val);
 		bool getGridVisibility(void){ return showGrid; };
+
+		QColor gridColor;
+		QColor selTileColor;
 	protected:
 		void paintEvent(QPaintEvent *event);
 		void resizeEvent(QResizeEvent *event);
@@ -363,7 +366,6 @@ class oamPatternView_t : public QWidget
 		bool hover2Focus;
 		bool showGrid;
 
-		QColor selSpriteBoxColor;
 		QPoint selSprite;
 		int    spriteIdx;
 	private:
@@ -429,6 +431,8 @@ class oamPreview_t : public QWidget
 
 		void setIndex(int val);
 		void setMinScale(int val);
+
+		QColor  boxColor;
 	protected:
 		void paintEvent(QPaintEvent *event);
 		void resizeEvent(QResizeEvent *event);
@@ -472,9 +476,9 @@ class spriteViewerDialog_t : public QDialog
 		QLineEdit    *tileAddrBox;
 		QLineEdit    *palAddrBox;
 		QLineEdit    *posBox;
-		QCheckBox    *hFlipBox;
-		QCheckBox    *vFlipBox;
-		QCheckBox    *bgPrioBox;
+		QCheckBoxRO  *hFlipBox;
+		QCheckBoxRO  *vFlipBox;
+		QCheckBoxRO  *bgPrioBox;
 		QCheckBox    *showPosHex;
 		QGroupBox    *previewFrame;
 

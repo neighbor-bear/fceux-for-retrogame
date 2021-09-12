@@ -13,6 +13,7 @@
 #include <QLabel>
 #include <QFrame>
 #include <QTimer>
+#include <QTabBar>
 #include <QGroupBox>
 #include <QPainter>
 #include <QTreeView>
@@ -83,7 +84,7 @@ class GamePadFuncConfigDialog : public QDialog
 	Q_OBJECT
 
 public:
-	GamePadFuncConfigDialog( gamepad_function_key_t *fk, QWidget *parent = 0);
+	GamePadFuncConfigDialog( int portNum, gamepad_function_key_t *fk, QWidget *parent = 0);
 	~GamePadFuncConfigDialog(void);
 
 protected:
@@ -98,6 +99,7 @@ protected:
 	GamePadConfigHotKey_t  *hk[2];
 	gamepad_function_key_t *k;
 
+	int  portNum;
 	int  buttonConfigStatus;
 	bool editMode;
 
@@ -135,6 +137,7 @@ protected:
 	void mousePressEvent(QMouseEvent *event);
 	//void contextMenuEvent(QContextMenuEvent *event);
 
+	void setFontPixelSize(int px);
 	void drawLetterOnButton(QPainter &painter, QRect &rect, QColor &color, int ch);
 
 	int portNum;
@@ -142,6 +145,10 @@ protected:
 	int viewHeight;
 	int pxCharWidth;
 	int pxCharHeight;
+	int pxLineSpacing;
+	int pxLineLead;
+	int pxLineLead2;
+	int pxLeftBearing;
 
 	QFont font;
 };
@@ -172,6 +179,7 @@ protected:
 	QLabel *keyState[GAMEPAD_NUM_BUTTONS];
 	GamePadConfigButton_t *button[GAMEPAD_NUM_BUTTONS];
 	GamePadView_t *gpView;
+	QTabBar *confTabBar;
 
 	QPushButton *newKeyBindBtn;
 	QPushButton *editKeyBindBtn;
@@ -179,6 +187,7 @@ protected:
 	QTreeWidget *keyBindTree;
 
 	int portNum;
+	int configIndex;
 	int buttonConfigStatus;
 	int changeSeqStatus; // status of sequentally changing buttons mechanism
 						 //    0 - we can start new change process
@@ -198,7 +207,7 @@ private:
 	void createNewProfile(const char *name);
 	void loadMapList(void);
 	void saveConfig(void);
-	void promptToSave(void);
+	int  promptToSave(void);
 	void openFuncEditWindow( int mode, gamepad_function_key_t *k );
 
 public slots:
@@ -225,6 +234,7 @@ private slots:
 	void clearButton8(void);
 	void clearButton9(void);
 	void clearAllCallback(void);
+	void btnConfigChanged(int index);
 	void ena4score(int state);
 	void oppDirEna(int state);
 	void portSelect(int index);
@@ -241,6 +251,7 @@ private slots:
 	void advBindingViewChanged(bool state);
 	void advOptResizeDone(void);
 	void advOptWidthChange(const QVariant &value);
+	void saveAll(void);
 };
 
 int openGamePadConfWindow(QWidget *parent);

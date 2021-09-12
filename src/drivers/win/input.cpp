@@ -23,6 +23,7 @@
 
 #include "../../version.h"
 
+#include "main.h"
 #include "common.h"
 #include "dinput.h"
 #include <windows.h>
@@ -212,7 +213,14 @@ uint32 GetGamepadPressedImmediate()
 	return JSButtons;
 }
 
-int DTestButton(ButtConfig *bc, uint8_t just_down)
+
+// Function to check if key/button/combination is pressed/held
+// bc: button mapping structure
+// just_down: indicates that only new button presses should be logged, not held down
+// block_meta: indicates that key can't be pressed in combination with meta keys
+//             if it's not set explicitly,
+//             e.g. do not trigger "F1" if "Ctrl+F1" is pressed
+int DTestButton(ButtConfig *bc, uint8_t just_down, uint8_t block_meta)
 {
 	static unsigned int *keys_data = !just_down ? GetKeyboard_nr() : GetKeyboard_jd();
 
@@ -229,10 +237,10 @@ int DTestButton(ButtConfig *bc, uint8_t just_down)
 				int ctlstate = (cmd & CMD_KEY_LALT) ? keys_data[SCAN_LEFTALT] : 0;
 				ctlstate |= (cmd & CMD_KEY_RALT) ? keys_data[SCAN_RIGHTALT] : 0;
 				if (!ctlstate)
-					return 0;
+					continue;
 			}
-			else if ((cmdmask != SCAN_LEFTALT && keys_data[SCAN_LEFTALT]) || (cmdmask != SCAN_RIGHTALT && keys_data[SCAN_RIGHTALT]))
-				return 0;
+			else if (block_meta && ((cmdmask != SCAN_LEFTALT && keys_data[SCAN_LEFTALT]) || (cmdmask != SCAN_RIGHTALT && keys_data[SCAN_RIGHTALT])))
+				continue;
 
 			if (cmd & CMD_KEY_CTRL)
 			{
@@ -241,7 +249,7 @@ int DTestButton(ButtConfig *bc, uint8_t just_down)
 				if (!ctlstate)
 					continue;
 			}
-			else if ((cmdmask != SCAN_LEFTCONTROL && keys_data[SCAN_LEFTCONTROL]) || (cmdmask != SCAN_RIGHTCONTROL && keys_data[SCAN_RIGHTCONTROL]))
+			else if (block_meta && ((cmdmask != SCAN_LEFTCONTROL && keys_data[SCAN_LEFTCONTROL]) || (cmdmask != SCAN_RIGHTCONTROL && keys_data[SCAN_RIGHTCONTROL])))
 				continue;
 
 			if (cmd & CMD_KEY_SHIFT)
@@ -251,7 +259,7 @@ int DTestButton(ButtConfig *bc, uint8_t just_down)
 				if (!ctlstate)
 					continue;
 			}
-			else if ((cmdmask != SCAN_LEFTSHIFT && keys_data[SCAN_LEFTSHIFT]) || (cmdmask != SCAN_RIGHTSHIFT && keys_data[SCAN_RIGHTSHIFT]))
+			else if (block_meta && ((cmdmask != SCAN_LEFTSHIFT && keys_data[SCAN_LEFTSHIFT]) || (cmdmask != SCAN_RIGHTSHIFT && keys_data[SCAN_RIGHTSHIFT])))
 				continue;
 
 			if (cmd & CMD_KEY_WIN)
@@ -261,7 +269,7 @@ int DTestButton(ButtConfig *bc, uint8_t just_down)
 				if (!ctlstate)
 					continue;
 			}
-			else if ((cmdmask != SCAN_LEFTWIN && keys_data[SCAN_LEFTWIN]) || (cmdmask != SCAN_RIGHTWIN && keys_data[SCAN_RIGHTWIN]))
+			else if (block_meta && ((cmdmask != SCAN_LEFTWIN && keys_data[SCAN_LEFTWIN]) || (cmdmask != SCAN_RIGHTWIN && keys_data[SCAN_RIGHTWIN])))
 				continue;
 
 			if(keys_data[cmdmask])
@@ -1212,7 +1220,8 @@ static INT_PTR CALLBACK DWBCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM 
 
 			   KeyboardUpdateState();
 
-			   if ((newkey = GetKeyPressed()) != 0)
+			   newkey = GetKeyPressed();
+			   if ((newkey != 0) && (newkey != 0x80))
 			   {
 				   key = newkey | meta;
 				   ClearExtraMeta(&key);
@@ -1235,6 +1244,8 @@ static INT_PTR CALLBACK DWBCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM 
 				   nstr = MakeButtString(bc);
 				   bc->NumC--;
 				   SetDlgItemText(hwndDlg, LBL_DWBDIALOG_TEXT, nstr);
+				   /* workaround for enter and tab keys */
+				   SetFocus(GetDlgItem(hwndDlg, LBL_DWBDIALOG_TEXT));
 				   free(nstr);
 			   }
 			   else if (NothingPressed() && key)
@@ -1256,6 +1267,8 @@ static INT_PTR CALLBACK DWBCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM 
 
 				   nstr = MakeButtString(bc);
 				   SetDlgItemText(hwndDlg, LBL_DWBDIALOG_TEXT, nstr);
+				   /* workaround for enter and tab keys */
+				   SetFocus(GetDlgItem(hwndDlg, LBL_DWBDIALOG_TEXT));
 				   free(nstr);
 
 				   key = 0;
@@ -1273,6 +1286,7 @@ static INT_PTR CALLBACK DWBCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM 
 	   SetWindowText(hwndDlg, (char*)DWBText); //mbg merge 7/17/06 added cast
 	   BeginJoyWait(hwndDlg);
 	   KeyboardSetBackgroundAccess(true);
+	   JoystickSetBackgroundAccess(true);
 	   SetTimer(hwndDlg,666,25,0);     //Every 25ms.
 	   if (DWBButtons->NumC)
 	   {
@@ -1280,8 +1294,8 @@ static INT_PTR CALLBACK DWBCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM 
 		   SetDlgItemText(hwndDlg, LBL_DWBDIALOG_TEXT, nstr);
 		   free(nstr);
 	   }
-	   /* workaround for enter and tab keys */
-	   SetFocus(NULL);
+	   /* actually using button instead of label because it's focusable */
+	   SetFocus(GetDlgItem(hwndDlg, LBL_DWBDIALOG_TEXT));
 	   break;
 
    case WM_CLOSE:
@@ -1293,21 +1307,19 @@ static INT_PTR CALLBACK DWBCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM 
 	   case BTN_CLEAR:
 		   {
 			   ButtConfig *bc = DWBButtons;                
-			   char *nstr;
 			   bc->NumC = 0;
-			   nstr = MakeButtString(bc);
-			   SetDlgItemText(hwndDlg, LBL_DWBDIALOG_TEXT, nstr);
-			   free(nstr);
+			   SetDlgItemText(hwndDlg, LBL_DWBDIALOG_TEXT, "Press a key or a button");
 		   }
 		   break;
 	   case BTN_CANCEL:
 		   memcpy(DWBButtons, &DWBButtonsBackup, sizeof(ButtConfig));
-		   goto gornk;
-	   case BTN_CLOSE:
+		   goto gornk;		   
+	   case BTN_SAVE: /* using BTN_SAVE instead BTN_CLOSE to prevent close on enter key*/
 gornk:
 		   KillTimer(hwndDlg,666);
 		   EndJoyWait(hAppWnd);
-		   KeyboardSetBackgroundAccess(false);
+		   KeyboardSetBackgroundAccess(EnableBackgroundInput != 0);
+		   JoystickSetBackgroundAccess(EnableBackgroundInput != 0);
 		   EndDialog(hwndDlg, 0);
 		   break;
 	   }
@@ -1836,9 +1848,12 @@ int FCEUD_TestCommandState(int c)
 	case EMUCMD_FRAME_ADVANCE:
 	case EMUCMD_SPEED_TURBO:
 	case EMUCMD_TASEDITOR_REWIND:
+		// Check that key/button is held down
 		return DTestButton(&FCEUD_CommandMapping[c], 0);
 	default:
-		return DTestButton(&FCEUD_CommandMapping[c], 1);
+		// Check that key/button is just pressed, not held down
+		// Register only if no additional meta keys are pressed
+		return DTestButton(&FCEUD_CommandMapping[c], 1, 1);
 	}
 }
 

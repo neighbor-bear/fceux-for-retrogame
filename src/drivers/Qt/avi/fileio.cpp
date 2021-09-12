@@ -31,24 +31,75 @@
  */
 
 /*
- * Usefull IO functions.
+ * Useful IO functions.
  */
 
 #include <stdio.h>
 
 #include "gwavi.h"
 
+long long gwavi_t::ftell(FILE *fp)
+{
+#ifdef WIN32
+	return ::_ftelli64(fp);
+#else
+	return ::ftell(fp);
+#endif
+}
+
+int gwavi_t::fseek(FILE *fp, long long offset, int whence)
+{
+#ifdef WIN32
+	return ::_fseeki64( fp, offset, whence );
+#else
+	return ::fseek( fp, offset, whence );
+#endif
+}
+
 int
 gwavi_t::write_int(FILE *out, unsigned int n)
 {
 	unsigned char buffer[4];
 
-	buffer[0] = n;
-	buffer[1] = n >> 8;
-	buffer[2] = n >> 16;
-	buffer[3] = n >> 24;
+	for (int i=0; i<4; i++)
+	{
+		buffer[i] = (n & 0x000000FF);
+		
+		n = n >> 8;
+	}
+	//buffer[0] = n;
+	//buffer[1] = n >> 8;
+	//buffer[2] = n >> 16;
+	//buffer[3] = n >> 24;
 
 	if (fwrite(buffer, 1, 4, out) != 4)
+		return -1;
+
+	return 0;
+}
+
+int
+gwavi_t::write_int64(FILE *out, unsigned long long int n)
+{
+	unsigned char buffer[8];
+
+	for (int i=0; i<8; i++)
+	{
+		buffer[i] = (n & 0x000000FFllu);
+		
+		n = n >> 8;
+	}
+
+	if (fwrite(buffer, 1, 8, out) != 8)
+		return -1;
+
+	return 0;
+}
+
+int
+gwavi_t::write_byte(FILE *out, unsigned char n)
+{
+	if (fwrite( &n, 1, 1, out) != 1)
 		return -1;
 
 	return 0;
@@ -59,8 +110,14 @@ gwavi_t::write_short(FILE *out, unsigned int n)
 {
 	unsigned char buffer[2];
 
-	buffer[0] = n;
-	buffer[1] = n >> 8;
+	for (int i=0; i<2; i++)
+	{
+		buffer[i] = (n & 0x000000FF);
+		
+		n = n >> 8;
+	}
+	//buffer[0] = n;
+	//buffer[1] = n >> 8;
 
 	if (fwrite(buffer, 1, 2, out) != 2)
 		return -1;
@@ -89,3 +146,78 @@ gwavi_t::write_chars_bin(FILE *out, const char *s, int count)
 	return 0;
 }
 
+int
+gwavi_t::read_int(FILE *in, int &n)
+{
+	unsigned char buffer[4];
+
+	if (fread(buffer, 1, 4, in) != 4)
+		return -1;
+
+	n = (buffer[3] << 24) | (buffer[2] << 16) | 
+	    (buffer[1] <<  8) | (buffer[0]);
+
+	return 0;
+}
+
+int
+gwavi_t::read_uint(FILE *in, unsigned int &n)
+{
+	unsigned char buffer[4];
+
+	if (fread(buffer, 1, 4, in) != 4)
+		return -1;
+
+	n = (buffer[3] << 24) | (buffer[2] << 16) | 
+	    (buffer[1] <<  8) | (buffer[0]);
+
+	return 0;
+}
+
+int
+gwavi_t::read_short(FILE *in, int16_t &n)
+{
+	unsigned char buffer[2];
+
+	if (fread(buffer, 1, 2, in) != 2)
+		return -1;
+
+	n = (buffer[1] << 8) | (buffer[0]);
+
+	return 0;
+}
+
+int
+gwavi_t::read_ushort(FILE *in, uint16_t &n)
+{
+	unsigned char buffer[2];
+
+	if (fread(buffer, 1, 2, in) != 2)
+		return -1;
+
+	n = (buffer[1] << 8) | (buffer[0]);
+
+	return 0;
+}
+
+int
+gwavi_t::read_short(FILE *in, int &n)
+{
+	unsigned char buffer[2];
+
+	if (fread(buffer, 1, 2, in) != 2)
+		return -1;
+
+	n = (buffer[1] << 8) | (buffer[0]);
+
+	return 0;
+}
+
+int
+gwavi_t::read_chars_bin(FILE *in, char *s, int count)
+{
+	if (fread(s, 1, count, in) != count)
+		return -1;
+
+	return 0;
+}

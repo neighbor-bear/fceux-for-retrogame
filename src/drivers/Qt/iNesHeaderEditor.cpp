@@ -29,6 +29,7 @@
 #include <QCloseEvent>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QSettings>
 
 #include "../../types.h"
 #include "../../fceu.h"
@@ -149,6 +150,12 @@ static const char* inputDevList[] = {
 	"RacerMate Bicycle",
 	"U-Force",
 	"R.O.B. Stack-Up",
+	"City Patrolman Lightgun",
+	"Sharp C1 Cassette Interface",
+	"Standard Controller with swapped Left-Right/Up-Down/B-A",
+	"Excalibor Sudoku Pad",
+	"ABL Pinball",
+	"Golden Nugget Casino extra buttons",
 	0
 };
 //----------------------------------------------------------------------------
@@ -164,6 +171,7 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
 	QGroupBox *box, *hdrBox;
 	QGridLayout *grid;
 	QStyle      *style;
+	QSettings    settings;
 	char stmp[128];
 
 	style = this->style();
@@ -523,24 +531,28 @@ iNesHeaderEditor_t::iNesHeaderEditor_t(QWidget *parent)
 	setHeaderData( iNesHdr );
 
 	initOK = true;
+
+	restoreGeometry(settings.value("iNesHeaderWindow/geometry").toByteArray());
 }
 //----------------------------------------------------------------------------
 iNesHeaderEditor_t::~iNesHeaderEditor_t(void)
 {
-	printf("Destroy Header Editor Config Window\n");
+	QSettings settings;
+	//printf("Destroy Header Editor Config Window\n");
 
 	if ( iNesHdr )
 	{
 		free( iNesHdr ); iNesHdr = NULL;
 	}
+	settings.setValue("iNesHeaderWindow/geometry", saveGeometry());
 }
 //----------------------------------------------------------------------------
 void iNesHeaderEditor_t::closeEvent(QCloseEvent *event)
 {
-   printf("iNES Header Editor Close Window Event\n");
-   done(0);
+	//printf("iNES Header Editor Close Window Event\n");
+	done(0);
 	deleteLater();
-   event->accept();
+	event->accept();
 }
 //----------------------------------------------------------------------------
 void iNesHeaderEditor_t::closeWindow(void)
@@ -1170,7 +1182,7 @@ void iNesHeaderEditor_t::setHeaderData(iNES_HEADER* header)
 	}
 
 	// Input Device:
-	int input = header->reserved[1] & 0x1F;
+	int input = header->reserved[1] & 0x3F;
 	for (i=0; i<inputDevBox->count(); i++)
 	{
 		if ( inputDevBox->itemData(i).toInt() == input )

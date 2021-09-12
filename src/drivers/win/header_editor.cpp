@@ -114,6 +114,12 @@ char* inputDevList[] = {
 	"RacerMate Bicycle",
 	"U-Force",
 	"R.O.B. Stack-Up",
+	"City Patrolman Lightgun",
+	"Sharp C1 Cassette Interface",
+	"Standard Controller with swapped Left-Right/Up-Down/B-A",
+	"Excalibor Sudoku Pad",
+	"ABL Pinball",
+	"Golden Nugget Casino extra buttons",
 	0
 };
 
@@ -909,7 +915,7 @@ void SetHeaderData(HWND hwnd, iNES_HEADER* header) {
 	}
 
 	// Input Device:
-	int input = header->reserved[1] & 0x1F;
+	int input = header->reserved[1] & 0x3F;
 	if (SendDlgItemMessage(hwnd, IDC_INPUT_DEVICE_COMBO, CB_SETCURSEL, input, 0) == CB_ERR)
 	{
 		sprintf(buf, "$%02X", input);

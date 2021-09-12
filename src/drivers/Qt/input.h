@@ -112,7 +112,7 @@ struct gamepad_function_key_t
 	void updateStatus(void);
 };
 
-extern std::list <gamepad_function_key_t*> gpKeySeqList;
+//extern std::list <gamepad_function_key_t*> gpKeySeqList;
 
 #define FCFGD_GAMEPAD   1
 #define FCFGD_POWERPAD  2
@@ -140,7 +140,6 @@ void FCEUD_UpdateInput(void);
 
 void UpdateInput(Config *config);
 
-std::string GetUserText(const char* title);
 const char* ButtonName(const ButtConfig* bc);
 
 int getInputSelection( int port, int *cur, int *usr );

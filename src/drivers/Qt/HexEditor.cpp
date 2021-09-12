@@ -69,7 +69,7 @@
 static bool memNeedsCheck = false;
 static HexBookMarkManager_t hbm;
 static std::list <HexEditorDialog_t*> winList;
-static const char *memViewNames[] = { "RAM", "PPU", "OAM", "ROM", NULL };
+static const char *memViewNames[] = { "CPU", "PPU", "OAM", "ROM", NULL };
 
 static int getROM( unsigned int offset);
 static int writeMem( int mode, unsigned int addr, int value );
@@ -1084,9 +1084,10 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	QMenuBar *menuBar;
 	QMenu *fileMenu, *editMenu, *viewMenu, *colorMenu, *subMenu;
 	QAction *saveROM, *closeAct;
-	QAction *act, *actHlgt, *actHlgtRV, *actColorFG, *actColorBG;
+	QAction *act, *actHlgt, *actHlgtRV;
+	ColorMenuItem *actColorFG, *actColorBG, *actRowColColor, *actAltColColor;
 	QActionGroup *group;
-	int useNativeMenuBar;
+	int opt, useNativeMenuBar, refreshRateOpt;
 	QSettings settings;
 
 	QDialog::setWindowTitle( tr("Hex Editor") );
@@ -1094,6 +1095,11 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	resize( 512, 512 );
 
 	menuBar = new QMenuBar(this);
+
+	grid   = new QGridLayout(this);
+	editor = new QHexEdit(this);
+	vbar   = new QScrollBar( Qt::Vertical, this );
+	hbar   = new QScrollBar( Qt::Horizontal, this );
 
 	// This is needed for menu bar to show up on MacOS
 	g_config->getOption( "SDL.UseNativeMenuBar", &useNativeMenuBar );
@@ -1201,9 +1207,9 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	group->setExclusive(true);
 
 	// View -> RAM
-	viewRAM = new QAction(tr("&RAM"), this);
+	viewRAM = new QAction(tr("&CPU"), this);
 	//viewRAM->setShortcuts(QKeySequence::Open);
-	viewRAM->setStatusTip(tr("View RAM"));
+	viewRAM->setStatusTip(tr("View CPU"));
 	viewRAM->setCheckable(true);
 	connect(viewRAM, SIGNAL(triggered()), this, SLOT(setViewRAM(void)) );
 
@@ -1261,9 +1267,12 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 
 	group->setExclusive(true);
 
+	g_config->getOption("SDL.HexEditRefreshRate", &refreshRateOpt);
+
 	// View -> Refresh Rate -> 5 Hz
 	act = new QAction(tr("5 Hz"), this);
 	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 5 );
 	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh5Hz(void)) );
 
 	group->addAction(act);
@@ -1272,7 +1281,7 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	// View -> Refresh Rate -> 10 Hz
 	act = new QAction(tr("10 Hz"), this);
 	act->setCheckable(true);
-	act->setChecked(true);
+	act->setChecked( refreshRateOpt == 10 );
 	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh10Hz(void)) );
 
 	group->addAction(act);
@@ -1281,6 +1290,7 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	// View -> Refresh Rate -> 20 Hz
 	act = new QAction(tr("20 Hz"), this);
 	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 20 );
 	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh20Hz(void)) );
 
 	group->addAction(act);
@@ -1289,6 +1299,7 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	// View -> Refresh Rate -> 30 Hz
 	act = new QAction(tr("30 Hz"), this);
 	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 30 );
 	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh30Hz(void)) );
 
 	group->addAction(act);
@@ -1297,6 +1308,7 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	// View -> Refresh Rate -> 60 Hz
 	act = new QAction(tr("60 Hz"), this);
 	act->setCheckable(true);
+	act->setChecked( refreshRateOpt == 60 );
 	connect(act, SIGNAL(triggered()), this, SLOT(setViewRefresh60Hz(void)) );
 
 	group->addAction(act);
@@ -1306,76 +1318,78 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	colorMenu = menuBar->addMenu(tr("&Color"));
 
 	// Color -> Highlight Activity
+	g_config->getOption("SDL.HexEditActivityHlgt", &opt);
+	editor->setHighlightActivity( opt );
+
 	actHlgt = new QAction(tr("Highlight &Activity"), this);
 	//actHlgt->setShortcuts(QKeySequence::Open);
 	actHlgt->setStatusTip(tr("Highlight Activity"));
 	actHlgt->setCheckable(true);
-	actHlgt->setChecked(true);
+	actHlgt->setChecked(opt);
 	connect(actHlgt, SIGNAL(triggered(bool)), this, SLOT(actvHighlightCB(bool)) );
 
 	colorMenu->addAction(actHlgt);
 
 	// Color -> Highlight Reverse Video
+	g_config->getOption("SDL.HexEditReverseVideo", &opt);
+	editor->setHighlightReverseVideo( opt );
+
 	actHlgtRV = new QAction(tr("Highlight &Reverse Video"), this);
 	//actHlgtRV->setShortcuts(QKeySequence::Open);
 	actHlgtRV->setStatusTip(tr("Highlight Reverse Video"));
 	actHlgtRV->setCheckable(true);
-	actHlgtRV->setChecked(true);
+	actHlgtRV->setChecked(opt);
 	connect(actHlgtRV, SIGNAL(triggered(bool)), this, SLOT(actvHighlightRVCB(bool)) );
 
 	colorMenu->addAction(actHlgtRV);
 
 	// Color -> Highlight Reverse Video
+	g_config->getOption("SDL.HexEditRowColumnHlgt", &opt);
+	editor->setRowColHlgtEna( opt );
+
 	rolColHlgtAct = new QAction(tr("Highlight &Cursor Row/Column"), this);
 	//rolColHlgtAct->setShortcuts(QKeySequence::Open);
 	rolColHlgtAct->setStatusTip(tr("Highlight Cursor Row/Column"));
 	rolColHlgtAct->setCheckable(true);
-	rolColHlgtAct->setChecked(false);
+	rolColHlgtAct->setChecked(opt);
 	connect(rolColHlgtAct, SIGNAL(triggered(bool)), this, SLOT(rolColHlgtChanged(bool)) );
 
 	colorMenu->addAction(rolColHlgtAct);
 
 	// Color -> Highlight Reverse Video
+	g_config->getOption("SDL.HexEditAltnColumnColor", &opt);
+	editor->setAltColHlgtEna( opt );
+
 	altColHlgtAct = new QAction(tr("&Alternating Column Colors"), this);
 	//altColHlgtAct->setShortcuts(QKeySequence::Open);
 	altColHlgtAct->setStatusTip(tr("&Alternating Column Colors"));
 	altColHlgtAct->setCheckable(true);
-	altColHlgtAct->setChecked(false);
+	altColHlgtAct->setChecked(opt);
 	connect(altColHlgtAct, SIGNAL(triggered(bool)), this, SLOT(altColHlgtChanged(bool)) );
 
 	colorMenu->addAction(altColHlgtAct);
 
+	colorMenu->addSeparator();
+
 	// Color -> ForeGround Color
-	actColorFG = new QAction(tr("&ForeGround Color"), this);
-	//actColorFG->setShortcuts(QKeySequence::Open);
-	actColorFG->setStatusTip(tr("ForeGround Color"));
-	connect(actColorFG, SIGNAL(triggered(void)), this, SLOT(pickForeGroundColor(void)) );
+	actColorFG = new ColorMenuItem( tr("&ForeGround Color"), "SDL.HexEditFgColor", this);
 	
 	colorMenu->addAction(actColorFG);
 
 	// Color -> BackGround Color
-	actColorBG = new QAction(tr("&BackGround Color"), this);
-	//actColorBG->setShortcuts(QKeySequence::Open);
-	actColorBG->setStatusTip(tr("BackGround Color"));
-	connect(actColorBG, SIGNAL(triggered(void)), this, SLOT(pickBackGroundColor(void)) );
+	actColorBG = new ColorMenuItem( tr("&BackGround Color"), "SDL.HexEditBgColor", this);
 	
 	colorMenu->addAction(actColorBG);
 
 	// Color -> Cursor Row/Column Color
-	act = new QAction(tr("&Cursor Row/Column Color"), this);
-	//act->setShortcuts(QKeySequence::Open);
-	act->setStatusTip(tr("Cursor Row/Column Color"));
-	connect(act, SIGNAL(triggered(void)), this, SLOT(pickCursorRowColumnColor(void)) );
+	actRowColColor = new ColorMenuItem( tr("&Cursor Row/Column Color"), "SDL.HexEditCursorColorRC", this);
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(actRowColColor);
 
 	// Color -> Alternate Column Color
-	act = new QAction(tr("&Alternate Column Color"), this);
-	//act->setShortcuts(QKeySequence::Open);
-	act->setStatusTip(tr("Alternate Column Color"));
-	connect(act, SIGNAL(triggered(void)), this, SLOT(pickAlternateColumnColor(void)) );
+	actAltColColor = new ColorMenuItem( tr("&Alternate Column Color"), "SDL.HexEditAltColColor", this);
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(actAltColColor);
 
 	// Bookmarks Menu
 	bookmarkMenu = menuBar->addMenu(tr("&Bookmarks"));
@@ -1385,10 +1399,6 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	//-----------------------------------------------------------------------
 	//mainLayout = new QVBoxLayout();
 
-	grid   = new QGridLayout(this);
-	editor = new QHexEdit(this);
-	vbar   = new QScrollBar( Qt::Vertical, this );
-	hbar   = new QScrollBar( Qt::Horizontal, this );
 
 	grid->setMenuBar( menuBar );
 
@@ -1402,10 +1412,15 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 	hbar->setMinimum(0);
 	hbar->setMaximum(100);
 	vbar->setMinimum(0);
-	vbar->setMaximum( 0x10000 / 16 );
+	vbar->setMaximum( 0x1000 / 16 );
 
 	editor->setScrollBars( hbar, vbar );
 	
+	   actColorFG->connectColor( &editor->fgColor );
+	   actColorBG->connectColor( &editor->bgColor );
+	actRowColColor->connectColor( &editor->rowColHlgtColor );
+	actAltColColor->connectColor( &editor->altColHlgtColor );
+
 	//connect( vbar, SIGNAL(sliderMoved(int)), this, SLOT(vbarMoved(int)) );
 	connect( hbar, SIGNAL(valueChanged(int)), this, SLOT(hbarChanged(int)) );
 	connect( vbar, SIGNAL(valueChanged(int)), this, SLOT(vbarChanged(int)) );
@@ -1418,7 +1433,8 @@ HexEditorDialog_t::HexEditorDialog_t(QWidget *parent)
 
 	connect( periodicTimer, &QTimer::timeout, this, &HexEditorDialog_t::updatePeriodic );
 
-	periodicTimer->start( 100 ); // 10hz
+	//printf("Refresh Rate: %i\n", 1000 / refreshRateOpt );
+	periodicTimer->start( 1000 / refreshRateOpt  );
 
 	// Lock the mutex before adding a new window to the list,
 	// we want to be sure that the emulator is not iterating the list
@@ -1440,7 +1456,7 @@ HexEditorDialog_t::~HexEditorDialog_t(void)
 {
 	std::list <HexEditorDialog_t*>::iterator it;
 	  
-	printf("Hex Editor Deleted\n");
+	//printf("Hex Editor Deleted\n");
 	periodicTimer->stop();
 
 	// Lock the emulation thread mutex to ensure
@@ -1542,42 +1558,6 @@ void HexEditorDialog_t::closeWindow(void)
 	settings.setValue("hexEditor/geometry", saveGeometry());
 	done(0);
 	deleteLater();
-}
-//----------------------------------------------------------------------------
-void HexEditorDialog_t::pickForeGroundColor(void)
-{
-	hexEditColorPickerDialog_t *dialog;
-
-	dialog = new hexEditColorPickerDialog_t( &editor->fgColor, "Pick Foreground Color", "SDL.HexEditFgColor", editor );
-
-	dialog->show();
-}
-//----------------------------------------------------------------------------
-void HexEditorDialog_t::pickBackGroundColor(void)
-{
-	hexEditColorPickerDialog_t *dialog;
-
-	dialog = new hexEditColorPickerDialog_t( &editor->bgColor, "Pick Background Color", "SDL.HexEditBgColor", editor );
-
-	dialog->show();
-}
-//----------------------------------------------------------------------------
-void HexEditorDialog_t::pickCursorRowColumnColor(void)
-{
-	hexEditColorPickerDialog_t *dialog;
-
-	dialog = new hexEditColorPickerDialog_t( &editor->rowColHlgtColor, "Pick Cursor Row/Column Color", "SDL.HexEditCursorColorRC", editor );
-
-	dialog->show();
-}
-//----------------------------------------------------------------------------
-void HexEditorDialog_t::pickAlternateColumnColor(void)
-{
-	hexEditColorPickerDialog_t *dialog;
-
-	dialog = new hexEditColorPickerDialog_t( &editor->altColHlgtColor, "Pick Alternate Column Color", "SDL.HexEditAltColColor", editor );
-
-	dialog->show();
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::vbarMoved(int value)
@@ -1730,54 +1710,67 @@ void HexEditorDialog_t::changeFontRequest(void)
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::setViewRefresh5Hz(void)
 {
+	g_config->setOption("SDL.HexEditRefreshRate", 5);
 	periodicTimer->stop();
 	periodicTimer->start(200);
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::setViewRefresh10Hz(void)
 {
+	g_config->setOption("SDL.HexEditRefreshRate", 10);
 	periodicTimer->stop();
 	periodicTimer->start(100);
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::setViewRefresh20Hz(void)
 {
+	g_config->setOption("SDL.HexEditRefreshRate", 20);
 	periodicTimer->stop();
 	periodicTimer->start(50);
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::setViewRefresh30Hz(void)
 {
+	g_config->setOption("SDL.HexEditRefreshRate", 30);
 	periodicTimer->stop();
 	periodicTimer->start(33);
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::setViewRefresh60Hz(void)
 {
+	g_config->setOption("SDL.HexEditRefreshRate", 60);
 	periodicTimer->stop();
 	periodicTimer->start(16);
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::actvHighlightCB(bool enable)
 {
+	g_config->setOption("SDL.HexEditActivityHlgt", enable);
+
 	//printf("Highlight: %i \n", enable );
 	editor->setHighlightActivity( enable );
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::actvHighlightRVCB(bool enable)
 {
+	g_config->setOption("SDL.HexEditReverseVideo", enable);
+
 	//printf("Highlight: %i \n", enable );
 	editor->setHighlightReverseVideo( enable );
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::rolColHlgtChanged(bool enable)
 {
+	g_config->setOption("SDL.HexEditRowColumnHlgt", enable);
+
 	//printf("Highlight: %i \n", enable );
 	editor->setRowColHlgtEna( enable );
 }
 //----------------------------------------------------------------------------
 void HexEditorDialog_t::altColHlgtChanged(bool enable)
 {
+	g_config->setOption("SDL.HexEditAltnColumnColor", enable);
+
 	//printf("Highlight: %i \n", enable );
 	editor->setAltColHlgtEna( enable );
 }
@@ -2175,11 +2168,18 @@ void QHexEdit::resizeEvent(QResizeEvent *event)
 	if ( viewWidth >= pxLineWidth )
 	{
 		pxLineXScroll = 0;
+		hbar->setMaximum(0);
+		hbar->hide();
 	}
 	else
 	{
-		pxLineXScroll = (int)(0.010f * (float)hbar->value() * (float)(pxLineWidth - viewWidth) );
+		hbar->setPageStep(viewWidth);
+		hbar->setMaximum(pxLineWidth - viewWidth);
+		hbar->show();
+		pxLineXScroll = hbar->value();
 	}
+	vbar->setMaximum( maxLineOffset );
+	vbar->setPageStep( (3*viewLines)/4 );
 
 }
 //----------------------------------------------------------------------------
@@ -2277,9 +2277,10 @@ void QHexEdit::loadClipboard( const char *txt )
 //----------------------------------------------------------------------------
 void QHexEdit::pasteFromClipboard(void)
 {
-	int i, val, addr;
+	int i, nbytes=0, val, addr;
 	std::string s = clipboard->text().toStdString();
 	const char *c;
+	unsigned char *buf;
 
 	fceuWrapperLock();
 
@@ -2289,7 +2290,19 @@ void QHexEdit::pasteFromClipboard(void)
 
 	c = s.c_str();
 
-	i=0;
+	if ( s.size() == 0 )
+	{
+		return;
+	}
+	buf = (unsigned char*)malloc( s.size() );
+
+	if ( buf == NULL )
+	{
+		return;
+	}
+	memset( buf, 0, s.size() );
+
+	i=0; nbytes = 0;
 	while ( c[i] != 0 )
 	{
 		while ( isspace(c[i]) ) i++;
@@ -2313,15 +2326,23 @@ void QHexEdit::pasteFromClipboard(void)
 		{
 			break;
 		}
+		buf[ nbytes ] = val;
 
+		nbytes++;
+	}
+	if ( nbytes > 0 )
+	{
 		if ( viewMode == QHexEdit::MODE_NES_ROM )
 		{
-			romEditList.applyPatch( addr, val );
+			romEditList.applyPatch( addr, buf, nbytes );
 		}
-		writeMem( viewMode, addr, val );
-
-		addr++;
+		for (i=0; i<nbytes; i++)
+		{
+			writeMem( viewMode, addr+i, buf[i] );
+		}
 	}
+	free(buf);
+
 	fceuWrapperUnLock();
 }
 //----------------------------------------------------------------------------
@@ -3096,7 +3117,7 @@ void QHexEdit::addBookMarkCB(void)
 	{
 		default:
 		case MODE_NES_RAM:
-			sprintf( stmp, "RAM %04X", ctxAddr );
+			sprintf( stmp, "CPU %04X", ctxAddr );
 		break;
 		case MODE_NES_PPU:
 			sprintf( stmp, "PPU %04X", ctxAddr );
@@ -3646,7 +3667,9 @@ void QHexEdit::memModeUpdate(void)
 		}
 		maxLineOffset = mb.numLines() - viewLines + 1;
 
-		vbar->setMaximum( memSize / 16 );
+		//vbar->setMaximum( memSize / 16 );
+		vbar->setMaximum( maxLineOffset );
+		vbar->setPageStep( (3*viewLines)/4 );
 	}
 }
 //----------------------------------------------------------------------------
@@ -3655,6 +3678,7 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 	int x, y, w, h, row, col, nrow, addr;
 	int c, cx, cy, ca, l, recty;
 	int pxCharWidth3;
+	int colHlgtStart = -1, colHlgtEnd = -1;
 	char txt[32];
        	QString asciiTxt;
 	QPainter painter(this);
@@ -3767,6 +3791,8 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 
 	for ( row=0; row < nrow; row++)
 	{
+		colHlgtStart = -1; colHlgtEnd = -1;
+
 		l = lineOffset + row;
 		x = pxXoffset - pxLineXScroll;
 
@@ -3785,19 +3811,23 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 			if ( l == txtHlgtStartLine )
 			{
 				hlgtXs = txtHlgtStartChar*3;
+				colHlgtStart = txtHlgtStartChar;
 			}
 			else
 			{
 				hlgtXs = 0;
+				colHlgtStart = 0;
 			}
 
 			if ( l == txtHlgtEndLine )
 			{
 				hlgtXe = (txtHlgtEndChar+1)*3;
+				colHlgtEnd = txtHlgtEndChar+1;
 			}
 			else
 			{
 				hlgtXe = 16*3;
+				colHlgtEnd = 16;
 			}
 			hlgtXd = hlgtXe - hlgtXs;
 
@@ -3885,7 +3915,12 @@ void QHexEdit::paintEvent(QPaintEvent *event)
 				} 
 				else
 				{
-					if ( viewMode == MODE_NES_ROM )
+					if ( txtHlgtSet && (col >= colHlgtStart) && (col < colHlgtEnd) )
+					{
+						// Background is already colored by highlight
+						painter.setPen( fgColor );
+					}
+					else if ( viewMode == MODE_NES_ROM )
 					{
 						QColor romBgColor, romFgColor;
 					  
@@ -4072,11 +4107,11 @@ int hexEditorOpenFromDebugger( int mode, int addr )
 }
 //----------------------------------------------------------------------------
 // This function must be called from within the emulation thread
-void hexEditorUpdateMemoryValues(void)
+void hexEditorUpdateMemoryValues( bool force )
 {
 	std::list <HexEditorDialog_t*>::iterator it;
 
-	if ( !memNeedsCheck )
+	if ( !memNeedsCheck && !force )
 	{
 		return;
 	}
@@ -4086,135 +4121,5 @@ void hexEditorUpdateMemoryValues(void)
 		(*it)->editor->checkMemActivity();
 	}
 	memNeedsCheck = false;
-}
-//----------------------------------------------------------------------------
-// Hed Editor Color Picker
-//----------------------------------------------------------------------------
-hexEditColorPickerDialog_t::hexEditColorPickerDialog_t( QColor *c, const char *title, const char *configName, QWidget *parent )
-	: QDialog( parent )
-{
-	QVBoxLayout *mainLayout;
-	QHBoxLayout *hbox;
-	QPushButton *okButton;
-	QPushButton *cancelButton;
-	QPushButton *resetButton;
-	QStyle *style;
-	//char stmp[128];
-
-	style = this->style();
-
-	setWindowTitle( title );
-
-	colorPtr = c;
-	origColor = *c;
-
-	if ( configName )
-	{
-		confName.assign( configName );
-	}
-
-	mainLayout = new QVBoxLayout();
-
-	setLayout( mainLayout );
-
-	colorDialog = new QColorDialog(this);
-
-	mainLayout->addWidget( colorDialog );
-
-	colorDialog->setWindowFlags(Qt::Widget);
-	colorDialog->setOption( QColorDialog::DontUseNativeDialog, true );
-	colorDialog->setOption( QColorDialog::NoButtons, true );
-	colorDialog->setCurrentColor( *c );
-	
-	connect( colorDialog, SIGNAL(colorSelected(const QColor &))      , this, SLOT(colorChanged( const QColor &)) );
-	connect( colorDialog, SIGNAL(currentColorChanged(const QColor &)), this, SLOT(colorChanged( const QColor &)) );
-
-	connect( colorDialog, SIGNAL(accepted(void)), this, SLOT(colorAccepted(void)) );
-	connect( colorDialog, SIGNAL(rejected(void)), this, SLOT(colorRejected(void)) );
-
-	hbox = new QHBoxLayout();
-	mainLayout->addLayout( hbox );
-
-	okButton     = new QPushButton( tr("OK") );
-	cancelButton = new QPushButton( tr("Cancel") );
-	resetButton  = new QPushButton( tr("Reset") );
-
-	okButton->setIcon( style->standardIcon( QStyle::SP_DialogApplyButton ) );
-	cancelButton->setIcon( style->standardIcon( QStyle::SP_DialogCancelButton ) );
-	resetButton->setIcon( style->standardIcon( QStyle::SP_DialogResetButton ) );
-
-	hbox->addWidget( resetButton, 1  );
-	hbox->addStretch( 10 );
-	hbox->addWidget( okButton, 1     );
-	hbox->addWidget( cancelButton, 1 );
-
-	connect( okButton    , SIGNAL(clicked(void)), this, SLOT(colorAccepted(void)) );
-	connect( cancelButton, SIGNAL(clicked(void)), this, SLOT(colorRejected(void)) );
-	connect( resetButton , SIGNAL(clicked(void)), this, SLOT(resetColor(void)) );
-}
-//----------------------------------------------------------------------------
-hexEditColorPickerDialog_t::~hexEditColorPickerDialog_t(void)
-{
-	//printf("nesColorPicker Destroyed\n");
-}
-//----------------------------------------------------------------------------
-void hexEditColorPickerDialog_t::closeEvent(QCloseEvent *event)
-{
-	//printf("nesColorPicker Close Window Event\n");
-	done(0);
-	deleteLater();
-	event->accept();
-}
-//----------------------------------------------------------------------------
-void hexEditColorPickerDialog_t::closeWindow(void)
-{
-	//printf("Close Window\n");
-	done(0);
-	deleteLater();
-}
-//----------------------------------------------------------------------------
-void hexEditColorPickerDialog_t::colorChanged( const QColor &color )
-{
-	//printf("Color Changed: R:%i  G%i  B%i \n", color.red(), color.green(), color.blue() );
-
-	*colorPtr = color;
-}
-//----------------------------------------------------------------------------
-void hexEditColorPickerDialog_t::colorAccepted(void)
-{
-	if ( confName.size() > 0 )
-	{
-		QString colorText;
-
-		colorText = colorPtr->name();
-
-		//printf("Saving '%s' = Color string '%s'\n", confName.c_str(), colorText.toStdString().c_str() );
-
-		g_config->setOption( confName.c_str(), colorText.toStdString().c_str() );
-
-		g_config->save();
-	}
-
-	//printf("hexColorPicker Accepted\n");
-	deleteLater();
-
-}
-//----------------------------------------------------------------------------
-void hexEditColorPickerDialog_t::colorRejected(void)
-{
-	//printf("hexColorPicker Rejected\n");
-
-	// Reset to original color
-	*colorPtr = origColor;
-
-	deleteLater();
-}
-//----------------------------------------------------------------------------
-void hexEditColorPickerDialog_t::resetColor(void)
-{
-	// Reset to original color
-	*colorPtr = origColor;
-
-	colorDialog->setCurrentColor( origColor );
 }
 //----------------------------------------------------------------------------

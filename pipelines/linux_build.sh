@@ -76,12 +76,19 @@ echo '****************************************'
 echo 'Install Dependency Qt5'
 echo '****************************************'
 sudo apt-get --assume-yes  install qt5-default
+sudo apt-get --assume-yes  install qttools5-dev  # For Qt Help
 
 # Install x264 
 echo '****************************************'
 echo 'Install Optional Dependency libx264-dev'
 echo '****************************************'
 sudo apt-get --assume-yes  install libx264-dev
+
+# Install x265 
+echo '****************************************'
+echo 'Install Optional Dependency libx265-dev'
+echo '****************************************'
+sudo apt-get --assume-yes  install libx265-dev
 
 # Install scons
 #echo '****************************************'
@@ -101,6 +108,8 @@ echo '**************************'
 mkdir -p $INSTALL_PREFIX/usr;
 
 echo "Num CPU: `nproc`";
+./scripts/unix_make_docs.sh;
+
 mkdir buildQT; cd buildQT;
 cmake  \
    -DCMAKE_BUILD_TYPE=Release  \

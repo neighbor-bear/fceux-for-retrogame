@@ -47,6 +47,7 @@
 
 #include "common/cheat.h"
 #include "../../fceu.h"
+#include "../../cheat.h"
 #include "../../movie.h"
 #include "../../version.h"
 
@@ -436,6 +437,7 @@ CloseGame(void)
 	hexEditorSaveBookmarks();
 	saveGameDebugBreakpoints();
 	debuggerClearAllBreakpoints();
+	debuggerClearAllBookmarks();
 
 	debugSymbolTable.save();
 	debugSymbolTable.clear();
@@ -743,6 +745,10 @@ int  fceuWrapperInit( int argc, char *argv[] )
 		AutoResumePlay = false;
 	}
 
+	// Cheats
+	g_config->getOption ("SDL.CheatsDisabled"     , &globalCheatDisabled);
+	g_config->getOption ("SDL.CheatsDisableAutoLS", &disableAutoLSCheats);
+
 	g_config->getOption ("SDL.DrawInputAids", &drawInputAidsEnable);
 
 	// Initialize Autofire Pattern
@@ -755,7 +761,7 @@ int  fceuWrapperInit( int argc, char *argv[] )
 	// check to see if recording HUD to AVI is enabled
 	int rh;
 	g_config->getOption("SDL.RecordHUD", &rh);
-	if( rh == 0)
+	if( rh )
 		FCEUI_SetAviEnableHUDrecording(true);
 	else
 		FCEUI_SetAviEnableHUDrecording(false);
@@ -1004,120 +1010,122 @@ FCEUD_Update(uint8 *XBuf,
 	int blitDone = 0;
 	//extern int FCEUDnetplay;
 
-	#ifdef CREATE_AVI
-	if (LoggingEnabled == 2 || (eoptions&EO_NOTHROTTLE))
-	{
-		if(LoggingEnabled == 2)
-		{
-			int16* MonoBuf = new int16[Count];
-			int n;
-			for(n=0; n<Count; ++n)
-			{
-				MonoBuf[n] = Buffer[n] & 0xFFFF;
-			}
-			NESVideoLoggingAudio
-			(
-			  MonoBuf, 
-			  FSettings.SndRate, 16, 1,
-			  Count
-			);
-			delete [] MonoBuf;
-		}
-		Count /= 2;
-		if (inited & 1)
-		{
-			if (Count > GetWriteSound()) Count = GetWriteSound();
+	//#ifdef CREATE_AVI
+	//if (LoggingEnabled == 2 || (eoptions&EO_NOTHROTTLE))
+	//{
+	//	if(LoggingEnabled == 2)
+	//	{
+	//		int16* MonoBuf = new int16[Count];
+	//		int n;
+	//		for(n=0; n<Count; ++n)
+	//		{
+	//			MonoBuf[n] = Buffer[n] & 0xFFFF;
+	//		}
+	//		NESVideoLoggingAudio
+	//		(
+	//		  MonoBuf, 
+	//		  FSettings.SndRate, 16, 1,
+	//		  Count
+	//		);
+	//		delete [] MonoBuf;
+	//	}
+	//	Count /= 2;
+	//	if (inited & 1)
+	//	{
+	//		if (Count > GetWriteSound()) Count = GetWriteSound();
 
-			if (!mutecapture)
-			{
-				if(Count > 0 && Buffer) WriteSound(Buffer,Count);   
-			}
-		}
-		//if (inited & 2)
-		//	FCEUD_UpdateInput();
-	  	if(XBuf && (inited & 4)) BlitScreen(XBuf);
-	  
-		return;
-	}
-	#endif
+	//		if (!mutecapture)
+	//		{
+	//			if(Count > 0 && Buffer) WriteSound(Buffer,Count);   
+	//		}
+	//	}
+	//	//if (inited & 2)
+	//	//	FCEUD_UpdateInput();
+	//  	if(XBuf && (inited & 4)) BlitScreen(XBuf);
+	//  
+	//	return;
+	//}
+	//#endif
 	aviRecordAddAudioFrame( Buffer, Count );
 	
-	int ocount = Count;
+	WriteSound(Buffer,Count);
+
+	//int ocount = Count;
 	// apply frame scaling to Count
-	Count = (int)(Count / g_fpsScale);
-	if (Count) 
-	{
-		int32 can=GetWriteSound();
-		static int uflow=0;
-		int32 tmpcan;
+	//Count = (int)(Count / g_fpsScale);
+	//if (Count) 
+	//{
+	//	int32 can=GetWriteSound();
+	//	static int uflow=0;
+	//	int32 tmpcan;
 
-		// don't underflow when scaling fps
-		if(can >= GetMaxSound() && g_fpsScale==1.0) uflow=1;	/* Go into massive underflow mode. */
+	//	// don't underflow when scaling fps
+	//	if(can >= GetMaxSound() && g_fpsScale==1.0) uflow=1;	/* Go into massive underflow mode. */
 
-		if(can > Count) can=Count;
-		else uflow=0;
+	//	if(can > Count) can=Count;
+	//	else uflow=0;
 
-		#ifdef CREATE_AVI
-		if (!mutecapture)
-		#endif
-		  WriteSound(Buffer,can);
+	//	#ifdef CREATE_AVI
+	//	if (!mutecapture)
+	//	#endif
+	//	  WriteSound(Buffer,can);
 
-		//if(uflow) puts("Underflow");
-		tmpcan = GetWriteSound();
-		// don't underflow when scaling fps
-		if (g_fpsScale>1.0 || ((tmpcan < Count*0.90) && !uflow)) 
-		{
-			if (XBuf && (inited&4) && !(NoWaiting & 2))
-			{
-				BlitScreen(XBuf); blitDone = 1;
-			}
-			Buffer+=can;
-			Count-=can;
-			if(Count) 
-			{
-				if(NoWaiting) 
-				{
-					can=GetWriteSound();
-					if(Count>can) Count=can;
-					#ifdef CREATE_AVI
-					if (!mutecapture)
-					#endif
-					  WriteSound(Buffer,Count);
-				}
-			  	else
-			  	{
-					while(Count>0) 
-					{
-						#ifdef CREATE_AVI
-						if (!mutecapture)
-						#endif
-						  WriteSound(Buffer,(Count<ocount) ? Count : ocount);
-						Count -= ocount;
-					}
-				}
-			}
-		} //else puts("Skipped");
-		//else if (!NoWaiting && FCEUDnetplay && (uflow || tmpcan >= (Count * 1.8))) 
-		//{
-		//	if (Count > tmpcan) Count=tmpcan;
-		//	while(tmpcan > 0) 
-		//	{
-		//		//	printf("Overwrite: %d\n", (Count <= tmpcan)?Count : tmpcan);
-		//		#ifdef CREATE_AVI
-		//		if (!mutecapture)
-		//		#endif
-		//		  WriteSound(Buffer, (Count <= tmpcan)?Count : tmpcan);
-		//		tmpcan -= Count;
-		//	}
-		//}
-	}
-  	else 
-	{
-		if (XBuf && (inited&4)) 
-		{
-			BlitScreen(XBuf); blitDone = 1;
-		}
-	}
+	//	//if(uflow) puts("Underflow");
+	//	tmpcan = GetWriteSound();
+	//	// don't underflow when scaling fps
+	//	if (g_fpsScale>1.0 || ((tmpcan < Count*0.90) && !uflow)) 
+	//	{
+	//		if (XBuf && (inited&4) && !(NoWaiting & 2))
+	//		{
+	//			BlitScreen(XBuf); blitDone = 1;
+	//		}
+	//		Buffer+=can;
+	//		Count-=can;
+	//		if(Count) 
+	//		{
+	//			if(NoWaiting) 
+	//			{
+	//				can=GetWriteSound();
+	//				if(Count>can) Count=can;
+	//				#ifdef CREATE_AVI
+	//				if (!mutecapture)
+	//				#endif
+	//				  WriteSound(Buffer,Count);
+	//			}
+	//		  	else
+	//		  	{
+	//				while(Count>0) 
+	//				{
+	//					#ifdef CREATE_AVI
+	//					if (!mutecapture)
+	//					#endif
+	//					  WriteSound(Buffer,(Count<ocount) ? Count : ocount);
+	//					Count -= ocount;
+	//				}
+	//			}
+	//		}
+	//	} //else puts("Skipped");
+	//	//else if (!NoWaiting && FCEUDnetplay && (uflow || tmpcan >= (Count * 1.8))) 
+	//	//{
+	//	//	if (Count > tmpcan) Count=tmpcan;
+	//	//	while(tmpcan > 0) 
+	//	//	{
+	//	//		//	printf("Overwrite: %d\n", (Count <= tmpcan)?Count : tmpcan);
+	//	//		#ifdef CREATE_AVI
+	//	//		if (!mutecapture)
+	//	//		#endif
+	//	//		  WriteSound(Buffer, (Count <= tmpcan)?Count : tmpcan);
+	//	//		tmpcan -= Count;
+	//	//	}
+	//	//}
+	//}
+  	//else 
+	//{
+	//	if (XBuf && (inited&4)) 
+	//	{
+	//		BlitScreen(XBuf); blitDone = 1;
+	//	}
+	//}
 	if ( !blitDone )
 	{
 		if (XBuf && (inited&4)) 
@@ -1241,6 +1249,10 @@ int  fceuWrapperUpdate( void )
 	
 		hexEditorUpdateMemoryValues();
 
+		if ( consoleWindow )
+		{
+			consoleWindow->emulatorThread->signalFrameFinished();
+		}
 		fceuWrapperUnLock();
 
 		emulatorHasMutux = 0;

@@ -38,16 +38,24 @@ static const double Normal  = 1.0;      // 1x speed    (around 60 fps on NTSC)
 static uint32 frameLateCounter = 0;
 static double Lasttime=0, Nexttime=0, Latetime=0;
 static double desired_frametime = (1.0 / 60.099823);
+static double desired_frameRate = (60.099823);
+static double baseframeRate     = (60.099823);
 static double frameDeltaCur = 0.0;
 static double frameDeltaMin = 1.0;
 static double frameDeltaMax = 0.0;
 static double frameIdleCur = 0.0;
 static double frameIdleMin = 1.0;
 static double frameIdleMax = 0.0;
+static double videoLastTs  = 0.0;
+static double videoPeriodCur  = 0.0;
+static double videoPeriodMin  = 1.0;
+static double videoPeriodMax  = 0.0;
 static bool   keepFrameTimeStats = false;
 static int InFrame = 0;
 double g_fpsScale = Normal; // used by sdl.cpp
 bool MaxSpeed = false;
+bool useIntFrameRate = false;
+static double frmRateAdjRatio = 1.000000f; // Frame Rate Adjustment Ratio
 
 double getHighPrecTimeStamp(void)
 {
@@ -176,7 +184,32 @@ int  getFrameTimingStats( struct frameTimingStat_t *stats )
 		stats->frameTimeWork.max = 0;
 	}
 
+	stats->videoTimeDel.tgt = desired_frametime;
+	stats->videoTimeDel.cur = videoPeriodCur;
+	stats->videoTimeDel.min = videoPeriodMin;
+	stats->videoTimeDel.max = videoPeriodMax;
+
 	return 0;
+}
+
+void videoBufferSwapMark(void)
+{
+	if ( keepFrameTimeStats )
+	{
+		double ts = getHighPrecTimeStamp();
+
+		videoPeriodCur = ts - videoLastTs;
+
+		if ( videoPeriodCur < videoPeriodMin )
+		{
+			videoPeriodMin = videoPeriodCur;
+		}
+		if ( videoPeriodCur > videoPeriodMax )
+		{
+			videoPeriodMax = videoPeriodCur;
+		}
+		videoLastTs = ts;
+	}
 }
 
 void resetFrameTiming(void)
@@ -186,6 +219,8 @@ void resetFrameTiming(void)
 	frameDeltaMin = 1.0;
 	frameIdleMax = 0.0;
 	frameIdleMin = 1.0;
+	videoPeriodMin = 1.0;
+	videoPeriodMax = 0.0;
 }
 
 /* LOGMUL = exp(log(2) / 3)
@@ -204,19 +239,35 @@ void resetFrameTiming(void)
 void
 RefreshThrottleFPS(void)
 {
-   double hz;
+	double hz;
 	int32_t fps = FCEUI_GetDesiredFPS(); // Do >> 24 to get in Hz
 	int32_t T;
 
-   hz = ( ((double)fps) / 16777216.0 );
+	hz = ( ((double)fps) / 16777216.0 );
 
 	desired_frametime = 1.0 / ( hz * g_fpsScale );
+
+	if ( useIntFrameRate )
+	{
+		hz = (double)( (int)(hz) );
+
+		frmRateAdjRatio = (1.0 / ( hz * g_fpsScale )) / desired_frametime;
+
+		//printf("frameAdjRatio:%f \n", frmRateAdjRatio );
+	}
+	else
+	{
+		frmRateAdjRatio = 1.000000f;
+	}
+	desired_frametime = 1.0 / ( hz * g_fpsScale );
+	desired_frameRate = ( hz * g_fpsScale );
+	baseframeRate = hz;
 
 	T = (int32_t)( desired_frametime * 1000.0 );
 
 	if ( T < 0 ) T = 1;
 
-   //printf("FrameTime: %llu  %llu  %f  %lf \n", fps, fps >> 24, hz, desired_frametime );
+	//printf("FrameTime: %llu  %llu  %f  %lf \n", fps, fps >> 24, hz, desired_frametime );
 
 	Lasttime=0;   
 	Nexttime=0;
@@ -226,6 +277,21 @@ RefreshThrottleFPS(void)
 	setTimer( hz * g_fpsScale );
 #endif
 
+}
+
+double getBaseFrameRate(void)
+{
+	return baseframeRate;
+}
+
+double getFrameRate(void)
+{
+	return desired_frameRate;
+}
+
+double getFrameRateAdjustmentRatio(void)
+{
+	return frmRateAdjRatio;
 }
 
 int highPrecSleep( double timeSeconds )

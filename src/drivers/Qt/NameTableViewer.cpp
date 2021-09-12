@@ -40,6 +40,7 @@
 #include "../../debug.h"
 #include "../../palette.h"
 
+#include "Qt/ColorMenu.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/NameTableViewer.h"
@@ -105,6 +106,9 @@ int openNameTableViewWindow( QWidget *parent )
 {
 	if ( nameTableViewWindow != NULL )
 	{
+		nameTableViewWindow->activateWindow();
+		nameTableViewWindow->raise();
+		nameTableViewWindow->setFocus();
 		return -1;
 	}
 	initNameTableViewer();
@@ -145,8 +149,10 @@ ppuNameTableViewerDialog_t::ppuNameTableViewerDialog_t(QWidget *parent)
 	QActionGroup *group;
 	QLabel *lbl;
 	QFont   font;
+	//QShortcut *shortcut;
 	//char stmp[64];
 	int useNativeMenuBar, pxCharWidth;
+	ColorMenuItem *tileSelColorAct, *tileGridColorAct, *attrGridColorAct;
 
 	font.setFamily("Courier New");
 	font.setStyle( QFont::StyleNormal );
@@ -160,6 +166,12 @@ ppuNameTableViewerDialog_t::ppuNameTableViewerDialog_t(QWidget *parent)
 #endif
 
 	nameTableViewWindow = this;
+
+	g_config->getOption("SDL.NT_DrawScrollLines",   &drawScrollLines);
+	g_config->getOption("SDL.NT_DrawTileGridLines", &drawTileGridLines);
+	g_config->getOption("SDL.NT_DrawAttrGridLines", &drawAttrGridLines);
+	g_config->getOption("SDL.NT_DrawAttrbView",     &attview);
+	g_config->getOption("SDL.NT_IgnoreHidePal",     &hidepal);
 
 	menuBar = new QMenuBar(this);
 
@@ -233,10 +245,33 @@ ppuNameTableViewerDialog_t::ppuNameTableViewerDialog_t(QWidget *parent)
 	act = new QAction(tr("&Ignore Palette"), this);
 	//act->setShortcut(QKeySequence::Open);
 	act->setCheckable(true);
-	act->setChecked(attview);
+	act->setChecked(hidepal);
 	act->setStatusTip(tr("Ignore Palette"));
 	connect(act, SIGNAL(triggered(bool)), this, SLOT(menuIgnPalChanged(bool)) );
 	ignPalAct = act;
+
+	viewMenu->addAction(act);
+
+	viewMenu->addSeparator();
+
+	// View -> Zoom In
+	act = new QAction(tr("Zoom &In"), this);
+	//act->setShortcut(QKeySequence::ZoomIn);
+	act->setShortcut( QKeySequence("="));
+	act->setStatusTip(tr("Zoom In"));
+	connect(act, SIGNAL(triggered(void)), this, SLOT(zoomIn(void)) );
+
+	new QShortcut( QKeySequence("+"), this );
+
+	viewMenu->addAction(act);
+
+	// View -> Zoom Out
+	act = new QAction(tr("Zoom &Out"), this);
+	//act->setShortcut(QKeySequence::ZoomOut);
+	act->setShortcut( QKeySequence("-") );
+	act->setStatusTip(tr("Zoom Out"));
+	connect(act, SIGNAL(triggered(void)), this, SLOT(zoomOut(void)) );
+
 
 	viewMenu->addAction(act);
 
@@ -322,6 +357,8 @@ ppuNameTableViewerDialog_t::ppuNameTableViewerDialog_t(QWidget *parent)
 	        group->addAction(rateAct[i]);
 		subMenu->addAction(rateAct[i]);
 	}
+	g_config->getOption("SDL.NT_RefreshFrames", &NTViewRefresh);
+
 	rateAct[0]->setChecked( NTViewRefresh == 0  );
 	rateAct[1]->setChecked( NTViewRefresh == 1  );
 	rateAct[2]->setChecked( NTViewRefresh == 3  );
@@ -338,28 +375,21 @@ ppuNameTableViewerDialog_t::ppuNameTableViewerDialog_t(QWidget *parent)
 	colorMenu = menuBar->addMenu(tr("&Colors"));
 
 	// Colors -> Tile Selector
-	act = new QAction(tr("Tile &Selector"), this);
-	//act->setShortcut(QKeySequence::Open);
-	act->setStatusTip(tr("Tile Selector"));
-	connect(act, SIGNAL(triggered()), this, SLOT(setTileSelectorColor()) );
+	tileSelColorAct = new ColorMenuItem(tr("Tile &Selector"), "SDL.NT_TileSelColor", this);
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(tileSelColorAct);
 
 	// Colors -> Tile Grid
-	act = new QAction(tr("Tile &Grid"), this);
-	//act->setShortcut(QKeySequence::Open);
-	act->setStatusTip(tr("Tile Grid"));
-	connect(act, SIGNAL(triggered()), this, SLOT(setTileGridColor()) );
+	tileGridColorAct = new ColorMenuItem(tr("Tile &Grid"), "SDL.NT_TileGridColor", this);
+	//connect(act, SIGNAL(triggered()), this, SLOT(setTileGridColor()) );
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(tileGridColorAct);
 
 	// Colors -> Attr Grid
-	act = new QAction(tr("&Attr Grid"), this);
-	//act->setShortcut(QKeySequence::Open);
-	act->setStatusTip(tr("Attr Grid"));
-	connect(act, SIGNAL(triggered()), this, SLOT(setAttrGridColor()) );
+	attrGridColorAct = new ColorMenuItem(tr("&Attr Grid"), "SDL.NT_AttrGridColor", this);
+	//connect(act, SIGNAL(triggered()), this, SLOT(setAttrGridColor()) );
 	
-	colorMenu->addAction(act);
+	colorMenu->addAction(attrGridColorAct);
 
 	//-----------------------------------------------------------------------
 	// End Menu 
@@ -512,6 +542,8 @@ ppuNameTableViewerDialog_t::ppuNameTableViewerDialog_t(QWidget *parent)
 
 	hbox     = new QHBoxLayout();
 
+	g_config->getOption("SDL.NT_ViewScanLine", &NTViewScanline);
+
 	scanLineEdit = new QSpinBox();
 	scanLineEdit->setRange( 0, 255 );
 	scanLineEdit->setValue( NTViewScanline );
@@ -533,13 +565,23 @@ ppuNameTableViewerDialog_t::ppuNameTableViewerDialog_t(QWidget *parent)
 	updateMirrorText();
 	refreshMenuSelections();
 
+	 tileSelColorAct->connectColor( &ntView->tileSelColor );
+	tileGridColorAct->connectColor( &ntView->tileGridColor );
+	attrGridColorAct->connectColor( &ntView->attrGridColor );
+
 	restoreGeometry(settings.value("ntViewer/geometry").toByteArray());
+
+	connect( this, SIGNAL(rejected(void)), this, SLOT(deleteLater(void)));
 }
 //----------------------------------------------------
 ppuNameTableViewerDialog_t::~ppuNameTableViewerDialog_t(void)
 {
+	QSettings settings;
+
 	updateTimer->stop();
 	nameTableViewWindow = NULL;
+
+	settings.setValue("ntViewer/geometry", saveGeometry());
 
 	//printf("Name Table Viewer Window Deleted\n");
 }
@@ -605,6 +647,20 @@ void ppuNameTableViewerDialog_t::periodicUpdate(void)
 
 }
 //----------------------------------------------------
+void ppuNameTableViewerDialog_t::zoomIn(void)
+{
+	ntView->setViewScale( ntView->getViewScale() + 1 );
+
+	refreshMenuSelections();
+}
+//----------------------------------------------------
+void ppuNameTableViewerDialog_t::zoomOut(void)
+{
+	ntView->setViewScale( ntView->getViewScale() - 1 );
+
+	refreshMenuSelections();
+}
+//----------------------------------------------------
 void ppuNameTableViewerDialog_t::changeZoom1x(void)
 {
 	ntView->setViewScale(1);
@@ -657,6 +713,7 @@ void ppuNameTableViewerDialog_t::changeRate( int divider )
 	{
 		NTViewRefresh = 1;
 	}
+	g_config->setOption("SDL.NT_RefreshFrames", NTViewRefresh);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::changeRate1(void)
@@ -778,6 +835,7 @@ void ppuNameTableViewerDialog_t::scanLineChanged(int val)
 {
 	NTViewScanline = val;
 	//printf("ScanLine:  %i\n", NTViewScanline );
+	g_config->setOption("SDL.NT_ViewScanLine", NTViewScanline);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::menuScrollLinesChanged(bool checked)
@@ -785,6 +843,8 @@ void ppuNameTableViewerDialog_t::menuScrollLinesChanged(bool checked)
 	drawScrollLines = checked;
 
 	showScrollLineCbox->setChecked( checked );
+
+	g_config->setOption("SDL.NT_DrawScrollLines", drawScrollLines);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::menuTileGridLinesChanged(bool checked)
@@ -792,6 +852,8 @@ void ppuNameTableViewerDialog_t::menuTileGridLinesChanged(bool checked)
 	drawTileGridLines = checked;
 
 	showTileGridCbox->setChecked( checked );
+
+	g_config->setOption("SDL.NT_DrawTileGridLines", drawTileGridLines);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::menuAttrGridLinesChanged(bool checked)
@@ -799,6 +861,8 @@ void ppuNameTableViewerDialog_t::menuAttrGridLinesChanged(bool checked)
 	drawAttrGridLines = checked;
 
 	showAttrGridCbox->setChecked( checked );
+
+	g_config->setOption("SDL.NT_DrawAttrGridLines", drawAttrGridLines);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::menuAttributesChanged(bool checked)
@@ -806,6 +870,8 @@ void ppuNameTableViewerDialog_t::menuAttributesChanged(bool checked)
 	attview = checked;
 
 	showAttrbCbox->setChecked( checked );
+
+	g_config->setOption("SDL.NT_DrawAttrbView", attview);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::menuIgnPalChanged(bool checked)
@@ -813,40 +879,8 @@ void ppuNameTableViewerDialog_t::menuIgnPalChanged(bool checked)
 	hidepal = checked;
 
 	ignorePaletteCbox->setChecked( checked );
-}
-//----------------------------------------------------
-void ppuNameTableViewerDialog_t::openColorPicker( QColor *c )
-{
-	int ret;
-	QColorDialog dialog( this );
 
-	dialog.setCurrentColor( *c );
-	dialog.setOption( QColorDialog::DontUseNativeDialog, true );
-	ret = dialog.exec();
-
-	if ( ret == QDialog::Accepted )
-	{
-		//QString colorText;
-		//colorText = dialog.selectedColor().name();
-		//printf("FG Color string '%s'\n", colorText.toStdString().c_str() );
-		//g_config->setOption("SDL.HexEditFgColor", colorText.toStdString().c_str() );
-		*c = dialog.selectedColor();
-	}
-}
-//----------------------------------------------------
-void ppuNameTableViewerDialog_t::setTileSelectorColor(void)
-{
-	openColorPicker( &ntView->tileSelColor );
-}
-//----------------------------------------------------
-void ppuNameTableViewerDialog_t::setTileGridColor(void)
-{
-	openColorPicker( &ntView->tileGridColor );
-}
-//----------------------------------------------------
-void ppuNameTableViewerDialog_t::setAttrGridColor(void)
-{
-	openColorPicker( &ntView->attrGridColor );
+	g_config->setOption("SDL.NT_IgnoreHidePal", hidepal);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::showScrollLinesChanged(int state)
@@ -854,6 +888,8 @@ void ppuNameTableViewerDialog_t::showScrollLinesChanged(int state)
 	drawScrollLines = (state != Qt::Unchecked);
 
 	showScrollLineAct->setChecked( drawScrollLines );
+
+	g_config->setOption("SDL.NT_DrawScrollLines", drawScrollLines);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::showTileGridChanged(int state)
@@ -861,6 +897,8 @@ void ppuNameTableViewerDialog_t::showTileGridChanged(int state)
 	drawTileGridLines = (state != Qt::Unchecked);
 
 	showTileGridAct->setChecked( drawTileGridLines );
+
+	g_config->setOption("SDL.NT_DrawTileGridLines", drawTileGridLines);
 
 	redrawtables = true;
 }
@@ -871,6 +909,8 @@ void ppuNameTableViewerDialog_t::showAttrGridChanged(int state)
 
 	showAttrGridAct->setChecked( drawAttrGridLines );
 
+	g_config->setOption("SDL.NT_DrawAttrGridLines", drawAttrGridLines);
+
 	redrawtables = true;
 }
 //----------------------------------------------------
@@ -879,6 +919,8 @@ void ppuNameTableViewerDialog_t::showAttrbChanged(int state)
 	attview = (state != Qt::Unchecked);
 
 	showAttributesAct->setChecked( attview );
+
+	g_config->setOption("SDL.NT_DrawAttrbView", attview);
 }
 //----------------------------------------------------
 void ppuNameTableViewerDialog_t::ignorePaletteChanged(int state)
@@ -886,6 +928,8 @@ void ppuNameTableViewerDialog_t::ignorePaletteChanged(int state)
 	hidepal = (state != Qt::Unchecked);
 
 	ignPalAct->setChecked( hidepal );
+
+	g_config->setOption("SDL.NT_IgnoreHidePal", hidepal);
 }
 //----------------------------------------------------
 ppuNameTableView_t::ppuNameTableView_t(QWidget *parent)
@@ -918,6 +962,10 @@ ppuNameTableView_t::ppuNameTableView_t(QWidget *parent)
 	tileSelColor.setRgb(255,255,255);
 	tileGridColor.setRgb(255,  0,  0);
 	attrGridColor.setRgb(  0,  0,255);
+
+	fceuLoadConfigColor("SDL.NT_TileSelColor" , &tileSelColor  );
+	fceuLoadConfigColor("SDL.NT_TileGridColor", &tileGridColor );
+	fceuLoadConfigColor("SDL.NT_AttrGridColor", &attrGridColor );
 
 	g_config->getOption("SDL.NT_TileFocusPolicy", &hover2Focus );
 }
@@ -1110,23 +1158,24 @@ void ppuNameTableView_t::computeNameTableProperties( int NameTable, int TileX, i
 //----------------------------------------------------
 void ppuNameTableView_t::keyPressEvent(QKeyEvent *event)
 {
-	if ( (event->key() == Qt::Key_Minus) || (event->key() == Qt::Key_Underscore) )
-	{
-		setViewScale( viewScale-1 );
+	//if ( (event->key() == Qt::Key_Minus) || (event->key() == Qt::Key_Underscore) )
+	//{
+	//	setViewScale( viewScale-1 );
 
-		parent->refreshMenuSelections();
+	//	parent->refreshMenuSelections();
 
-		event->accept();
-	}
-	else if ( (event->key() == Qt::Key_Plus) || (event->key() == Qt::Key_Equal) )
-	{
-		setViewScale( viewScale+1 );
+	//	event->accept();
+	//}
+	//else if ( (event->key() == Qt::Key_Plus) || (event->key() == Qt::Key_Equal) )
+	//{
+	//	setViewScale( viewScale+1 );
 
-		parent->refreshMenuSelections();
+	//	parent->refreshMenuSelections();
 
-		event->accept();
-	}
-	else if ( event->key() == Qt::Key_Up )
+	//	event->accept();
+	//}
+	//else if ( event->key() == Qt::Key_Up )
+	if ( event->key() == Qt::Key_Up )
 	{
 		int y = selTile.y();
 

@@ -51,6 +51,7 @@ class  emulatorThread_t : public QThread
 		int getMinSchedPriority(void);
 		int getMaxSchedPriority(void);
 		#endif
+		void signalFrameFinished(void);
 	private:
 		void init(void);
 
@@ -60,7 +61,8 @@ class  emulatorThread_t : public QThread
 		#endif
 
 	signals:
-		void finished();
+		void finished(void);
+		void frameFinished(void);
 };
 
 class  consoleMenuBar : public QMenuBar
@@ -150,6 +152,8 @@ class  consoleWin_t : public QMainWindow
 
 		int loadVideoDriver( int driverId );
 
+		double getRefreshRate(void){ return refreshRate; }
+
 		emulatorThread_t *emulatorThread;
 		AviRecordDiskThread_t *aviDiskThread;
 
@@ -165,6 +169,11 @@ class  consoleWin_t : public QMainWindow
 		Qt::CursorShape getViewerCursor(void);
 
 		void setMenuAccessPauseEnable(bool enable);
+		void setContextMenuEnable(bool enable);
+		void setSoundUseGlobalFocus(bool enable);
+
+		void OpenHelpWindow(std::string subpage = "");
+
 	protected:
 		consoleMenuBar *menubar;
 
@@ -197,6 +206,7 @@ class  consoleWin_t : public QMainWindow
 		QAction *timingConfig;
 		QAction *movieConfig;
 		QAction *autoResume;
+		QAction *winSizeAct[4];
 		QAction *fullscreen;
 		QAction *aboutAct;
 		QAction *aboutActQt;
@@ -228,7 +238,6 @@ class  consoleWin_t : public QMainWindow
 		QAction *playMovBeginAct;
 		QAction *stopMovAct;
 		QAction *recMovAct;
-		QAction *recAsMovAct;
 		QAction *region[3];
 		QAction *ramInit[4];
 		QAction *recAviAct;
@@ -237,6 +246,8 @@ class  consoleWin_t : public QMainWindow
 		QAction *recWavAct;
 		QAction *recAsWavAct;
 		QAction *stopWavAct;
+		QAction *aviHudAct;
+		QAction *aviMsgAct;
 
 		QTimer  *gameTimer;
 
@@ -249,20 +260,29 @@ class  consoleWin_t : public QMainWindow
 		bool        mainMenuEmuWasPaused;
 		bool        mainMenuPauseWhenActv;
 		bool        scrHandlerConnected;
+		bool        contextMenuEnable;
+		bool        soundUseGlobalFocus;
 
 		std::list <std::string*> romList;
 		std::vector <autoFireMenuAction*> afActList;
 		autoFireMenuAction *afActCustom;
 
+		double       refreshRate;
 		unsigned int updateCounter;
+#ifdef WIN32
+		HWND   helpWin;
+#else
+		int    helpWin;
+#endif
 	protected:
-		void resizeEvent(QResizeEvent *event);
-		void closeEvent(QCloseEvent *event);
-		void keyPressEvent(QKeyEvent *event);
-		void keyReleaseEvent(QKeyEvent *event);
-		void dragEnterEvent(QDragEnterEvent *event);
-		void dropEvent(QDropEvent *event);
-		void showEvent(QShowEvent *event);
+		void resizeEvent(QResizeEvent *event) override;
+		void closeEvent(QCloseEvent *event) override;
+		void keyPressEvent(QKeyEvent *event) override;
+		void keyReleaseEvent(QKeyEvent *event) override;
+		void dragEnterEvent(QDragEnterEvent *event) override;
+		void dropEvent(QDropEvent *event) override;
+		void showEvent(QShowEvent *event) override;
+		void contextMenuEvent(QContextMenuEvent *event) override;
 		void syncActionConfig( QAction *act, const char *property );
 		void showErrorMsgWindow(void);
 
@@ -277,7 +297,10 @@ class  consoleWin_t : public QMainWindow
 		void changeState(int slot);
 		void saveState(int slot);
 		void loadState(int slot);
+		void transferVideoBuffer(void);
 		void syncAutoFirePatternMenu(void);
+
+		std::string findHelpFile(void);
 
 	public slots:
 		void openDebugWindow(void);
@@ -285,6 +308,8 @@ class  consoleWin_t : public QMainWindow
 		void openGamePadConfWin(void);
 		void toggleFullscreen(void);
 		void toggleMenuVis(void);
+		void recordMovie(void);
+		void winResizeIx(int iScale);
 	private slots:
 		void closeApp(void);
 		void openROMFile(void);
@@ -297,6 +322,7 @@ class  consoleWin_t : public QMainWindow
 		void aboutFCEUX(void);
 		void aboutQt(void);
 		void openOnlineDocs(void);
+		void openOfflineDocs(void);
 		void openMsgLogWin(void);
 		void openInputConfWin(void);
 		void openGameSndConfWin(void);
@@ -333,6 +359,7 @@ class  consoleWin_t : public QMainWindow
 		void consolePause(void);
 		void toggleGameGenie(bool checked);
 		void loadGameGenieROM(void);
+		void loadMostRecentROM(void);
 		void setRegionNTSC(void);
 		void setRegionPAL(void);
 		void setRegionDendy(void);
@@ -361,8 +388,6 @@ class  consoleWin_t : public QMainWindow
 		void openRamSearch(void);
 		void openMovie(void);
 		void stopMovie(void);
-		void recordMovie(void);
-		void recordMovieAs(void);
 		void playMovieFromBeginning(void);
 		void setCustomAutoFire(void);
 		void incrSoundVolume(void);
@@ -403,12 +428,17 @@ class  consoleWin_t : public QMainWindow
 		void aviRecordStart(void);
 		void aviRecordAsStart(void);
 		void aviRecordStop(void);
+		void aviDebugFile(void);
 		void aviAudioEnableChange(bool);
 		void aviVideoFormatChanged(int idx);
+		void setAviHudEnable(bool);
+		void setAviMsgEnable(bool);
 		void wavRecordStart(void);
 		void wavRecordAsStart(void);
 		void wavRecordStop(void);
 		void winScreenChanged( QScreen *scr );
+		void winActiveChanged(void);
+		void emuFrameFinish(void);
 
 };
 
