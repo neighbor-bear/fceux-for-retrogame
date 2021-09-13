@@ -13,7 +13,7 @@ typedef struct _setting_entry {
 #include "control_settings.cpp"
 #include "overclock_settings.cpp"
 
-#define SETTINGS_MENUSIZE 5
+#define SETTINGS_MENUSIZE 6
 
 static int cmd_main_settings() {
 	return RunMainSettings();
@@ -46,7 +46,7 @@ static MenuEntry
 		{ "Video Setup", "Change video config", cmd_video_settings },
 		{ "Sound Setup", "Change sound config", cmd_sound_settings },
 		{ "Control Setup", "Change control config", cmd_control_settings },
-	    { "Overclock", "Change NES overclock settings", cmd_oc_settings },
+		{ "Overclock", "Change NES overclock settings", cmd_oc_settings },
 		{ "Save config as default",	"Override default config", cmd_config_save } };
 
 int RunSettingsMenu() {
