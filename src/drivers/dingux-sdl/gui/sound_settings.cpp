@@ -233,7 +233,7 @@ int RunSoundSettings() {
 
 			// Draw menu
 			for (i = offset_start, y = 72; i < offset_end; i++, y += 15) {
-				DrawText(gui_screen, sd_menu[i].name, 60, y);
+				DrawText(gui_screen, sd_menu[i].name, OPTION_LABEL_COLUMN, y);
 
 				g_config->getOption(sd_menu[i].option, &itmp);
 
@@ -242,7 +242,7 @@ int RunSoundSettings() {
 					sprintf(tmp, "%s", itmp ? "on" : "off");
 				} else
 					sprintf(tmp, "%d", itmp);
-				DrawText(gui_screen, tmp, 210, y);
+				DrawText(gui_screen, tmp, OPTION_VALUE_COLUMN, y);
 			}
 
 			// Draw info

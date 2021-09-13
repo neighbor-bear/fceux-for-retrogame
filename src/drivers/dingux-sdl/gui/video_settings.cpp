@@ -179,7 +179,7 @@ int RunVideoSettings()
 
 			// Draw menu
 			for(i=0,y=72;i < 8;i++,y+=15) {
-				DrawText(gui_screen, vd_menu[i].name, 60, y);
+				DrawText(gui_screen, vd_menu[i].name, OPTION_LABEL_COLUMN, y);
 		
 				g_config->getOption(vd_menu[i].option, &itmp);
 				if (!strncmp(vd_menu[i].name, "Video scaling", 5)) {
@@ -192,7 +192,7 @@ int RunVideoSettings()
 				}
 				else sprintf(tmp, "%d", itmp);
 
-				DrawText(gui_screen, tmp, 210, y);
+				DrawText(gui_screen, tmp, OPTION_VALUE_COLUMN, y);
 			}
 
 			// Draw info

@@ -228,7 +228,7 @@ int RunMainSettings() {
 
 			// Draw menu
 			for (i = offset_start, y = 72; i < offset_end; i++, y += 15) {
-				DrawText(gui_screen, st_menu[i].name, 60, y);
+				DrawText(gui_screen, st_menu[i].name, OPTION_LABEL_COLUMN, y);
 
 				g_config->getOption(st_menu[i].option, &itmp);
 
@@ -249,7 +249,7 @@ int RunMainSettings() {
 					sprintf(tmp, "%d", itmp);
 				} else
 					sprintf(tmp, "%s", itmp ? "on" : "off");
-				DrawText(gui_screen, tmp, 210, y);
+				DrawText(gui_screen, tmp, OPTION_VALUE_COLUMN, y);
 			}
 
 			// Draw info

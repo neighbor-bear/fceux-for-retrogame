@@ -270,7 +270,7 @@ int RunControlSettings()
 				char cBtn[32];
 				int mergeValue;
 
-				DrawText(gui_screen, cm_menu[i].name, 60, y);
+				DrawText(gui_screen, cm_menu[i].name, OPTION_LABEL_COLUMN, y);
 				
 				g_config->getOption(cm_menu[i].option, &iBtnVal);
 
@@ -319,7 +319,7 @@ int RunControlSettings()
 					sprintf(cBtn, "%s", "<empty>");
 
 
-				DrawText(gui_screen, cBtn, 210, y);
+				DrawText(gui_screen, cBtn, OPTION_VALUE_COLUMN, y);
 				
 			}
 
