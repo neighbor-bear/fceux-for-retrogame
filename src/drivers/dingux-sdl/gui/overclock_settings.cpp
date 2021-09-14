@@ -32,24 +32,24 @@ static void skip7bitoc_update(unsigned long key)
 static void vblanksls_update(unsigned long key)
 {
 	int val;
-	g_config->getOption("SDL.VBlankScanLines", &val);
+	g_config->getOption("SDL.VBlankScanlines", &val);
 
 	if (key == DINGOO_RIGHT) val = val < 520 ? val+10 : 520;
 	if (key == DINGOO_LEFT) val = val > 0 ? val-10 : 0;
 
-	g_config->setOption("SDL.VBlankScanLines", val);
+	g_config->setOption("SDL.VBlankScanlines", val);
 }
 
 // Post-render Scanlines
 static void postrendersls_update(unsigned long key)
 {
 	int val;
-	g_config->getOption("SDL.PostRenderScanLines", &val);
+	g_config->getOption("SDL.PostRenderScanlines", &val);
 
 	if (key == DINGOO_RIGHT) val = val < 520 ? val+10 : 520;
 	if (key == DINGOO_LEFT) val = val > 0 ? val-10 : 0;
 
-	g_config->setOption("SDL.PostRenderScanLines", val);
+	g_config->setOption("SDL.PostRenderScanlines", val);
 }
 
 /* TIMING SETTINGS MENU */
@@ -57,8 +57,8 @@ static SettingEntry oc_menu[] =
 {
 	{ "Overclock Enabled", "Enables Overclock settings", "SDL.OverclockEnabled", ocenabled_update },
 	{ "Skip 7bit overclocking", "Don't Overclock 7bit samples", "SDL.Skip7BitOverclocking", skip7bitoc_update },
-	{ "VBlank Scanlines", "# of extra VBlank scanlines", "SDL.VBlankScanLines", vblanksls_update },
-	{ "Post-rend Scanlines", "# of post-render scanlines", "SDL.PostRenderScanLines", postrendersls_update },
+	{ "VBlank Scanlines", "# of extra VBlank scanlines", "SDL.VBlankScanlines", vblanksls_update },
+	{ "Post-rend Scanlines", "# of post-render scanlines", "SDL.PostRenderScanlines", postrendersls_update },
 };
 
 int RunOverclockSettings()

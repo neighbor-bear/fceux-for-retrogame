@@ -158,8 +158,8 @@ Config * InitConfig() {
     // overclocking settings
     config->addOption("ocenabled", "SDL.OverclockEnabled", 0);
     config->addOption("skip7bitoc", "SDL.Skip7BitOverclocking", 0);
-    config->addOption("vblanksls", "SDL.VBlankScanLines", 0);
-    config->addOption("postrendersls", "SDL.PostRenderScanLines", 0);
+    config->addOption("vblanksls", "SDL.VBlankScanlines", 0);
+    config->addOption("postrendersls", "SDL.PostRenderScanlines", 0);
 
 	// video controls
 	config->addOption('x', "xres", "SDL.XResolution", 320);
@@ -471,7 +471,7 @@ void UpdateEMUCore(Config *config) {
     overclock_enabled = flag ? true : false;
     config->getOption("SDL.Skip7BitOverclocking", &flag);
     skip_7bit_overclocking = flag ? true : false;
-    config->getOption("SDL.VBlankScanLines", &vblankscanlines);
+    config->getOption("SDL.VBlankScanlines", &vblankscanlines);
     config->getOption("SDL.PostRenderScanlines", &postrenderscanlines);
     totalscanlines = normalscanlines + (overclock_enabled ? postrenderscanlines : 0);
 }
