@@ -171,7 +171,7 @@ int RunOverclockSettings()
 					sprintf(tmp, "%s", itmp ? "on" : "off");
 				} else if(!strncmp(oc_menu[i].name, "Skip 7bit overclocking", 22)) {
 					sprintf(tmp, "%s", itmp ? "on" : "off");
-                }
+				}
 				else sprintf(tmp, "%d", itmp);
 
 				DrawText(gui_screen, tmp, OPTION_VALUE_COLUMN, y);
