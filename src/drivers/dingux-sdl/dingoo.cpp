@@ -291,9 +291,6 @@ static void DoFun(int fskip) {
 	uint8 *gfx;
 	int32 *sound;
 	int32 ssize;
-	extern uint8 PAL;
-	int done = 0, timer = 0, ticks = 0, tick = 0, fps = 0;
-	unsigned int frame_limit = 60, frametime = 16667;
 
 	while (GameInfo) {
 		/* Frameskip decision based on the audio buffer */
