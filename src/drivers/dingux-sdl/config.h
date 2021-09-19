@@ -3,9 +3,6 @@
 
 #include "../common/configSys.h"
 
-#define OPTION_LABEL_COLUMN	60
-#define OPTION_VALUE_COLUMN	220
-
 Config *InitConfig(void);
 void UpdateEMUCore(Config *);
 int LoadCPalette(const std::string &file);

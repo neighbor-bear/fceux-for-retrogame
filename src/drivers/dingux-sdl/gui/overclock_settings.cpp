@@ -2,10 +2,6 @@
 // Externals
 extern Config *g_config;
 
-// Keys states
-#include "../keyscan.h"
-static uint8 *g_keyState = 0;
-
 #define DEFAULT_STEP_VALUE	    10
 #define SCANLINES_PER_FRAME	    262
 #define MAX_POSTRENDER_SCANLINES    (SCANLINES_PER_FRAME*3)

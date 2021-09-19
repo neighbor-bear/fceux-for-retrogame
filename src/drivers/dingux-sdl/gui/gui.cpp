@@ -11,6 +11,9 @@
 
 #include "font.h"
 
+#define OPTION_LABEL_COLUMN	60
+#define OPTION_VALUE_COLUMN	220
+
 // ...
 extern SDL_Surface* screen;
 extern int RunFileBrowser(char *source, char *romname, const char *types[],
@@ -35,6 +38,7 @@ static int g_romtype;
 static unsigned long g_key = 0, last_key;
 static int counter = 0;
 static Config *oldConfig=NULL;
+static uint8 *g_keyState = 0;
 
 void FCEUGUI_Flip()
 {
@@ -107,6 +111,7 @@ int update_time()
 }
 
 // Include additional files
+#include "gui_submenu.cpp"
 #include "file_browser.cpp"
 #include "settings_menu.cpp"
 #include "cheat_browser.cpp"

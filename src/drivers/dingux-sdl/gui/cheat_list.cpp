@@ -47,19 +47,42 @@ CheatList::Add(char *name, uint32 a, uint8 v, int c, int s, int type, void *data
 int 
 CheatList::ToggleCheat(uint32 which) { 
     int status = FCEUI_ToggleCheat(which); 
-    if (status >= 0) 
+    if (status >= 0) {
 	cheats[which].status = status; 
-    return status; 
+	return (1);
+    } else {
+	return (0);
+    }
 }
 
 int 
-CheatList::LoadCheats(const char *filename) {
+CheatList::DelCheat(uint32 which) {
+    if (this->IsActive(which)) 
+	this->ToggleCheat(which);
+    int status = FCEUI_DelCheat(which); 
+    if (status) 
+	cheats.erase(cheats.begin() + which); 
+    return (status); 
+}
+
+int 
+CheatList::DelAllCheats(void) {
+    FCEU_DisableAllCheats();
+    FCEU_DeleteAllCheats();
+    cheats.clear();
+    return (1);
+}
+
+int 
+CheatList::LoadCheats(const char *filename, bool importing) {
     FILE *fp = fopen (filename, "r");
     if (fp == NULL)
 	return -1;
 
     FCEU_LoadGameCheats (fp, 1);
     fclose (fp);
+    if (importing)
+	savecheats = 1;
     
     FCEUI_ListCheats(listcallb, (void *)this);
     

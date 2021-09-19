@@ -29,11 +29,13 @@ class CheatList
 	const char *GetLabel(int index);
         const char *GetName(int index)  { return cheats[index].name.c_str(); }
 	const char *GetCode(int index)  { return cheats[index].codeStr.c_str(); }
-	int LoadCheats(const char *filename);
+	int LoadCheats(const char *filename, bool importing=false);
         int Size() { return cheats.size(); }
 	int Add(char *name, uint32 a, uint8 v, int c, int s, int type, void *data);
 	bool IsActive(int index) { return cheats[index].status ? true : false; }
 	int ToggleCheat(uint32 which);
+	int DelCheat(uint32 which);
+	int DelAllCheats(void);
 
     protected:
 	std::vector<CheatData> cheats;
