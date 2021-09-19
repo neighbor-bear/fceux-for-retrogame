@@ -5,8 +5,8 @@ Built on: RELEASE_DATE
 FCEUX is a cross platform, NTSC and PAL Famicom/NES and Dendy emulator
 
 This is a build for OpenDingux and RetroFW based on soarqin's 
-fork with additions from gameblabla and pingflood's works and updated
-to the upstream version 2.4.0 (Released 24 June 2021).
+fork with additions from gameblabla, pingflood's and asoderq/sydarn2 works and
+updated to the upstream version 2.4.0 (Released 24 June 2021).
 
 Bios file
 ---------
@@ -69,7 +69,7 @@ Controls
  Up/Down           Move to select cheat
  A                 Enable/disable cheat
  B                 Exit to previous menu
- X                 Exit to emulator
+ X                 Open submenu options
  Y                 Open browser to select a `.cht` file
                    to import. This override current cheats
  Left/Right        Select first/last cheat in current page
@@ -80,6 +80,24 @@ Controls
  Start             Enable/disable cheats globally
  Select            Enable/disable cheatfiles auto load/save
                    golbally
+
+ Controls in Cheat Browser submenu
+ --------------------------------------------------------
+ Up/Down           Move to select option
+ A                 Select option
+ B                 Exit to Cheat Browser
+
+ Controls in Overclock settings
+ --------------------------------------------------------
+ Up/Down           Move to select option
+ Left/Right        Change values for selected option
+                   For VBlank or Post-render options a
+                   default step of 10 scanlines is used
+ A                 Maintain pressed while press left or right.
+                   Change de step value to 1 scanline.
+ Y                 Maintain pressed while press left or right.
+                   Change de step value to 262 scanlines.
+ B                 Go back to previous menu
 
  L1 and R1 is equal to L and R for devices withouth L2 and R2 buttons.
 
@@ -133,7 +151,8 @@ enable/disable a cheat by selecting it and use `A` button.
 If there are no loaded cheats for current rom you can import them from
 a `.cht` file located in any directory. For import use the `Y` button, it
 will init a browser in default ROM folder, navigate to directory where
-desired `.cht` file is located and load it using the `A` button.
+desired `.cht` file is located and load it using the `A` button. You can
+import cheats also from submenu, see below for details.
 
 When a cheat file is imported it will overwrite any cheat previously loaded
 and it will be saved in `$HOME/.fceux/cheats` for future auto load/save.
@@ -142,6 +161,11 @@ Cheats and auto load/save options can be changed in Cheat browser with
 Start and Select buttons respectively. Differently than upstream FCEUX this
 options will be saved in the configuration file. Also take into account that
 these are global options and not per game options.
+
+With `X` button a submenu is open with different options, some of them for
+the selected cheat and other for global operations. From here you can toggle,
+delete selected cheat, delete all, import cheats or enable cheats globally and
+enable autoload/save cheats.
 
 Game Genie
 ----------
@@ -153,10 +177,56 @@ hotkey `R1 + DOWN`.
 
 When toggled a hard reset will be done if a rom was loaded.
 
+Overclock
+----------
+
+*Adapted from FCEUX upstream help*
+
+  - Overclocking (old PPU only)
+
+    Overclocks the console by adding dummy scanlines to the usual PPU loop,
+    causing CPU to run more cycles per frame. Can be done in two different
+    ways: by adding Post-render scanlines (Before NMI in other emulators)
+    and by adding Vblank scanlines (After NMI in other emulators).
+
+    The method to be used depends on the game. Maximum value is 786.
+
+  - Don't overclock 7-bit samples
+
+    Such samples are played by the game at the rate it wants, so by running
+    extra cycles, it will generate extra samples. To prevent those from
+    being sped up, this option allows to cancel all the dummy scanlines
+    once a 7-bit sample starts. This hardly affects gameplay, since such
+    samples cause heavy lag, preventing the game from actually operating,
+    so disabling overclocking during them won't slow the game down.
+
+  - Notes for Opendingux/RetroFW port
+
+    Overclock is limited to a maximum of 786 scanlines. Taking as reference
+    262 scanlines (1 NTSC frame) this is 4x CPU overclock.
+
+    With less power devices, as JZ4760(B), using more than 262 scanlines can
+    produce a real slowdown to emulation and framerate.
+
+    - Tipically use is to use Post-render scanlines, but some games need
+      VBlank scanlines as Kirby's Adventure or Contra force.
+    - The scanlines values to be added depend on the game, but as reference
+      1 NTSC frame is chosen (262 scanlines), but also 240 or 260 scanlines
+      are typically used.
+    - In the overclock settings menu left and right cursors substract or add
+      10 scanlines for Post-Render or Vblank options. Maintaining pressed the
+      `A` button the step value will be 1 scanline and maintaining pressed
+      the `Y` button the step value will be 262 scanlines.
+
 What's new
 ----------
 
- 12 September 2021
+ 19 September 2021
+  - Merged asoderq/sydarn2 overclocking work. As upstream it only works with
+    Old PPU.
+    (See https://github.com/asoderq/fceux-for-retrogame/releases/tag/2021-09-11)
+  - Added submenu in cheat browser with some new actions (delete cheat, delete
+    all cheats) and other already existing options
   - Fixed enabling Scanline start and end when loading a rom.
     For this FCEUD_ReloadConfig is refactored to call UpdateEMUCore, also
     moving enabling autoresume to UpdateEMUCore.
