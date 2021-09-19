@@ -236,12 +236,19 @@ DEVICE = gcw0
 ODVERSION =
 
 DEBUG=no
+PERF=no
+
 ifeq ($(DEBUG),yes)
     LDFLAGS =
     OPTIMIZE =  -O0 -g3
 else
+ifeq ($(PERF),yes)
+    LDFLAGS =
+    OPTIMIZE =  -O3 -ggdb -flto
+else
     LDFLAGS = -s
     OPTIMIZE =  -O3 -flto
+endif
 endif
 ifeq ($(DEVICE),retrofw)
     OPTIMIZE += -mips32
@@ -251,6 +258,16 @@ else
     OPTIMIZE += -mips32r2
 endif
 OPTIMIZE += -ffast-math -ftree-vectorize -fno-strict-aliasing
+ifdef PROFILE_GEN
+ifeq ($(DEVICE),retrofw)
+PROFILE_DIR=/home/retrofw/profile/fceux
+else
+PROFILE_DIR=/media/data/local/home/profile/fceux
+endif
+OPTIMIZE += -fprofile-generate -fprofile-dir=$(PROFILE_DIR)
+else ifdef PROFILE_USE
+OPTIMIZE += -fprofile-use -fprofile-dir=profile/$(DEVICE)
+endif
 
 CC_OPTS	= $(F_OPTS) $(W_OPTS) $(OPTIMIZE)
 
@@ -305,7 +322,9 @@ $(MANUAL): $(DIST_MANUAL)
 $(OPK_TARGET).opk: $(TARGET) $(SYSTEM_DESKTOP) $(MANUAL)
 	@echo Creating bin/$(OPK_TARGET).opk...
 ifeq ($(DEBUG),no)
+ifeq ($(PERF),no)
 	@$(BINDIR)/mipsel-linux-strip bin/$(TARGET)
+endif
 endif
 	@mksquashfs bin/$(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png $(MANUAL) $(SYSTEM_DESKTOP) bin/$(OPK_TARGET).opk -all-root -no-xattrs -noappend -no-exports
 
@@ -335,7 +354,6 @@ $(TARGET): $(OBJS)
 	@mkdir -p bin/
 	@cp src/drivers/dingux-sdl/gui/*.bmp bin/
 	@echo Linking $@...
-	@echo $(LD) $(LDFLAGS) $(OBJS) -o bin/$@
 	$(LD) $(LDFLAGS) $(OBJS) $(LIBS) -o bin/$@
 
 %.o: %.c
