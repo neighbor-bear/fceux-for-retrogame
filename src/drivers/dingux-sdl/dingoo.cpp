@@ -39,6 +39,7 @@
 #include "../common/configSys.h"
 #include "../../oldmovie.h"
 #include "../../types.h"
+#include "nes_shm.h"
 
 #ifdef CREATE_AVI
 #include "../videolog/nesvideos-piece.h"
@@ -80,9 +81,11 @@ int eoptions = 0;
 
 static int fpsthrottle = 0;
 static int frameskip = 0;
+static int periodic_saves = 0;
 
 static void DriverKill(void);
 static int DriverInitialize(FCEUGI *gi);
+uint64 FCEUD_GetTime();
 int gametype = 0;
 #ifdef CREATE_AVI
 int mutecapture;
@@ -287,42 +290,71 @@ int CloseGame() {
 
 void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count);
 
-static void DoFun(int fskip) {
+void DoFun(int frameskip, int periodic_saves)
+{
 	uint8 *gfx;
 	int32 *sound;
 	int32 ssize;
+	static int fskipc = 0;
+	static int opause = 0;
 
-	while (GameInfo) {
-		/* Frameskip decision based on the audio buffer */
-		if (!fpsthrottle) {
-			// Fill up the audio buffer with up to 6 frames dropped.
-			int FramesSkipped = 0;
-			while (GameInfo
-			    && GetBufferedSound() < GetBufferSize() * 3 / 2
-			    && ++FramesSkipped < 6) {
-				FCEUI_Emulate(&gfx, &sound, &ssize, 1);
-				FCEUD_Update(NULL, sound, ssize);
-			}
+	// loop playing the game
+	while(GameInfo)
+	{
+#ifdef RETROFW
+	    /* Frameskip decision based on the audio buffer */
+	    if (!fpsthrottle) {
+		    // Fill up the audio buffer with up to 6 frames dropped.
+		    int FramesSkipped = 0;
+		    while (GameInfo
+			&& GetBufferedSound() < GetBufferSize() * 3 / 2
+			&& ++FramesSkipped < 6) {
+			    FCEUI_Emulate(&gfx, &sound, &ssize, 1);
+			    FCEUD_Update(NULL, sound, ssize);
+		    }
 
-			// Force at least one frame to be displayed.
-			if (GameInfo) {
-				FCEUI_Emulate(&gfx, &sound, &ssize, 0);
-				FCEUD_Update(gfx, sound, ssize);
-			}
+		    // Force at least one frame to be displayed.
+		    if (GameInfo) {
+			    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
+			    FCEUD_Update(gfx, sound, ssize);
+		    }
 
-			// Then render all frames while audio is sufficient.
-			while (GameInfo
-			    && GetBufferedSound() > GetBufferSize() * 3 / 2) {
-				FCEUI_Emulate(&gfx, &sound, &ssize, 0);
-				FCEUD_Update(gfx, sound, ssize);
-			}
-		}
-		else {
-			FCEUI_Emulate(&gfx, &sound, &ssize, 0);
-			FCEUD_Update(gfx, sound, ssize);
-		}
+		    // Then render all frames while audio is sufficient.
+		    while (GameInfo
+			&& GetBufferedSound() > GetBufferSize() * 3 / 2) {
+			    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
+			    FCEUD_Update(gfx, sound, ssize);
+		    }
+	    }
+	    else {
+		    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
+		    FCEUD_Update(gfx, sound, ssize);
+		    while ( SpeedThrottle() ) { }
+	    }
+#else
+	    //TODO peroidic saves, working on it right now
+	    if (periodic_saves && FCEUD_GetTime() % PERIODIC_SAVE_INTERVAL < 30){
+		FCEUI_SaveState(NULL, false);
+	    }
+    #ifdef FRAMESKIP
+	    fskipc = (fskipc + 1) % (frameskip + 1);
+    #endif
+
+	    if(NoWaiting) {
+		    gfx = 0;
+	    }
+	    FCEUI_Emulate(&gfx, &sound, &ssize, fskipc);
+	    FCEUD_Update(gfx, sound, ssize);
+
+	    if(opause!=FCEUI_EmulationPaused()) {
+		    opause=FCEUI_EmulationPaused();
+		    SilenceSound(opause);
+	    }
+	    
+	    if (fpsthrottle)
+		while ( SpeedThrottle() ) { }
+#endif
 	}
-
 }
 
 /**
@@ -431,12 +463,80 @@ static void DriverKill() {
  */
 void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count)
 {
+#ifdef RETROFW
+
 	// Write the audio before the screen, because writing the screen induces
 	// a delay after double-buffering.
 	if (Count) WriteSound(Buffer, Count);
 
 	if (XBuf && (inited & 4)) BlitScreen(XBuf);
+#else
+	int blitDone = 0;
+	extern int FCEUDnetplay;
+	
+	int ocount = Count;
+	// apply frame scaling to Count
+	Count = (int)(Count / g_fpsScale);
+	if(Count) {
+		int32 can=GetWriteSound();
+		static int uflow=0;
+		int32 tmpcan;
 
+		// don't underflow when scaling fps
+		if(can >= GetMaxSound() && g_fpsScale==1.0) uflow=1;	/* Go into massive underflow mode. */
+
+		if(can > Count) can=Count;
+		else uflow=0;
+
+		  WriteSound(Buffer,can);
+
+		//if(uflow) puts("Underflow");
+		tmpcan = GetWriteSound();
+		// don't underflow when scaling fps
+		if(g_fpsScale>1.0 || ((tmpcan < Count*0.90) && !uflow)) {
+			if(XBuf && (inited&4) && !(NoWaiting & 2))
+			{
+				BlitScreen(XBuf); blitDone = 1;
+			}
+			Buffer+=can;
+			Count-=can;
+			if(Count) {
+				if(NoWaiting) {
+					can=GetWriteSound();
+					if(Count>can) Count=can;
+					  WriteSound(Buffer,Count);
+				} else {
+					while(Count>0) {
+						  WriteSound(Buffer,(Count<ocount) ? Count : ocount);
+						Count -= ocount;
+					}
+				}
+			}
+		} //else puts("Skipped");
+		else if(!NoWaiting && FCEUDnetplay && (uflow || tmpcan >= (Count * 1.8))) {
+			if(Count > tmpcan) Count=tmpcan;
+			while(tmpcan > 0) {
+				//	printf("Overwrite: %d\n", (Count <= tmpcan)?Count : tmpcan);
+				  WriteSound(Buffer, (Count <= tmpcan)?Count : tmpcan);
+				tmpcan -= Count;
+			}
+		}
+
+	} else {
+		if (XBuf && (inited&4)) 
+		{
+			BlitScreen(XBuf); blitDone = 1;
+		}
+	}
+	if ( !blitDone )
+	{
+		if (XBuf && (inited&4)) 
+		{
+			BlitScreen(XBuf); blitDone = 1;
+		}
+	}
+#endif
+    
 	FCEUD_UpdateInput();
 }
 
@@ -766,6 +866,14 @@ int main(int argc, char *argv[]) {
 	 return -1;
 	 }
 	 */
+	
+	nes_shm = open_nes_shm();
+
+	if ( nes_shm == NULL )
+	{
+		printf("Error: Failed to open NES Shared memory\n");
+		return -1;
+	}
 
 	// update the emu core
 	UpdateEMUCore(g_config);
@@ -852,6 +960,16 @@ int main(int argc, char *argv[]) {
 			FCEUI_printf("Sorry, I don't know how to play back %s\n", s.c_str());
 	}
 
+    int periodic_saves;
+    int save_state;
+    g_config->getOption("SDL.PeriodicSaves", &periodic_saves);
+    g_config->getOption("SDL.AutoSaveState", &save_state);
+    if(periodic_saves && save_state < 10 && save_state >= 0){
+        FCEUI_SelectState(save_state, 0);
+    } else {
+        periodic_saves = 0;
+    }
+
 #ifdef _S9XLUA_H
 	// load lua script if option passed
 	g_config->getOption("SDL.LuaScript", &s);
@@ -869,14 +987,18 @@ int main(int argc, char *argv[]) {
 
 	g_config->getOption("SDL.Frameskip", &frameskip);
 
-	// loop playing the game
-	DoFun(frameskip);
+	DoFun(frameskip,periodic_saves);
 
+	printf("Closing Game...\n");
 	CloseGame();
 
+	printf("Exiting Infrastructure...\n");
 	// exit the infrastructure
+	close_nes_shm();
 	FCEUI_Kill();
 	SDL_Quit();
+	
+	printf("Done!\n");
 	return 0;
 }
 

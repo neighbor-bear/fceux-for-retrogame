@@ -6,10 +6,17 @@
 #include "dface.h"
 #include "input.h"
 
-void DoFun(int frameskip, int);
+// I'm using this as a #define so the compiler can optimize the
+// modulo operation
+#define PERIODIC_SAVE_INTERVAL 5000 // milliseconds
+
+const int INVALID_STATE = 99;
+
+void DoFun(int frameskip, int periodic_saves);
 
 int LoadGame(const char *path);
 int CloseGame(void);
+uint64 FCEUD_GetTime();
 
 int FCEUD_LoadMovie(const char *name, char *romname);
 int FCEUD_DriverReset();

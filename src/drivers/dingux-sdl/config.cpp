@@ -136,12 +136,13 @@ Config * InitConfig() {
 	config->addOption("soundrate", "SDL.Sound.Rate", 32000);
 	config->addOption("soundq", "SDL.Sound.Quality", 0);
 	config->addOption("soundrecord", "SDL.Sound.RecordFile", "");
-	config->addOption("soundbufsize", "SDL.Sound.BufSize", 30);
+	config->addOption("soundbufsize", "SDL.Sound.BufSize", 128);
 	config->addOption("lowpass", "SDL.Sound.LowPass", 0);
 
 	config->addOption('g', "gamegenie", "SDL.GameGenie", 0);
 	config->addOption("pal", "SDL.PAL", 0);
 	config->addOption("frameskip", "SDL.Frameskip", 0);
+	config->addOption("intFrameRate", "SDL.IntFrameRate", 0);
 	config->addOption("clipsides", "SDL.ClipSides", 0);
 	config->addOption("nospritelim", "SDL.DisableSpriteLimit", 1);
 
@@ -244,6 +245,13 @@ Config * InitConfig() {
 	config->addOption("videolog", "SDL.VideoLog", "");
 	config->addOption("mute", "SDL.MuteCapture", 0);
 #endif
+	
+    // auto load/save on gameload/close
+	config->addOption("loadstate", "SDL.AutoLoadState", INVALID_STATE);
+	config->addOption("savestate", "SDL.AutoSaveState", INVALID_STATE);
+
+	//TODO implement this
+	config->addOption("periodicsaves", "SDL.PeriodicSaves", 0);
 
 	char* home_dir = getenv("HOME");
 	// prefixed with _ because they are internal (not cli options)
@@ -432,6 +440,8 @@ void UpdateEMUCore(Config *config) {
 	config->getOption("SDL.Tint", &ntsctint);
 	config->getOption("SDL.Hue", &ntschue);
 	FCEUI_SetNTSCTH(ntsccol, ntsctint, ntschue);
+	
+	config->getOption("SDL.IntFrameRate"  , &useIntFrameRate);
 
 	config->getOption("SDL.Palette", &cpalette);
 	if (cpalette.size()) {

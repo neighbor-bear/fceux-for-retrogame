@@ -149,6 +149,17 @@ static void slendpal_update(unsigned long key)
 	g_config->setOption("SDL.ScanLineEndPAL", val);
 }
 
+// Integer frame rate
+static void integer_framerate_update(unsigned long key)
+{
+	bool val;
+
+	if (key == DINGOO_RIGHT) val = 1;
+	if (key == DINGOO_LEFT) val = 0;
+
+	g_config->setOption("SDL.IntFrameRate", val);
+}
+
 /* VIDEO SETTINGS MENU */
 
 static SettingEntry vd_menu[] = 
@@ -164,6 +175,7 @@ static SettingEntry vd_menu[] =
 	{"NTSC Scanline end", "NTSC last drawn scanline", "SDL.ScanLineEndNTSC", slend_update},
 	{"PAL Scanline start", "PAL first drawn scanline", "SDL.ScanLineStartPAL", slstartpal_update},
 	{"PAL Scanline end", "PAL last drawn scanline", "SDL.ScanLineEndPAL", slendpal_update},
+	{"Integer Frame Rate","Use Integer Frame Rate","SDL.IntFrameRate",integer_framerate_update},
 };
 static int vd_menu_items = sizeof(vd_menu) / sizeof(vd_menu[0]);
 
@@ -172,6 +184,12 @@ int RunVideoSettings()
 	static int index = 0;
 	static int spy = 72;
 	int done = 0, y, i;
+	
+	int max_entries = 9;
+	int menu_size = vd_menu_items;
+
+	static int offset_start = 0;
+	static int offset_end = menu_size > max_entries ? max_entries : menu_size;
 
 	int max_entries = 9;
 	int menu_size = vd_menu_items;
@@ -187,7 +205,7 @@ int RunVideoSettings()
 		// Parse input
 		readkey();
 		if (parsekey(DINGOO_B)) done = 1;
-   		if (parsekey(DINGOO_UP, 1)) {
+		if (parsekey(DINGOO_UP, 1)) {
 			if (index > 0) {
 				index--;
 
@@ -224,6 +242,7 @@ int RunVideoSettings()
 				spy = 72;
 			}
 		}
+
 		if (parsekey(DINGOO_RIGHT, 1) || parsekey(DINGOO_LEFT, 1))
 			vd_menu[index].update(g_key);
   
@@ -259,7 +278,8 @@ int RunVideoSettings()
 				}
 				else if (!strncmp(vd_menu[i].name, "Clip sides", 10) \
 					|| !strncmp(vd_menu[i].name, "New PPU", 7)   \
-					|| !strncmp(vd_menu[i].name, "NTSC Palette", 12)) {
+					|| !strncmp(vd_menu[i].name, "NTSC Palette", 12)
+					|| !strncmp(vd_menu[i].name, "Integer Frame", 13)) {
 					sprintf(tmp, "%s", itmp ? "on" : "off");
 				}
 				else sprintf(tmp, "%d", itmp);
