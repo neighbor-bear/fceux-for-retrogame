@@ -426,18 +426,8 @@ void BlitScreen(uint8 *XBuf) {
 				}
 		}
 	} else { // native res
-		//int pinc = (320 - NWIDTH) >> 1;
 		int32 pinc = (screen->w - NWIDTH) >> 1;
-		int32 append = 256 - NWIDTH;
-
-		//SDL_Rect dstrect;
-
-		// center windows
-		//dstrect.x = (screen->w - 256) / 2;
-		//dstrect.y = (screen->h - 224) / 2;
-
-		// doesn't work in rzx-50 dingux
-		//SDL_BlitSurface(nes_screen, 0, screen, &dstrect);
+		int32 append = (256 - NWIDTH) >> 1;
 
 		register uint32 *dest = (uint32 *) screen->pixels;
 
@@ -446,14 +436,10 @@ void BlitScreen(uint8 *XBuf) {
 		//dest += (s_srendline * 320) + pinc >> 1;
 		dest += (screen->w/2 * s_srendline) + pinc / 2 + ((screen->h - 240) / 4) * screen->w;
 
-		for (y = s_tlines; y; y--, pBuf += append) {
-			for (x = NWIDTH >> 3; x; x--) {
-				__builtin_prefetch(dest + 4, 1);
-				*dest++ = palettetranslate[*(uint16 *) pBuf];
-				*dest++ = palettetranslate[*(uint16 *) (pBuf + 2)];
-				*dest++ = palettetranslate[*(uint16 *) (pBuf + 4)];
-				*dest++ = palettetranslate[*(uint16 *) (pBuf + 6)];
-				pBuf += 8;
+		register uint16 *prBuf = (uint16 *)pBuf;
+		for (y = s_tlines; y; y--, prBuf += append) {
+			for (x = NWIDTH>>1; x; x--, prBuf++) {
+				*dest++ = palettetranslate[*prBuf];
 			}
 			dest += pinc;
 		}

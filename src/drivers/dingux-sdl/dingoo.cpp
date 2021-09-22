@@ -39,7 +39,6 @@
 #include "../common/configSys.h"
 #include "../../oldmovie.h"
 #include "../../types.h"
-#include "nes_shm.h"
 
 #ifdef CREATE_AVI
 #include "../videolog/nesvideos-piece.h"
@@ -301,37 +300,6 @@ void DoFun(int frameskip, int periodic_saves)
 	// loop playing the game
 	while(GameInfo)
 	{
-#ifdef RETROFW
-	    /* Frameskip decision based on the audio buffer */
-	    if (!fpsthrottle) {
-		    // Fill up the audio buffer with up to 6 frames dropped.
-		    int FramesSkipped = 0;
-		    while (GameInfo
-			&& GetBufferedSound() < GetBufferSize() * 3 / 2
-			&& ++FramesSkipped < 6) {
-			    FCEUI_Emulate(&gfx, &sound, &ssize, 1);
-			    FCEUD_Update(NULL, sound, ssize);
-		    }
-
-		    // Force at least one frame to be displayed.
-		    if (GameInfo) {
-			    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
-			    FCEUD_Update(gfx, sound, ssize);
-		    }
-
-		    // Then render all frames while audio is sufficient.
-		    while (GameInfo
-			&& GetBufferedSound() > GetBufferSize() * 3 / 2) {
-			    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
-			    FCEUD_Update(gfx, sound, ssize);
-		    }
-	    }
-	    else {
-		    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
-		    FCEUD_Update(gfx, sound, ssize);
-		    while ( SpeedThrottle() ) { }
-	    }
-#else
 	    //TODO peroidic saves, working on it right now
 	    if (periodic_saves && FCEUD_GetTime() % PERIODIC_SAVE_INTERVAL < 30){
 		FCEUI_SaveState(NULL, false);
@@ -346,14 +314,13 @@ void DoFun(int frameskip, int periodic_saves)
 	    FCEUI_Emulate(&gfx, &sound, &ssize, fskipc);
 	    FCEUD_Update(gfx, sound, ssize);
 
-	    if(opause!=FCEUI_EmulationPaused()) {
-		    opause=FCEUI_EmulationPaused();
-		    SilenceSound(opause);
-	    }
+	    //if(opause!=FCEUI_EmulationPaused()) {
+	    //      opause=FCEUI_EmulationPaused();
+	    //      SilenceSound(opause);
+	    //}
 	    
 	    if (fpsthrottle)
 		while ( SpeedThrottle() ) { }
-#endif
 	}
 }
 
@@ -463,14 +430,6 @@ static void DriverKill() {
  */
 void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count)
 {
-#ifdef RETROFW
-
-	// Write the audio before the screen, because writing the screen induces
-	// a delay after double-buffering.
-	if (Count) WriteSound(Buffer, Count);
-
-	if (XBuf && (inited & 4)) BlitScreen(XBuf);
-#else
 	int blitDone = 0;
 	extern int FCEUDnetplay;
 	
@@ -535,7 +494,6 @@ void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count)
 			BlitScreen(XBuf); blitDone = 1;
 		}
 	}
-#endif
     
 	FCEUD_UpdateInput();
 }
@@ -866,14 +824,6 @@ int main(int argc, char *argv[]) {
 	 return -1;
 	 }
 	 */
-	
-	nes_shm = open_nes_shm();
-
-	if ( nes_shm == NULL )
-	{
-		printf("Error: Failed to open NES Shared memory\n");
-		return -1;
-	}
 
 	// update the emu core
 	UpdateEMUCore(g_config);
@@ -994,7 +944,6 @@ int main(int argc, char *argv[]) {
 
 	printf("Exiting Infrastructure...\n");
 	// exit the infrastructure
-	close_nes_shm();
 	FCEUI_Kill();
 	SDL_Quit();
 	

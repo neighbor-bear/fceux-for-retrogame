@@ -14,10 +14,6 @@ void WriteSound(int32 *Buffer, int Count);
 int KillSound(void);
 uint32 GetMaxSound(void);
 uint32 GetWriteSound(void);
-#ifdef RETROFW
-uint32 GetBufferSize(void);
-uint32 GetBufferedSound(void);
-#endif
 
 void SilenceSound(int s); /* DOS and SDL */
 

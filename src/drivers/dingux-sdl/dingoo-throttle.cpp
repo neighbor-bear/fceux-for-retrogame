@@ -12,11 +12,6 @@ static const double Slowest = 0.015625; // 1/64x speed (around 1 fps on NTSC)
 static const double Fastest = 32;       // 32x speed   (around 1920 fps on NTSC)
 static const double Normal  = 1.0;      // 1x speed    (around 60 fps on NTSC)
 
-#ifdef RETROFW
-//static long double desired_frametime;
-static uint64 desired_frametime_us;
-#endif
-
 static uint32 frameLateCounter = 0;
 static double Lasttime=0, Nexttime=0, Latetime=0;
 static double desired_frametime = (1.0 / 60.099823);
@@ -38,32 +33,6 @@ double g_fpsScale = Normal; // used by dingoo.cpp
 bool MaxSpeed = false;
 bool useIntFrameRate = false;
 static double frmRateAdjRatio = 1.000000f; // Frame Rate Adjustment Ratio
-
-#ifdef RETROFW
-uint64 get_ticks_us()
-{
-  struct timeval current_time;
-  gettimeofday(&current_time, NULL);
-
-  return (uint64)current_time.tv_sec * 1000000 + current_time.tv_usec;
-}
-
-void delay_us(uint64 us_count)
-{
-#if 1 // busy wait
-    uint64 start;
-    uint64 current;
-
-    start = get_ticks_us();
-
-    do {
-        current = get_ticks_us();
-    } while((uint64)(current - start) < us_count);
-#else // normal wait, not reliable enough
-    usleep(us_count);
-#endif
-}
-#endif
 
 double getHighPrecTimeStamp(void)
 {
@@ -232,16 +201,6 @@ void resetFrameTiming(void)
  */
 void RefreshThrottleFPS()
 {
-#ifdef RETROFW
-	uint64 fps = FCEUI_GetDesiredFPS(); // Do >> 24 to get in Hz
-	desired_frametime = 16777216.0l / (fps * g_fpsScale);
-	desired_frametime_us = (uint64)(desired_frametime * 1000000.0l);
-
-	Lasttime=0;   
-	Nexttime=0;
-	InFrame=0;
-	printf("desired_frametime: %i\n", desired_frametime_us);
-#else
 	double hz;
 	int32_t fps = FCEUI_GetDesiredFPS(); // Do >> 24 to get in Hz
 	int32_t T;
@@ -277,7 +236,6 @@ void RefreshThrottleFPS()
 	InFrame=0;
 
 	setTimer( hz * g_fpsScale );
-#endif
 }
 
 double getBaseFrameRate(void)

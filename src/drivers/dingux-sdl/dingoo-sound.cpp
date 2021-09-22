@@ -29,7 +29,6 @@
 #include <math.h>
 #endif
 
-#include "nes_shm.h"
 #include "throttle.h"
 #include "dingoo.h"
 #include "utils/memory.h"
@@ -38,11 +37,7 @@
 
 extern Config *g_config;
 
-#ifdef RETROFW
-static int16 *s_Buffer = 0;
-#else
 static volatile int *s_Buffer = 0;
-#endif
 static unsigned int s_BufferSize;
 static unsigned int s_BufferSize25;
 static unsigned int s_BufferSize50;
@@ -62,10 +57,6 @@ extern int EmulationPaused;
 extern double frmRateAdjRatio;
 extern double g_fpsScale;
 
-#ifdef RETROFW
-static Uint16 s_Samples = 512;
-#endif
-
 /**
  * Callback from the SDL to get and play audio data.
  */
@@ -74,34 +65,8 @@ fillaudio(void *udata,
 		uint8 *stream,
 		int len)
 {
-#ifdef RETROFW
-    int32 *tmps = (int32 *)stream;
-    len >>= 2;
-
-    // debug code
-    //printf("s_BufferIn: %i s_BufferWrite = %i s_BufferRead = %i s_BufferSize = %i\n",
-    //    s_BufferIn, s_BufferWrite, s_BufferRead, s_BufferSize);
-
-    while (len) {
-        int32 sample = 0;
-        if (s_BufferIn) {
-            sample = s_Buffer[s_BufferRead] & 0xFFFF;
-            s_BufferRead = (s_BufferRead + 1) % s_BufferSize;
-            s_BufferIn--;
-            sample |= (sample << 16);
-        } else {
-            sample = 0;
-        }
-
-        *tmps = sample;
-        tmps++;
-        len--; 
-    }
-#else
-	char bufStarveDetected = 0;
 	static int16_t sample = 0;
 	char mute;
-	//unsigned int starve_lp = nes_shm->sndBuf.starveCounter;
 	int16 *tmps = (int16*)stream;
 	len >>= 1;
 
@@ -164,27 +129,17 @@ fillaudio(void *udata,
 				sample = s_Buffer[s_BufferRead];
 				s_BufferRead = (s_BufferRead + 1) % s_BufferSize;
 				s_BufferIn--;
-			} else {
+			//} else {
         	 		// Retain last known sample value, helps avoid clicking
         	 		// noise when sound system is starved of audio data.
 				//sample = 0; 
-				bufStarveDetected = 1;
-				nes_shm->sndBuf.starveCounter++;
 			}
-
-			nes_shm->push_sound_sample( sample );
 
 			*tmps = sample;
 			tmps++;
 			len--;
 		}
 	}
-	if ( bufStarveDetected )
-	{
-		//s_StarveCounter = nes_shm->sndBuf.starveCounter - starve_lp;
-		//printf("Starve:%u\n", s_StarveCounter );
-	}
-#endif
 }
 
 /**
@@ -228,25 +183,15 @@ int InitSound()
     g_config->getOption("SDL.Sound.LowPass", &lowpass);
 
     spec.freq = s_SampleRate = soundrate;
-#ifdef RETROFW
-    spec.format = AUDIO_S16;
-    spec.channels = 2;
-    s_Samples = spec.samples = 512;
-#else
     spec.format = AUDIO_S16SYS;
     spec.channels = 1;
     spec.samples = (int)( ( (double)s_SampleRate / getBaseFrameRate() ) );
+#ifdef RETROFW
+    spec.samples = pow( 2.0, ceil( log2( spec.samples ) ) );
 #endif
     spec.callback = fillaudio;
     spec.userdata = 0;
 
-#ifdef RETROFW
-    while(spec.samples < (soundrate / 60) * 1) spec.samples <<= 1;
-
-    s_BufferSize = spec.samples * 4;
-    
-    s_Buffer = (int16 *) malloc(sizeof(int16) * s_BufferSize);
-#else
     s_BufferSize = soundbufsize * soundrate / 1000;    
     
     // For safety, set a bare minimum:
@@ -265,7 +210,6 @@ int InitSound()
     noiseGateActive = true;
 
     s_Buffer = (int *)FCEU_dmalloc(sizeof(int) * s_BufferSize);
-#endif
 
     if (!s_Buffer)
     {
@@ -285,9 +229,7 @@ int InitSound()
     
     fprintf(stderr, "Loading SDL sound with %s driver...\n", driverName);
 
-#ifndef RETROFW
     frmRateSampleAdj = (int)( ( ((double)soundrate) * getFrameRateAdjustmentRatio()) - ((double)soundrate) );
-#endif
     //frmRateSampleAdj = 0;
     //printf("Sample Rate Adjustment: %+i\n", frmRateSampleAdj );
 
@@ -322,22 +264,6 @@ GetWriteSound(void)
 	return(s_BufferSize - s_BufferIn);
 }
 
-#ifdef RETROFW
-/**
- * Returns the size of the audio buffer used by one SDL callback.
- */
-uint32 GetBufferSize(void) {
-    return s_Samples;
-}
-
-/**
- * Returns the amount of used space in the audio buffer.
- */
-uint32 GetBufferedSound(void) {
-    return s_BufferIn;
-}
-#endif
-
 /**
  * Send a sound clip to the audio subsystem.
  */
@@ -345,35 +271,6 @@ void
 WriteSound(int32 *buf,
            int Count)
 {
-#ifdef RETROFW
-	//extern int EmulationPaused;
-
-	if (NoWaiting) {
-	    Count /= (1 + NoWaiting);
-	}
-	SDL_LockAudio();
-
-	/*if (EmulationPaused == 0)*/ { // for some reason EmulationPaused is always 1, ignore it
-	    while(Count) {
-		if(s_BufferIn == s_BufferSize) goto _exit;
-
-		s_Buffer[s_BufferWrite] = *buf;
-		Count--;
-		s_BufferWrite = (s_BufferWrite + 1) % s_BufferSize;
-
-		s_BufferIn++;
-
-		buf++;
-	    }
-	}
-    _exit:
-	SDL_UnlockAudio();
-
-	// If we have too much audio, wait a bit before accepting more.
-	// This keeps the lag in check.
-	while (GetBufferedSound() > 3 * GetBufferSize())
-	    usleep(1000);
-#else
 	int uflowMode = 0;
 	int ovrFlowSkip = 1;
 	int udrFlowDup  = 1;
@@ -526,7 +423,6 @@ WriteSound(int32 *buf,
 
 		}
 	}
-#endif
 }
 
 /**
