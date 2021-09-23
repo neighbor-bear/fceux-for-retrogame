@@ -157,7 +157,7 @@ Config * InitConfig() {
 
     // overclocking settings
     config->addOption("ocenabled", "SDL.OverclockEnabled", 0);
-    config->addOption("skip7bitoc", "SDL.Skip7BitOverclocking", 0);
+    config->addOption("skip7bitoc", "SDL.Skip7BitOverclocking", 1);
     config->addOption("vblanksls", "SDL.VBlankScanlines", 0);
     config->addOption("postrendersls", "SDL.PostRenderScanlines", 0);
 

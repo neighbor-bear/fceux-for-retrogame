@@ -66,8 +66,8 @@ static SettingEntry oc_menu[] =
 {
 	{ "Overclock Enabled", "Enables Overclock settings", "SDL.OverclockEnabled", ocenabled_update },
 	{ "Skip 7bit overclocking", "Don't Overclock 7bit samples", "SDL.Skip7BitOverclocking", skip7bitoc_update },
-	{ "VBlank Scanlines", "# of extra VBlank scanlines", "SDL.VBlankScanlines", vblanksls_update },
 	{ "Post-rend Scanlines", "# of post-render scanlines", "SDL.PostRenderScanlines", postrendersls_update },
+	{ "VBlank Scanlines", "# of extra VBlank scanlines", "SDL.VBlankScanlines", vblanksls_update },
 };
 
 int RunOverclockSettings()
