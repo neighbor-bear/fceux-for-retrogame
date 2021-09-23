@@ -133,7 +133,7 @@ const static int submenu_entries = (sizeof(oc_cheats_submenu) / sizeof(oc_cheats
 
 static int toggle_cheat(int index) {
     current_index = index;
-    cmd_toggle_cheat();
+    return cmd_toggle_cheat();
 }
 
 int RunCheatBrowser(const char *info = NULL) {
