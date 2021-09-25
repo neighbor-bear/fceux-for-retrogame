@@ -78,7 +78,7 @@ With less power devices, as JZ4760(B), using more than 262 scanlines can produce
 - The scanlines values to be added depend on the game, but as reference 1 NTSC frame is chosen (262 scanlines), but also 240 or 260 scanlines are typically used.
 - In the overclock settings menu left and right cursors substract or add 10 scanlines for Post-Render or Vblank options. Maintaining pressed the `A` button the step value will be 1 scanline and maintaining pressed the `Y` button the step value will be 262 scanlines.
 
-> See [this thread](http://tasvideos.org/forum/viewtopic.php?t=18323) at FCEUX forum with information about overclocking. In this post there is document attached with a overclocking game database.
+> See [this thread](http://tasvideos.org/forum/viewtopic.php?t=18323) at FCEUX forum with information about overclocking. In this post there is a document attached with a overclocking game database.
 
 > See [This video](https://www.youtube.com/watch?v=VzQE4pLjhg4&t=323s) with a comparison side by side of some overclocked games.
 
@@ -192,13 +192,14 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
-#### 19 September 2021
+#### 25 September 2021
   - Merged [asoderq/sydarn2 overclocking work](https://github.com/asoderq/fceux-for-retrogame/releases/tag/2021-09-11). As upstream it only works with Old PPU.
   - Added submenu in cheat browser with some new actions (delete cheat, delete all cheats) and other already existing options
   - Fixed enabling Scanline start and end when loading a rom. For this FCEUD_ReloadConfig is refactored to call UpdateEMUCore, also moving enabling autoresume to UpdateEMUCore.
   - Build for OpenDingux for lepus.
   - Fix video region autoset after last refactorings.
   - Merge latest commits from upstream.
+  - For RetroFW and Lepus OD PGO builds has been used.
 
 #### 25 July 2021
   - Some refactorings for Game Genie use and assign hotkey to toggle it.
