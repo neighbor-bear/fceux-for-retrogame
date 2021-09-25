@@ -34,7 +34,7 @@ When a game is loaded, FCEUX will load any accompanying saved `.cht` file in `$H
 
 >ROM Detectives has an excellent guide and a collection of cheats for use directly with FCEUX ([see it here](http://www.romdetectives.com/Wiki/index.php?title=Cheat_Archive_-_FCEUX))
 
->Retro Games Corps also have an excellent cheats guide ([see it here](https://retrogamecorps.com/2020/09/06/rg350-cheats-guide/)) including a cht compilation file that I have used to test this functionality
+>Retro Game Corps also have an excellent cheats guide ([see it here](https://retrogamecorps.com/2020/09/06/rg350-cheats-guide/)) including a cht compilation file that I have used to test this functionality
 
 ### Cheat browser
 
