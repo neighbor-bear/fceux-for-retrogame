@@ -595,14 +595,29 @@ InitConfig()
 	config->addOption("recordhud", "SDL.RecordHUD", 0);
 	config->addOption("moviemsg", "SDL.MovieMsg", 0);
 
-#ifdef _USE_X264
-	config->addOption("SDL.AviVideoFormat", AVI_X264);
-#elif  WIN32
+#ifdef _USE_LIBAV
+	config->addOption("SDL.AviDriver", AVI_DRIVER_LIBAV);
+#else
+	config->addOption("SDL.AviDriver", AVI_DRIVER_LIBGWAVI);
+#endif
+
+#if    defined(WIN32)
 	config->addOption("SDL.AviVideoFormat", AVI_VFW);
+#elif  defined(_USE_X264)
+	config->addOption("SDL.AviVideoFormat", AVI_X264);
 #else
 	config->addOption("SDL.AviVideoFormat", AVI_RGB24);
 #endif
+	config->addOption("SDL.AviRecordAudio", 1);
 
+#ifdef _USE_LIBAV
+	config->addOption("SDL.AviFFmpegVideoCodec", "");
+	config->addOption("SDL.AviFFmpegAudioCodec", "");
+	config->addOption("SDL.AviFFmpegVideoPixFmt", -1);
+	config->addOption("SDL.AviFFmpegAudioSmpFmt", -1);
+	config->addOption("SDL.AviFFmpegAudioSmpRate", -1);
+	config->addOption("SDL.AviFFmpegAudioChanLayout", -1);
+#endif
 #ifdef  WIN32
 	config->addOption("SDL.AviVfwFccHandler", "");
 #endif
@@ -712,6 +727,8 @@ InitConfig()
 	config->addOption("_lastopenmovie", "SDL.LastOpenMovie", movPath);
 	config->addOption("_lastloadlua", "SDL.LastLoadLua", "");
 	config->addOption("SDL.HelpFilePath", "");
+	config->addOption("SDL.AviFilePath", "");
+	config->addOption("SDL.WavFilePath", "");
 
 	for (unsigned int i=0; i<10; i++)
 	{
