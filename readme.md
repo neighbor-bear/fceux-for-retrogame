@@ -194,6 +194,7 @@ Build files are created in the `bin`directory.
 
 #### 24 October 2021
   - Updated to upstream 2.5.0
+  - Change video mode to 320x240 when access cheats with hotkey
 
 #### 25 September 2021
   - Merged [asoderq/sydarn2 overclocking work](https://github.com/asoderq/fceux-for-retrogame/releases/tag/2021-09-11). As upstream it only works with Old PPU.

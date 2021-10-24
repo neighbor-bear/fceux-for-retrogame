@@ -223,6 +223,7 @@ What's new
 
  24 October 2021
   - Updated to upstream 2.5.0
+  - Change video mode to 320x240 when access cheats with hotkey
 
  25 September 2021
   - Merged asoderq/sydarn2 overclocking work. As upstream it only works with

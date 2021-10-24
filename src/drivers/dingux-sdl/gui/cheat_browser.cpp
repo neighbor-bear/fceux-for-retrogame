@@ -136,6 +136,7 @@ static int toggle_cheat(int index) {
     return cmd_toggle_cheat();
 }
 
+extern void InitGuiVideo();
 int RunCheatBrowser(const char *info = NULL) {
 	int size = 0;
 	int done = 0;
@@ -149,6 +150,8 @@ int RunCheatBrowser(const char *info = NULL) {
 	int y, i;
 	uint64 time_start, time_current;
 	uint8 info_index = 0;
+	
+	InitGuiVideo();
 
 	time_start = FCEUD_GetTime();
 

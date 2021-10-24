@@ -360,7 +360,11 @@ static void KeyboardCommands() {
 			resetkey(DINGOO_LEFT);
 		}
 		if(_keyonly(DINGOO_RIGHT)) { // R + RIGHT  Cheats
+			SilenceSound(1);
 			RunCheatBrowser();
+			FCEUD_DriverReset();
+			dingoo_clear_video();
+			SilenceSound(0);
 			resetkey(DINGOO_RIGHT);
 			// Reset possible exit keys from Cheat Browser
 			resetkey(DINGOO_X);
