@@ -22,6 +22,7 @@
 #include <QThread>
 #include <QCursor>
 #include <QMutex>
+#include <QColor>
 #if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
 #include <QRecursiveMutex>
 #endif
@@ -174,6 +175,10 @@ class  consoleWin_t : public QMainWindow
 
 		void OpenHelpWindow(std::string subpage = "");
 
+		int  getPeriodicInterval(void);
+
+		QColor *getVideoBgColorPtr(void){ return &videoBgColor; }
+
 	protected:
 		consoleMenuBar *menubar;
 
@@ -250,6 +255,7 @@ class  consoleWin_t : public QMainWindow
 		//QAction *aviMsgAct;
 
 		QTimer  *gameTimer;
+		QColor   videoBgColor;
 
 		std::string errorMsg;
 		bool        errorMsgValid;
@@ -332,6 +338,7 @@ class  consoleWin_t : public QMainWindow
 		void openGuiConfWin(void);
 		void openTimingConfWin(void);
 		void openPaletteEditorWin(void);
+		void openAviRiffViewer(void);
 		void openTimingStatWin(void);
 		void openMovieOptWin(void);
 		void openCodeDataLogger(void);
@@ -428,7 +435,6 @@ class  consoleWin_t : public QMainWindow
 		void aviRecordStart(void);
 		void aviRecordAsStart(void);
 		void aviRecordStop(void);
-		void aviDebugFile(void);
 		void aviAudioEnableChange(bool);
 		void aviVideoFormatChanged(int idx);
 		void setAviHudEnable(bool);
@@ -439,6 +445,7 @@ class  consoleWin_t : public QMainWindow
 		void winScreenChanged( QScreen *scr );
 		void winActiveChanged(void);
 		void emuFrameFinish(void);
+		void videoBgColorChanged( QColor &c );
 
 };
 

@@ -32,12 +32,17 @@
 #include <vfw.h>
 #endif
 
+#include <QDate>
+#include <QLocale>
+#include <QSysInfo>
 #include <QObject>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QInputDialog>
 
+#include "fceu.h"
 #include "driver.h"
+#include "version.h"
 #include "common/os_utils.h"
 
 #ifdef _USE_X264
@@ -54,7 +59,6 @@ extern "C"
 #include "libavutil/pixdesc.h"
 #include "libavformat/avformat.h"
 #include "libavcodec/avcodec.h"
-//#include "libavresample/avresample.h"
 #include "libswscale/swscale.h"
 #include "libswresample/swresample.h"
 }
@@ -86,6 +90,7 @@ static int       aviDriver = 0;
 static int       videoFormat = AVI_RGB24;
 static int       audioSampleRate = 48000;
 static FILE     *avLogFp = NULL;
+
 //**************************************************************************************
 
 static void convertRgb_32_to_24( const unsigned char *src, unsigned char *dest, int w, int h, int nPix, bool verticalFlip )
@@ -1142,10 +1147,14 @@ static int initVideoStream( const char *codec_name, OutputStream *ost )
 	{
 		ost->st->time_base.num =    usec;
 		ost->st->time_base.den = 1000000u;
+		//ost->st->time_base.num = (16*1024*1024) >> 3;
+		//ost->st->time_base.den = FCEUI_GetDesiredFPS() >> 3;
 	}
 	c->time_base       = ost->st->time_base;
 	//c->pix_fmt       = AV_PIX_FMT_YUV420P; // Every video encoder seems to accept this
 	c->pix_fmt       = (AVPixelFormat)ost->pixelFormat;
+
+	printf("AVI Encoded Video FPS: %.12lf\n", (double)ost->st->time_base.den / (double)ost->st->time_base.num );
 
 	//c->sample_aspect_ratio =  (AVRational){ 4, 3 };
 	//printf("compression_level:%i\n", c->compression_level);
@@ -1449,7 +1458,12 @@ static int initAudioStream( const char *codec_name, OutputStream *ost )
 
 	if (c->codec->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE)
 	{
-		nb_samples = 10000;
+		nb_samples = audioSampleRate / 4;
+
+		if ( nb_samples < 10000 )
+		{
+			nb_samples = 10000;
+		}
 	}
 	else
 	{
@@ -1572,6 +1586,7 @@ static int setCodecFromConfig(void)
 
 static int initMedia( const char *filename )
 {
+	//AVDictionaryEntry *dictEntry = NULL;
 
 #if  LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT( 59, 0, 0 )
 	const AVOutputFormat *fmt;
@@ -1639,6 +1654,16 @@ static int initMedia( const char *filename )
 			fprintf( avLogFp, "Opened file for writing: %s\n", filename);
 		}
 	}
+
+	for ( auto it = avi_info.kvmap.begin(); it != avi_info.kvmap.end(); it++)
+	{
+		av_dict_set( &oc->metadata, it->first.c_str(), it->second.c_str(), 0 );
+	}
+
+	//while ( dictEntry = av_dict_get( oc->metadata, "", dictEntry, AV_DICT_IGNORE_SUFFIX ) )
+	//{
+	//	printf("Entry: %s = %s \n", dictEntry->key, dictEntry->value );
+	//}
 
 	/* Write the stream header, if any. */
 	if ( avformat_write_header(oc, NULL) )
@@ -2003,10 +2028,14 @@ int aviRecordLogOpen(void)
 //**************************************************************************************
 int aviRecordOpenFile( const char *filepath )
 {
+	QDate date;
+	QLocale locale;
 	char fourcc[8];
 	gwavi_audio_t  audioConfig;
 	double fps;
 	char fileName[1024];
+	char txt[512];
+	const char *romFile;
 
 	if ( aviRecordLogOpen() )
 	{
@@ -2021,7 +2050,6 @@ int aviRecordOpenFile( const char *filepath )
 	}
 	else
 	{
-		const char *romFile;
 
 		romFile = getRomFile();
 
@@ -2078,6 +2106,35 @@ int aviRecordOpenFile( const char *filepath )
 			{
 				return -1;
 			}
+		}
+	}
+
+	date = QDate::currentDate();
+
+	avi_info.add_pair( "ICRD", date.toString(Qt::ISODate).toStdString().c_str() ); 
+
+	avi_info.add_pair( "ILNG", QLocale::languageToString( locale.language() ).toStdString().c_str() );
+
+	avi_info.add_pair( "IARL", QLocale::countryToString( locale.country() ).toStdString().c_str() );
+
+	avi_info.add_pair( "IMED", QSysInfo::prettyProductName().toStdString().c_str() );
+
+	sprintf( txt, "FCEUX %s", FCEU_VERSION_STRING );
+	avi_info.add_pair( "ITCH", txt );
+
+	romFile = getRomFile();
+
+	if ( romFile )
+	{
+		getFileBaseName( romFile, txt );
+
+		if ( txt[0] != 0 )
+		{
+			avi_info.add_pair( "ISRC", txt );
+		}
+		if ( GameInfo )
+		{
+			avi_info.add_pair( "ISRF", md5_asciistr(GameInfo->MD5) );
 		}
 	}
 
@@ -2153,7 +2210,7 @@ int aviRecordOpenFile( const char *filepath )
 	{
 		gwavi = new gwavi_t();
 
-		if ( gwavi->open( fileName, nes_shm->video.ncol, nes_shm->video.nrow, fourcc, fps, &audioConfig ) )
+		if ( gwavi->open( fileName, nes_shm->video.ncol, nes_shm->video.nrow, fourcc, fps, recordAudio ? &audioConfig : NULL ) )
 		{
 			char msg[512];
 			fprintf( avLogFp, "Error: Failed to open AVI file.\n");
@@ -2167,7 +2224,7 @@ int aviRecordOpenFile( const char *filepath )
 	vbufSize    = 1024 * 1024 * 60;
 	rawVideoBuf = (uint32_t*)malloc( vbufSize * sizeof(uint32_t) );
 
-	abufSize    = 48000;
+	abufSize    = 96000;
 	rawAudioBuf = (int16_t*)malloc( abufSize * sizeof(uint16_t) );
 
 	vbufHead = 0;
@@ -2277,21 +2334,6 @@ int aviRecordClose(void)
 	}
 	vbufTail = abufTail = 0;
 	vbufSize = abufSize = 0;
-
-	return 0;
-}
-//**************************************************************************************
-int aviDebugOpenFile( const char *filepath )
-{
-	gwavi_t inAvi;
-
-	if ( inAvi.openIn( filepath ) )
-	{
-		printf("Failed to open AVI File: '%s'\n", filepath);
-		return -1;
-	}
-
-	inAvi.printHeaders();
 
 	return 0;
 }
@@ -2450,7 +2492,8 @@ void AviRecordDiskThread_t::run(void)
 	uint32_t *videoOut;
 	char writeAudio = 1;
 	char localRecordAudio = 0;
-	int  avgAudioPerFrame, localVideoFormat;
+	int  avgAudioPerFrame, audioChunkSize, audioSamplesAvail=0;
+	int  localVideoFormat;
 
 	fprintf( avLogFp, "AVI Record Disk Thread Start\n");
 
@@ -2459,6 +2502,7 @@ void AviRecordDiskThread_t::run(void)
 	fps = getBaseFrameRate();
 
 	avgAudioPerFrame = ( audioSampleRate / fps) + 1;
+	audioChunkSize   = ( audioSampleRate / 4 );
 
 	fprintf( avLogFp, "Avg Audio Sample Rate per Frame: %i \n", avgAudioPerFrame );
 
@@ -2505,6 +2549,8 @@ void AviRecordDiskThread_t::run(void)
 	if ( localVideoFormat == AVI_LIBAV)
 	{
 		LIBAV::init( width, height );
+
+		audioChunkSize = avgAudioPerFrame;
 	}
 #endif
 #ifdef WIN32
@@ -2514,9 +2560,10 @@ void AviRecordDiskThread_t::run(void)
 	}
 #endif
 
-	audioOut = (int16_t *)malloc(48000);
+	audioOut = (int16_t *)malloc(96000);
 	videoOut = (uint32_t*)malloc(1048576);
 
+	// Main Disk Record Loop
 	while ( !isInterruptionRequested() )
 	{
 		
@@ -2557,7 +2604,7 @@ void AviRecordDiskThread_t::run(void)
 			{
 				convertRgb_32_to_24( (const unsigned char*)videoOut, rgb24,
 						width, height, numPixels, true );
-				writeAudio = VFW::encode_frame( rgb24, width, height ) > 0;
+				VFW::encode_frame( rgb24, width, height );
 			}
 			#endif
 			#ifdef _USE_LIBAV
@@ -2578,6 +2625,14 @@ void AviRecordDiskThread_t::run(void)
 
 			numPixelsReady = 0;
 
+			audioSamplesAvail = abufHead - abufTail;
+
+			if ( audioSamplesAvail < 0 )
+			{
+				audioSamplesAvail += abufSize;
+			}
+			writeAudio = (audioSamplesAvail >= audioChunkSize);
+
 			if ( writeAudio && localRecordAudio )
 			{
 				numSamples = 0;
@@ -2588,7 +2643,7 @@ void AviRecordDiskThread_t::run(void)
 
 					abufTail = (abufTail + 1) % abufSize;
 
-					if ( numSamples > avgAudioPerFrame )
+					if ( numSamples >= audioChunkSize )
 					{
 						break;
 					}
@@ -2618,6 +2673,46 @@ void AviRecordDiskThread_t::run(void)
 		}
 	}
 
+	// Write Leftover Audio Samples
+	audioSamplesAvail = abufHead - abufTail;
+
+	if ( audioSamplesAvail < 0 )
+	{
+		audioSamplesAvail += abufSize;
+	}
+	writeAudio = (audioSamplesAvail > 0);
+
+	if ( writeAudio && localRecordAudio )
+	{
+		//printf("Writing Last %i Audio Samples\n", audioSamplesAvail );
+		numSamples = 0;
+
+		while ( abufHead != abufTail )
+		{
+			audioOut[ numSamples ] = rawAudioBuf[ abufTail ]; numSamples++;
+
+			abufTail = (abufTail + 1) % abufSize;
+		}
+
+		if ( numSamples > 0 )
+		{
+			//printf("NUM Audio Samples: %i \n", numSamples );
+			#ifdef _USE_LIBAV
+			if ( localVideoFormat == AVI_LIBAV)
+			{
+				LIBAV::encode_audio_frame( audioOut, numSamples );
+			}
+			else
+			#endif
+			{
+				gwavi->add_audio( (unsigned char *)audioOut, numSamples*2);
+			}
+
+			numSamples = 0;
+		}
+	}
+
+	// Start of Disk Thread Cleanup
 	free(rgb24);
 
 #ifdef _USE_X264
@@ -4062,6 +4157,7 @@ LibgwaviOptionsPage::LibgwaviOptionsPage(QWidget *parent)
 	grid->addWidget( videoPixfmt, 1, 1);
 	videoConfBtn = new QPushButton( tr("Options...") );
 	grid->addWidget( videoConfBtn, 2, 1);
+	videoConfBtn->setEnabled(false);
 
 	vbox = new QVBoxLayout();
 	audioGbox->setLayout(vbox);
@@ -4082,6 +4178,7 @@ LibgwaviOptionsPage::LibgwaviOptionsPage(QWidget *parent)
 	grid->addWidget( audioChanLayout, 3, 1);
 	audioConfBtn = new QPushButton( tr("Options...") );
 	grid->addWidget( audioConfBtn, 4, 1);
+	audioConfBtn->setEnabled(false);
 
 	initCodecLists();
 

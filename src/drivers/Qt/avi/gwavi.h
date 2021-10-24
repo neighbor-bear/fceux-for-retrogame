@@ -36,6 +36,8 @@
 #include <stdint.h> /* for size_t */
 #include <stddef.h> /* for size_t */
 #include <vector>
+#include <string>
+#include <map>
 
 #pragma pack( push, 2 )
 
@@ -167,6 +169,44 @@ struct gwavi_index_rec_t
 
 #pragma pack( pop )
 
+class gwavi_dataBuffer
+{
+	public:
+		gwavi_dataBuffer(void);
+		~gwavi_dataBuffer(void);
+
+		int       malloc( size_t s );
+
+		int16_t   readI16( int ofs );
+		uint16_t  readU16( int ofs );
+
+		int32_t   readI32( int ofs );
+		uint32_t  readU32( int ofs );
+
+		unsigned char *buf;
+		size_t size;
+};
+
+class gwavi_info_list_t
+{
+	public:
+
+	void add_pair( const char *key, const char *value )
+	{
+		std::string k = key, v = value;
+
+		kvmap[k] = v;
+	}
+
+	void clear(void)
+	{
+		kvmap.clear();
+	}
+
+	std::map <std::string, std::string> kvmap;
+};
+extern gwavi_info_list_t avi_info;
+
 class gwavi_t
 {
 	public:
@@ -174,6 +214,15 @@ class gwavi_t
 	static const unsigned int IF_LIST     = 0x00000001;
 	static const unsigned int IF_KEYFRAME = 0x00000010;
 	static const unsigned int IF_NO_TIME  = 0x00000100;
+
+	enum 
+	{
+		RIFF_START,
+		RIFF_END,
+		LIST_START,
+		LIST_END,
+		CHUNK_START
+	};
 
 	gwavi_t(void);
 	~gwavi_t(void);
@@ -196,7 +245,15 @@ class gwavi_t
 
 	int openIn(const char *filename);
 
-	int printHeaders(void);
+	int riffwalk(void);
+
+	void setRiffWalkCallback( int (*cb)( int type, long long int fpos, const char *fourcc, size_t size, void *userData ), void *userData )
+	{
+		riffWalkCallback = cb;
+		riffWalkUserData = userData;
+	};
+
+	int  getChunkData( long long int fpos, unsigned char *buf, size_t size );
 
 	private:
 	FILE *in;
@@ -216,6 +273,9 @@ class gwavi_t
 	int bits_per_pixel;
 	int avi_std;
 	char fourcc[8];
+	char audioEnabled;
+	unsigned char *readBuf;
+	size_t         readBufSize;
 
 	// helper functions
 	long long ftell(FILE *fp);
@@ -251,6 +311,9 @@ class gwavi_t
 	unsigned int readAviHeader(void);
 	unsigned int readStreamHeader(void);
 	unsigned int readIndexBlock( unsigned int chunkSize );
+
+	void *riffWalkUserData;
+	int (*riffWalkCallback)( int type, long long int fpos, const char *fourcc, size_t size, void *userData );
 };
 
 #endif /* ndef H_GWAVI */

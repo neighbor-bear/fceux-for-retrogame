@@ -9,7 +9,7 @@ sw_vers
 QT_MAJOR=5;
 QT_PKGNAME=qt$QT_MAJOR;
 FCEUX_VERSION_MAJOR=2
-FCEUX_VERSION_MINOR=4
+FCEUX_VERSION_MINOR=5
 FCEUX_VERSION_PATCH=0
 SDL2_VERSION=2.0.14
 
@@ -123,7 +123,7 @@ cmake \
    -DQT6=$USE_QT6 \
 	.. || exit 1
 make -j $NPROC || exit 1
-sudo make install || exit 1
+#sudo make install || exit 1 # make install is already run by cpack
 sudo cpack -G DragNDrop || exit 1
 
 echo 'Pushing DMG Package to Build Artifacts'
