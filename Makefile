@@ -295,7 +295,7 @@ LIBS = $(SDL_LIBS) -lz -lm
 
 TARGET = fceux_od
 
-RELEASE = 2.4.0
+RELEASE = 2.5.0
 RELEASE_DATE = $(shell date +%F)
 OPK_TARGET = $(TARGET)-$(RELEASE)-$(RELEASE_DATE)
 SKELETON_DESKTOP = opk/default.$(DEVICE).desktop
