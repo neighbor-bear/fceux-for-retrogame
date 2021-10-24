@@ -480,7 +480,7 @@ InitConfig()
 
 	// sound options
 	config->addOption('s', "sound", "SDL.Sound", 1);
-	config->addOption("volume", "SDL.Sound.Volume", 150);
+	config->addOption("volume", "SDL.Sound.Volume", 255);
 	config->addOption("trianglevol", "SDL.Sound.TriangleVolume", 255);
 	config->addOption("square1vol", "SDL.Sound.Square1Volume", 255);
 	config->addOption("square2vol", "SDL.Sound.Square2Volume", 255);
@@ -525,6 +525,7 @@ InitConfig()
 	// video controls
 	config->addOption('f', "fullscreen", "SDL.Fullscreen", 0);
 	config->addOption("videoDriver", "SDL.VideoDriver", 0);
+	config->addOption("SDL.VideoBgColor", "#000000");
 
 	// set x/y res to 0 for automatic fullscreen resolution detection (no change)
 	config->addOption('x', "xres", "SDL.XResolution", 0);
@@ -694,6 +695,14 @@ InitConfig()
 	config->addOption("playmov", "SDL.Movie", "");
 	config->addOption("subtitles", "SDL.SubtitleDisplay", 1);
 	config->addOption("movielength", "SDL.MovieLength", 0);
+
+	config->addOption("SDL.SuggestReadOnlyReplay"  , 1 );
+	config->addOption("SDL.PauseAfterMoviePlayback", 0 );
+	config->addOption("SDL.CloseFinishedMovie"     , 0 );
+	config->addOption("SDL.MovieBindSavestate"     , 1 );
+	config->addOption("SDL.SubtitlesOnAVI"         , 0 );
+	config->addOption("SDL.AutoMovieBackup"        , 0 );
+	config->addOption("SDL.MovieFullSaveStateLoads", 0 );
 	
 	config->addOption("fourscore", "SDL.FourScore", 0);
 

@@ -12,12 +12,17 @@ else()
 	set( Qt Qt5 )
 endif()
 
+if ( ${QHELP} )
+	set(QtHelpModule Help)
+	add_definitions( -D_USE_QHELP )
+endif()
+
 if ( ${QT6} )
-	find_package( Qt6 COMPONENTS Widgets Help OpenGL OpenGLWidgets REQUIRED)
+	find_package( Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets ${QtHelpModule})
   	add_definitions( ${Qt6Widgets_DEFINITIONS} ${Qt6Help_DEFINITIONS} ${Qt6OpenGLWidgets_DEFINITIONS} )
   	include_directories( ${Qt6Widgets_INCLUDE_DIRS} ${Qt6Help_INCLUDE_DIRS} ${Qt6OpenGLWidgets_INCLUDE_DIRS} )
 else()
-	find_package( Qt5 COMPONENTS Widgets OpenGL Help REQUIRED)
+	find_package( Qt5 REQUIRED COMPONENTS Widgets OpenGL ${QtHelpModule})
 	add_definitions( ${Qt5Widgets_DEFINITIONS} ${Qt5Help_DEFINITIONS} )
 	include_directories( ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Help_INCLUDE_DIRS} )
 endif()
@@ -132,7 +137,13 @@ else(WIN32)
 	set( OPENGL_LDFLAGS  "-framework OpenGL" )
   else()
 	set( OPENGL_LDFLAGS  ${OPENGL_LIBRARIES} )
-  	set( SYS_LIBS  -lrt  -lpthread  -ldl)
+	# OpenBSD  refuses  to  implement  the POSIX  realtime  interface  and
+	# refuses to provide a stub library for -ldl
+	if(${CMAKE_SYSTEM_NAME} STREQUAL "OpenBSD")
+	  	set( SYS_LIBS  -lpthread)
+        else()
+          	set( SYS_LIBS  -lrt  -lpthread  -ldl)
+        endif()
   endif()
 
 endif(WIN32)
@@ -518,6 +529,7 @@ set(SRC_DRIVERS_SDL
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/sdl-throttle.cpp  
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/unix-netplay.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/AviRecord.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/AviRiffViewer.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/avi-utils.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/fileio.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drivers/Qt/avi/gwavi.cpp
@@ -598,9 +610,14 @@ if(NOT MACDEPLOYQT)
 	message(FATAL_ERROR "Could not find macdeployqt executable")
 endif()
 
+find_package(Perl REQUIRED)
+
 install( CODE "
 	message(STATUS \"Deploying and fixing up dependencies in app: ${APP}\")
 	execute_process(COMMAND \"${MACDEPLOYQT}\" \"${APP}\" -verbose=1)
+	execute_process(COMMAND \"${PERL_EXECUTABLE}\"
+	                        \"${CMAKE_SOURCE_DIR}/scripts/macOSX_BundleFix.pl\"
+	                        \"${CMAKE_BINARY_DIR}/_CPack_Packages\")
 		"
 	COMPONENT Runtime
 	)

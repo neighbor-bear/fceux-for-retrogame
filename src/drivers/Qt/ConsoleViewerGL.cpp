@@ -41,6 +41,8 @@
 #include "Qt/throttle.h"
 #include "Qt/fceuWrapper.h"
 #include "Qt/ConsoleViewerGL.h"
+#include "Qt/ConsoleUtilities.h"
+#include "Qt/ConsoleWindow.h"
 
 extern unsigned int gui_draw_area_width;
 extern unsigned int gui_draw_area_height;
@@ -48,6 +50,8 @@ extern unsigned int gui_draw_area_height;
 ConsoleViewGL_t::ConsoleViewGL_t(QWidget *parent)
 	: QOpenGLWidget( parent )
 {
+	consoleWin_t *win = qobject_cast <consoleWin_t*>(parent);
+
 	view_width  = 256;
 	view_height = 224;
 	gltexture   = 0;
@@ -70,6 +74,13 @@ ConsoleViewGL_t::ConsoleViewGL_t(QWidget *parent)
 	textureType = GL_TEXTURE_2D;
 	//textureType = GL_TEXTURE_RECTANGLE;
 
+	bgColor = NULL;
+
+	if ( win )
+	{
+		bgColor = win->getVideoBgColorPtr();
+		bgColor->setRgb( 0, 0, 0 );
+	}
 	setMinimumWidth( 256 );
 	setMinimumHeight( 224 );
 	setFocusPolicy(Qt::StrongFocus);
@@ -100,6 +111,11 @@ ConsoleViewGL_t::ConsoleViewGL_t(QWidget *parent)
 		g_config->getOption("SDL.YScale", &yscale);
 
 		g_config->getOption ("SDL.ForceAspect", &forceAspect);
+
+		if ( bgColor )
+		{
+			fceuLoadConfigColor( "SDL.VideoBgColor", bgColor );
+		}
 	}
 
 	connect( this, SIGNAL(frameSwapped(void)), this, SLOT(renderFinished(void)) );
@@ -363,6 +379,14 @@ void ConsoleViewGL_t::resizeGL(int w, int h)
 	buildTextures();
 }
 
+void ConsoleViewGL_t::setBgColor( QColor &c )
+{
+	if ( bgColor )
+	{
+		*bgColor = c;
+	}
+}
+
 void ConsoleViewGL_t::setLinearFilterEnable( bool ena )
 {
    if ( linearFilter != ena )
@@ -598,7 +622,14 @@ void ConsoleViewGL_t::paintGL(void)
 	glOrtho( 0.0,  rw,  0.0,  rh,  -1.0,  1.0);
 
 	glDisable(GL_DEPTH_TEST);
-	glClearColor( 0.0, 0.0f, 0.0f, 0.0f);	// Background color to black.
+	if ( bgColor )
+	{
+		glClearColor( bgColor->redF(), bgColor->greenF(), bgColor->blueF(), 1.0f);	// Background color to config value.
+	}
+	else
+	{
+		glClearColor( 0.0, 0.0, 0.0, 1.0f);	// Background color to config value.
+	}
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 

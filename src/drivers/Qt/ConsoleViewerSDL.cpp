@@ -29,6 +29,8 @@
 #include "Qt/throttle.h"
 #include "Qt/fceuWrapper.h"
 #include "Qt/ConsoleViewerSDL.h"
+#include "Qt/ConsoleUtilities.h"
+#include "Qt/ConsoleWindow.h"
 
 extern unsigned int gui_draw_area_width;
 extern unsigned int gui_draw_area_height;
@@ -36,11 +38,21 @@ extern unsigned int gui_draw_area_height;
 ConsoleViewSDL_t::ConsoleViewSDL_t(QWidget *parent)
 	: QWidget( parent )
 {
+	consoleWin_t *win = qobject_cast <consoleWin_t*>(parent);
+
 	QPalette pal = palette();
 
 	pal.setColor(QPalette::Window, Qt::black);
 	setAutoFillBackground(true);
 	setPalette(pal);
+
+	bgColor = NULL;
+
+	if ( win )
+	{
+		bgColor = win->getVideoBgColorPtr();
+		bgColor->setRgb( 0, 0, 0 );
+	}
 
 	setMinimumWidth( 256 );
 	setMinimumHeight( 224 );
@@ -99,6 +111,11 @@ ConsoleViewSDL_t::ConsoleViewSDL_t(QWidget *parent)
 		g_config->getOption("SDL.YScale", &yscale);
 
 		g_config->getOption ("SDL.ForceAspect", &forceAspect);
+
+		if ( bgColor )
+		{
+			fceuLoadConfigColor( "SDL.VideoBgColor", bgColor );
+		}
 	}
 }
 
@@ -118,6 +135,14 @@ ConsoleViewSDL_t::~ConsoleViewSDL_t(void)
 	{
 		SDL_DestroyWindow( sdlWindow );
 		sdlWindow = NULL;
+	}
+}
+
+void ConsoleViewSDL_t::setBgColor( QColor &c )
+{
+	if ( bgColor )
+	{
+		*bgColor = c;
 	}
 }
 
@@ -633,8 +658,14 @@ void ConsoleViewSDL_t::render(void)
 		return;
 	}
 
-	SDL_SetRenderDrawColor( sdlRenderer, 0, 0, 0, 0 );
-
+	if ( bgColor )
+	{
+		SDL_SetRenderDrawColor( sdlRenderer, bgColor->red(), bgColor->green(), bgColor->blue(), 255 );
+	}
+	else
+	{
+		SDL_SetRenderDrawColor( sdlRenderer, 0, 0, 0, 255 );
+	}
 	SDL_RenderClear(sdlRenderer);
 
 	uint8_t *textureBuffer;

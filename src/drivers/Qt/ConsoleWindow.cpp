@@ -62,6 +62,7 @@
 #include "Qt/main.h"
 #include "Qt/dface.h"
 #include "Qt/input.h"
+#include "Qt/ColorMenu.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/InputConf.h"
 #include "Qt/GamePadConf.h"
@@ -71,6 +72,7 @@
 #include "Qt/HelpPages.h"
 #include "Qt/GuiConf.h"
 #include "Qt/AviRecord.h"
+#include "Qt/AviRiffViewer.h"
 #include "Qt/MoviePlay.h"
 #include "Qt/MovieRecord.h"
 #include "Qt/MovieOptions.h"
@@ -868,6 +870,7 @@ void consoleWin_t::createMainMenu(void)
 	QActionGroup *group;
 	int useNativeMenuBar;
 	int customAutofireOnFrames, customAutofireOffFrames;
+	ColorMenuItem *bgColorItem;
 	//QShortcut *shortcut;
 
 	menubar = new consoleMenuBar(this);
@@ -1214,6 +1217,15 @@ void consoleWin_t::createMainMenu(void)
 	Hotkeys[ HK_MAIN_MENU_HIDE ].setAction( act );
 	connect( Hotkeys[ HK_MAIN_MENU_HIDE ].getShortcut(), SIGNAL(activated()), this, SLOT(toggleMenuVis(void)) );
 
+	// Options -> Video BG Color
+	fceuLoadConfigColor( "SDL.VideoBgColor", &videoBgColor );
+
+	bgColorItem = new ColorMenuItem( tr("BG Side Panel Color"), "SDL.VideoBgColor", this );
+	bgColorItem->connectColor( &videoBgColor );
+
+	optMenu->addAction(bgColorItem);
+
+	connect( bgColorItem, SIGNAL(colorChanged(QColor&)), this, SLOT(videoBgColorChanged(QColor&)) );
 	//-----------------------------------------------------------------------
 	// Emulation
 
@@ -1586,6 +1598,14 @@ void consoleWin_t::createMainMenu(void)
 
 	toolsMenu->addAction(act);
 
+	// Tools -> AVI RIFF Viewer
+	act = new QAction(tr("&AVI RIFF Viewer ..."), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Open AVI RIFF Viewer Window"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openAviRiffViewer(void)) );
+
+	toolsMenu->addAction(act);
+
 	 //-----------------------------------------------------------------------
 	 // Debug
 
@@ -1671,7 +1691,7 @@ void consoleWin_t::createMainMenu(void)
 	connect( movieMenu, SIGNAL(aboutToHide(void)), this, SLOT(mainMenuClose(void)) );
 
 	// Movie -> Play
-	openMovAct = new QAction(tr("&Play"), this);
+	openMovAct = new QAction(tr("Movie &Play"), this);
 	//openMovAct->setShortcut( QKeySequence(tr("Shift+F7")));
 	openMovAct->setStatusTip(tr("Play Movie File"));
 	openMovAct->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
@@ -1683,7 +1703,7 @@ void consoleWin_t::createMainMenu(void)
 	movieMenu->addAction(openMovAct);
 
 	// Movie -> Play From Beginning
-	playMovBeginAct = new QAction(tr("Play From &Beginning"), this);
+	playMovBeginAct = new QAction(tr("Movie Play From &Beginning"), this);
 	//playMovBeginAct->setShortcut( QKeySequence(tr("Shift+F7")));
 	playMovBeginAct->setStatusTip(tr("Play Movie From Beginning"));
 	//playMovBeginAct->setIcon( style()->standardIcon( QStyle::SP_MediaPlay ) );
@@ -1695,7 +1715,7 @@ void consoleWin_t::createMainMenu(void)
 	movieMenu->addAction(playMovBeginAct);
 
 	// Movie -> Stop
-	stopMovAct = new QAction(tr("&Stop"), this);
+	stopMovAct = new QAction(tr("Movie &Stop"), this);
 	//stopMovAct->setShortcut( QKeySequence(tr("Shift+F7")));
 	stopMovAct->setStatusTip(tr("Stop Movie Recording"));
 	stopMovAct->setIcon( style()->standardIcon( QStyle::SP_MediaStop ) );
@@ -1709,7 +1729,7 @@ void consoleWin_t::createMainMenu(void)
 	movieMenu->addSeparator();
 
 	// Movie -> Record
-	recMovAct = new QAction(tr("&Record"), this);
+	recMovAct = new QAction(tr("Movie &Record"), this);
 	//recMovAct->setShortcut( QKeySequence(tr("Shift+F5")));
 	recMovAct->setStatusTip(tr("Record Movie"));
 	recMovAct->setIcon( QIcon(":icons/media-record.png") );
@@ -1760,17 +1780,6 @@ void consoleWin_t::createMainMenu(void)
 
 	movieMenu->addAction(stopAviAct);
 
-//#define AVI_DEBUG
-#ifdef AVI_DEBUG
-	// Movie -> Avi Recording -> Debug
-	act = new QAction(tr("&Debug"), this);
-	//act->setShortcut( QKeySequence(tr("Shift+F5")));
-	act->setStatusTip(tr("AVI Debug"));
-	//act->setIcon( style()->standardIcon( QStyle::SP_MediaStop ) );
-	connect(act, SIGNAL(triggered()), this, SLOT(aviDebugFile(void)) );
-	
-	movieMenu->addAction(act);
-#endif
 	movieMenu->addSeparator();
 
 	// Movie -> WAV Recording
@@ -1853,6 +1862,7 @@ void consoleWin_t::createMainMenu(void)
 	
 	subMenu->addAction(act);
 
+#if  defined(WIN32) || defined(_USE_QHELP)
 	// Help -> Documentation Offline
 	act = new QAction(tr("&Local"), this);
 	act->setStatusTip(tr("Documentation"));
@@ -1860,6 +1870,7 @@ void consoleWin_t::createMainMenu(void)
 	connect(act, SIGNAL(triggered()), this, SLOT(openOfflineDocs(void)) );
 
 	subMenu->addAction(act);
+#endif
 };
 //---------------------------------------------------------------------------
 int consoleWin_t::loadVideoDriver( int driverId )
@@ -2067,6 +2078,22 @@ void consoleWin_t::closeApp(void)
 
 	//qApp::quit();
 	qApp->quit();
+}
+//---------------------------------------------------------------------------
+void consoleWin_t::videoBgColorChanged( QColor &c )
+{
+	//printf("Color Changed\n");
+
+	if ( viewport_GL )
+	{
+		viewport_GL->setBgColor(c);
+		viewport_GL->update();
+	}
+	else if ( viewport_SDL )
+	{
+		viewport_SDL->setBgColor(c);
+		viewport_SDL->render();
+	}
 }
 //---------------------------------------------------------------------------
 int  consoleWin_t::showListSelectDialog( const char *title, std::vector <std::string> &l )
@@ -2770,6 +2797,17 @@ void consoleWin_t::openPaletteEditorWin(void)
    win = new PaletteEditorDialog_t(this);
 	
    win->show();
+}
+
+void consoleWin_t::openAviRiffViewer(void)
+{
+	AviRiffViewerDialog *win;
+
+	//printf("Open AVI RIFF Viewer Window\n");
+	
+	win = new AviRiffViewerDialog(this);
+	
+	win->show();
 }
 
 void consoleWin_t::openMovieOptWin(void)
@@ -3479,6 +3517,7 @@ void consoleWin_t::toggleLagCounterDisplay(void)
 {
 	fceuWrapperLock();
 	lagCounterDisplay = !lagCounterDisplay;
+	g_config->setOption("SDL.ShowLagCount", lagCounterDisplay);
 	fceuWrapperUnLock();
 }
 
@@ -3494,14 +3533,17 @@ void consoleWin_t::toggleMovieBindSaveState(void)
 {
 	fceuWrapperLock();
 	bindSavestate = !bindSavestate;
+	g_config->setOption("SDL.MovieBindSavestate", bindSavestate);
 	FCEUI_DispMessage ("Savestate binding to movie %sabled.", 0, bindSavestate ? "en" : "dis");
 	fceuWrapperUnLock();
 }
 
 void consoleWin_t::toggleMovieFrameDisplay(void)
 {
+	extern int frame_display;
 	fceuWrapperLock();
 	FCEUI_MovieToggleFrameDisplay();
+	g_config->setOption("SDL.ShowFrameCount", frame_display );
 	fceuWrapperUnLock();
 }
 
@@ -3603,7 +3645,7 @@ void consoleWin_t::aviRecordAsStart(void)
 	QString filename;
 	std::string lastPath;
 	//char dir[512];
-	const char *base;
+	const char *base, *rom;
 	QFileDialog  dialog(this, tr("Save AVI Movie for Recording") );
 	QList<QUrl> urls;
 	QDir d;
@@ -3641,6 +3683,19 @@ void consoleWin_t::aviRecordAsStart(void)
 	if ( lastPath.size() > 0 )
 	{
 		dialog.setDirectory( QString::fromStdString(lastPath) );
+	}
+
+	rom = getRomFile();
+
+	if ( rom )
+	{
+		char baseName[512];
+		getFileBaseName( rom, baseName );
+
+		if ( baseName[0] != 0 )
+		{
+			dialog.selectFile(baseName);
+		}
 	}
 
 	// Check config option to use native file dialog or not
@@ -3695,76 +3750,6 @@ void consoleWin_t::aviRecordStop(void)
 		aviDiskThread->wait(10000);
 		fceuWrapperUnLock();
 	}
-}
-
-void consoleWin_t::aviDebugFile(void)
-{
-	int ret, useNativeFileDialogVal;
-	QString filename;
-	std::string last;
-	//char dir[512];
-	const char *base;
-	QFileDialog  dialog(this, tr("Select AVI Movie for Debug") );
-	QList<QUrl> urls;
-	QDir d;
-
-	dialog.setFileMode(QFileDialog::AnyFile);
-
-	dialog.setNameFilter(tr("AVI Movies (*.avi) ;; All files (*)"));
-
-	dialog.setViewMode(QFileDialog::List);
-	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
-	dialog.setLabelText( QFileDialog::Accept, tr("Select") );
-
-	base = FCEUI_GetBaseDirectory();
-
-	urls << QUrl::fromLocalFile( QDir::rootPath() );
-	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
-	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
-
-	if ( base )
-	{
-		urls << QUrl::fromLocalFile( QDir( base ).absolutePath() );
-
-		d.setPath( QString(base) + "/avi");
-
-		if ( d.exists() )
-		{
-			urls << QUrl::fromLocalFile( d.absolutePath() );
-		}
-
-		dialog.setDirectory( d.absolutePath() );
-	}
-	dialog.setDefaultSuffix( tr(".avi") );
-
-	// Check config option to use native file dialog or not
-	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
-
-	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
-	dialog.setSidebarUrls(urls);
-
-	ret = dialog.exec();
-
-	if ( ret )
-	{
-		QStringList fileList;
-		fileList = dialog.selectedFiles();
-
-		if ( fileList.size() > 0 )
-		{
-			filename = fileList[0];
-		}
-	}
-
-	if ( filename.isNull() )
-	{
-	   return;
-	}
-	qDebug() << "selected file path : " << filename.toUtf8();
-
-	FCEUI_printf ("AVI Debug movie to %s\n", filename.toStdString().c_str() );
-
-	aviDebugOpenFile( filename.toStdString().c_str() );
 }
 
 void consoleWin_t::aviAudioEnableChange(bool checked)
@@ -3850,7 +3835,7 @@ void consoleWin_t::wavRecordAsStart(void)
 	QString filename;
 	std::string lastPath;
 	//char dir[512];
-	const char *base;
+	const char *base, *rom;
 	QFileDialog  dialog(this, tr("Save WAV Movie for Recording") );
 	QList<QUrl> urls;
 	QDir d;
@@ -3888,6 +3873,19 @@ void consoleWin_t::wavRecordAsStart(void)
 	if ( lastPath.size() > 0 )
 	{
 		dialog.setDirectory( QString::fromStdString(lastPath) );
+	}
+
+	rom = getRomFile();
+
+	if ( rom )
+	{
+		char baseName[512];
+		getFileBaseName( rom, baseName );
+
+		if ( baseName[0] != 0 )
+		{
+			dialog.selectFile(baseName);
+		}
 	}
 
 	// Check config option to use native file dialog or not
@@ -4059,7 +4057,7 @@ int consoleWin_t::getSchedParam( int &policy, int &priority )
 {
 	int ret = 0;
 
-#if defined(__linux__) || defined(__unix__)
+#if defined(__linux__) || defined(__unix__) && !defined(__OpenBSD__)
 	struct sched_param  p;
 
 	policy = sched_getscheduler( getpid() );
@@ -4095,7 +4093,7 @@ int consoleWin_t::getSchedParam( int &policy, int &priority )
 int consoleWin_t::setSchedParam( int policy, int priority )
 {
 	int ret = 0;
-#if defined(__linux__) || defined(__unix__)
+#if defined(__linux__) || defined(__unix__) && !defined(__OpenBSD__)
 	struct sched_param  p;
 	int minPrio, maxPrio;
 
@@ -4164,6 +4162,11 @@ void consoleWin_t::loadMostRecentROM(void)
 	CloseGame ();
 	LoadGame ( (romList.back())->c_str() );
 	fceuWrapperUnLock();
+}
+
+int consoleWin_t::getPeriodicInterval(void)
+{
+	return gameTimer->interval();
 }
 
 void consoleWin_t::transferVideoBuffer(void)

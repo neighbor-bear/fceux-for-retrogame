@@ -64,6 +64,7 @@
  * @return Structure containing required information in order to create the AVI
  * file. If an error occured, NULL is returned.
  */
+gwavi_info_list_t avi_info;
 
 gwavi_t::gwavi_t(void)
 {
@@ -82,6 +83,10 @@ gwavi_t::gwavi_t(void)
 	movi_fpos = 0;
 	bits_per_pixel = 24;
 	avi_std = 2;
+	audioEnabled = false;
+	riffWalkCallback = NULL;
+	readBuf = NULL;
+	readBufSize = 0;
 }
 
 gwavi_t::~gwavi_t(void)
@@ -94,7 +99,11 @@ gwavi_t::~gwavi_t(void)
 	{
 		fclose(out); out = NULL;
 	}
-
+	if ( readBuf )
+	{
+		free(readBuf); readBuf = NULL;
+		readBufSize = 0;
+	}
 }
 
 int
@@ -124,6 +133,7 @@ gwavi_t::open(const char *filename, unsigned int width, unsigned int height,
 		(void)fprintf(stderr, "WARNING: given fourcc does not seem to "
 			      "be valid: %s\n", fourcc);
 	}
+	avi_info.add_pair("ISFT", "fceux libgwavi");
 
 	if (fps < 1)
 	{
@@ -135,7 +145,7 @@ gwavi_t::open(const char *filename, unsigned int width, unsigned int height,
 		return -1;
 	}
 	usec = (unsigned int)((1000000.0 / fps)+0.50);
-	printf("FPS: %f  %u\n", fps, usec );
+	//printf("FPS: %f  %u\n", fps, usec );
 
 	/* set avi header */
 	avi_header.time_delay= usec;
@@ -191,6 +201,8 @@ gwavi_t::open(const char *filename, unsigned int width, unsigned int height,
 	stream_header_v.image_width  = width;
 	stream_header_v.image_height = height;
 
+	printf("AVI Encoded Video FPS: %.12lf\n", (double)stream_header_v.data_rate / (double)stream_header_v.time_scale );
+
 	/* set stream format */
 	stream_format_v.header_size = 40;
 	stream_format_v.width = width;
@@ -211,6 +223,8 @@ gwavi_t::open(const char *filename, unsigned int width, unsigned int height,
 
 	strcpy( stream_index_v.chunkId, "00dc");
 	stream_index_v.streamId = 0;
+
+	audioEnabled = false;
 
 	if (audio) 
 	{
@@ -242,6 +256,7 @@ gwavi_t::open(const char *filename, unsigned int width, unsigned int height,
 
 		strcpy( stream_index_a.chunkId, "01wb");
 		stream_index_a.streamId = 1;
+		audioEnabled = true;
 	}
 	std_index_base_ofs_v = 0;
 	std_index_base_ofs_a = 0;
@@ -259,6 +274,56 @@ gwavi_t::open(const char *filename, unsigned int width, unsigned int height,
 		(void)fprintf(stderr, "gwavi_info: write_avi_header_chunk "
 			      "failed\n");
 		return -1;
+	}
+
+	if ( avi_info.kvmap.size() > 0 )
+	{
+		long long t, infoMarker;
+		if (write_chars_bin(out, "LIST", 4) == -1)
+			goto write_chars_bin_failed;
+		if ((infoMarker = ftell(out)) == -1) {
+			perror("gwavi_info (ftell)");
+			return -1;
+		}
+		if (write_int(out, 0) == -1) {
+			(void)fprintf(stderr, "gwavi_info: write_int() failed\n");
+			return -1;
+		}
+		if (write_chars_bin(out, "INFO", 4) == -1)
+			goto write_chars_bin_failed;
+
+		for ( auto it = avi_info.kvmap.begin(); it != avi_info.kvmap.end(); it++)
+		{
+			if (write_chars_bin(out, it->first.c_str(), 4) == -1)
+				goto write_chars_bin_failed;
+
+			if (write_int(out, it->second.size()+1) == -1) {
+				(void)fprintf(stderr, "gwavi_info: write_int() failed\n");
+				return -1;
+			}
+
+			if (write_chars_bin(out, it->second.c_str(), it->second.size()) == -1)
+				goto write_chars_bin_failed;
+
+			write_byte(out, 0);
+
+			if ( (it->second.size()+1) % WORD_SIZE )
+			{
+				write_byte(out, 0);
+			}
+		}
+
+		if ((t = ftell(out)) == -1)
+			goto write_chars_bin_failed;
+
+		if (fseek(out, infoMarker, SEEK_SET) == -1)
+			goto write_chars_bin_failed;
+	
+		if (write_int(out, (unsigned int)(t - infoMarker - 4)) == -1)
+			goto write_chars_bin_failed;
+	
+		if (fseek(out, t, SEEK_SET) == -1)
+			goto write_chars_bin_failed;
 	}
 
 	if (write_chars_bin(out, "LIST", 4) == -1)
@@ -326,9 +391,13 @@ gwavi_t::add_frame( unsigned char *buffer, size_t len, unsigned int flags)
 			{
 				return -1;
 			}
-			if ( write_stream_std_indx( out, &stream_index_a ) == -1 )
+
+			if ( audioEnabled )
 			{
-				return -1;
+				if ( write_stream_std_indx( out, &stream_index_a ) == -1 )
+				{
+					return -1;
+				}
 			}
 			offsets.clear();
 
@@ -366,9 +435,12 @@ gwavi_t::add_frame( unsigned char *buffer, size_t len, unsigned int flags)
 		return -1;
 	}
 
-	if ((t = fwrite(buffer, 1, len, out)) != len) {
-		(void)fprintf(stderr, "gwavi_add_frame: fwrite() failed\n");
-		return -1;
+	if ( len > 0 )
+	{
+		if ((t = fwrite(buffer, 1, len, out)) != len) {
+			(void)fprintf(stderr, "gwavi_add_frame: fwrite() failed\n");
+			return -1;
+		}
 	}
 
 	for (t = 0; t < maxi_pad; t++)
@@ -496,9 +568,12 @@ gwavi_t::close(void)
 		{
 			return -1;
 		}
-		if ( write_stream_std_indx( out, &stream_index_a ) == -1 )
+		if ( audioEnabled )
 		{
-			return -1;
+			if ( write_stream_std_indx( out, &stream_index_a ) == -1 )
+			{
+				return -1;
+			}
 		}
 	}
 
@@ -640,21 +715,34 @@ gwavi_t::set_size( unsigned int width, unsigned int height)
 	return 0;
 }
 
-int gwavi_t::printHeaders(void)
+int gwavi_t::riffwalk(void)
 {
 	char fourcc[8];
 	unsigned int ret, fileSize, size;
+	long long int fpos;
 
 	if ( in == NULL )
 	{
 		return -1;
 	}
 
+	if ( readBuf == NULL )
+	{
+		readBufSize = 64 * 1024;
+		readBuf = (unsigned char*)malloc( readBufSize );
+	}
+	fpos = ftell(in);
+
 	if (read_chars_bin(in, fourcc, 4) == -1)
 		return -1;
 
 	fourcc[4] = 0;
-	printf("RIFF Begin: '%s'\n", fourcc );
+
+	if ( strcmp( fourcc, "RIFF") != 0 )
+	{
+		return -1;
+	}
+	//printf("RIFF Begin: '%s'\n", fourcc );
 
 	if (read_uint(in, fileSize) == -1)
 	{
@@ -662,14 +750,22 @@ int gwavi_t::printHeaders(void)
 		return -1;
 	}
 	size = fileSize;
-	printf("FileSize: %u\n", fileSize );
+	//printf("FileSize: %u\n", fileSize );
 
 	if (read_chars_bin(in, fourcc, 4) == -1)
 		return -1;
 
 	size -= 4;
 	fourcc[4] = 0;
-	printf("FileType: '%s'\n", fourcc );
+	//printf("FileType: '%s'\n", fourcc );
+
+	if ( riffWalkCallback )
+	{
+		if ( riffWalkCallback( RIFF_START, fpos, fourcc, fileSize, riffWalkUserData ) )
+		{
+			return -1;
+		}
+	}
 
 	while ( size >= 4 )
 	{
@@ -677,7 +773,7 @@ int gwavi_t::printHeaders(void)
 			return -1;
 
 		fourcc[4] = 0;
-		printf("Block: '%s'  %u  0x%X\n", fourcc, size, size );
+		//printf("Block: '%s'  %u  0x%X\n", fourcc, size, size );
 
 		size -= 4;
 
@@ -703,6 +799,15 @@ int gwavi_t::printHeaders(void)
 		}
 	}
 
+	fpos = ftell(in);
+
+	if ( riffWalkCallback )
+	{
+		if ( riffWalkCallback( RIFF_END, fpos, fourcc, fileSize, riffWalkUserData ) )
+		{
+			return -1;
+		}
+	}
 	return 0;
 }
 
@@ -712,9 +817,12 @@ unsigned int gwavi_t::readList(int lvl)
 	char fourcc[8], listType[8], pad[4];
 	unsigned int size, listSize=0;
 	char indent[256];
+	long long int fpos;
 
 	memset( indent, ' ', lvl*3);
 	indent[lvl*3] = 0;
+
+	fpos = ftell(in);
 
 	if (read_uint(in, listSize) == -1)
 	{
@@ -738,7 +846,11 @@ unsigned int gwavi_t::readList(int lvl)
 	size -= 4;
 	bytesRead += 4;
 
-	printf("%sList Start: '%s'  %u\n", indent, listType, listSize );
+	if ( riffWalkCallback )
+	{
+		riffWalkCallback( LIST_START, fpos-4, listType, listSize, riffWalkUserData );
+	}
+	//printf("%sList Start: '%s'  %u\n", indent, listType, listSize );
 
 	while ( size >= 4 )
 	{
@@ -749,7 +861,7 @@ unsigned int gwavi_t::readList(int lvl)
 		bytesRead += 4;
 
 		fourcc[4] = 0;
-		printf("%sBlock: '%s  %u'  0x%X\n", indent, fourcc, size, size );
+		//printf("%sBlock: '%s  %u'  0x%X\n", indent, fourcc, size, size );
 
 		if ( strcmp( fourcc, "LIST") == 0 )
 		{
@@ -787,30 +899,50 @@ unsigned int gwavi_t::readList(int lvl)
 		size -= r;
 		bytesRead += r;
 	}
-	printf("%sList End: %s   %u\n", indent, listType, bytesRead);
+	//printf("%sList End: %s   %u\n", indent, listType, bytesRead);
 
+	if ( riffWalkCallback )
+	{
+		fpos = ftell(in);
+
+		if ( riffWalkCallback( LIST_END, fpos, listType, listSize, riffWalkUserData ) )
+		{
+			return 0;
+		}
+	}
 	return bytesRead+4;
 }
 
 unsigned int gwavi_t::readChunk(const char *id, int lvl)
 {
 	unsigned int r, ret, size, chunkSize, bytesRead=0;
-	unsigned short dataWord;
+	//unsigned short dataWord;
 	char indent[256];
+	long long int fpos;
 
 	memset( indent, ' ', lvl*3);
 	indent[lvl*3] = 0;
+
+	fpos = ftell(in);
 
 	if (read_uint(in, chunkSize) == -1)
 	{
 		(void)fprintf(stderr, "readChunk: read_uint() failed\n");
 		return 0;
 	}
-	printf("%sChunk Start: %s   %u\n", indent, id, chunkSize);
+	//printf("%sChunk Start: %s   %u\n", indent, id, chunkSize);
+
+	if ( riffWalkCallback )
+	{
+		if ( riffWalkCallback( CHUNK_START, fpos-4, id, chunkSize, riffWalkUserData ) )
+		{
+			return 0;
+		}
+	}
 
 	if ( chunkSize == 0 )
 	{
-		return 0;
+		return 4;
 	}
 	size = chunkSize;
 
@@ -821,10 +953,16 @@ unsigned int gwavi_t::readChunk(const char *id, int lvl)
 		size += r;
 	}
 
-	if ( strcmp( id, "avih") == 0 )
+	while ( size > 0 )
 	{
-		ret = readAviHeader();
-
+		if ( size > readBufSize )
+		{
+			ret = fread( readBuf, 1, readBufSize, in );
+		}
+		else
+		{
+			ret = fread( readBuf, 1, size, in );
+		}
 		if ( ret == 0 )
 		{
 			return 0;
@@ -832,57 +970,83 @@ unsigned int gwavi_t::readChunk(const char *id, int lvl)
 		size -= ret;
 		bytesRead += ret;
 	}
-	else if ( strcmp( id, "strh") == 0 )
-	{
-		ret = readStreamHeader();
+	//if ( strcmp( id, "avih") == 0 )
+	//{
+	//	ret = readAviHeader();
 
-		if ( ret == 0 )
-		{
-			return 0;
-		}
-		size -= ret;
-		bytesRead += ret;
-	}
-	else if ( strcmp( id, "idx1") == 0 )
-	{
-		ret = readIndexBlock( chunkSize );
+	//	if ( ret == 0 )
+	//	{
+	//		return 0;
+	//	}
+	//	size -= ret;
+	//	bytesRead += ret;
+	//}
+	//else if ( strcmp( id, "strh") == 0 )
+	//{
+	//	ret = readStreamHeader();
 
-		if ( ret == 0 )
-		{
-			return 0;
-		}
-		size -= ret;
-		bytesRead += ret;
-	}
+	//	if ( ret == 0 )
+	//	{
+	//		return 0;
+	//	}
+	//	size -= ret;
+	//	bytesRead += ret;
+	//}
+	//else if ( strcmp( id, "idx1") == 0 )
+	//{
+	//	ret = readIndexBlock( chunkSize );
 
-	while ( size >= WORD_SIZE )
-	{
-		if (read_ushort(in, dataWord) == -1)
-		{
-			(void)fprintf(stderr, "readChunk: read_int() failed\n");
-			return 0;
-		}
-		size -= WORD_SIZE;
-		bytesRead += WORD_SIZE;
-	}
+	//	if ( ret == 0 )
+	//	{
+	//		return 0;
+	//	}
+	//	size -= ret;
+	//	bytesRead += ret;
+	//}
 
-	if ( size > 0 )
-	{
-		char pad[4];
-		int r = size % WORD_SIZE;
+	//while ( size >= WORD_SIZE )
+	//{
+	//	if (read_ushort(in, dataWord) == -1)
+	//	{
+	//		(void)fprintf(stderr, "readChunk: read_int() failed\n");
+	//		return 0;
+	//	}
+	//	size -= WORD_SIZE;
+	//	bytesRead += WORD_SIZE;
+	//}
 
-		if (read_chars_bin(in, pad, r) == -1)
-		{
-			(void)fprintf(stderr, "readChunk: read_int() failed\n");
-			return 0;
-		}
-		size -= r;
-		bytesRead += r;
-	}
+	//if ( size > 0 )
+	//{
+	//	char pad[4];
+	//	int r = size % WORD_SIZE;
 
-	printf("%sChunk End: %s   %u\n", indent, id, bytesRead);
+	//	if (read_chars_bin(in, pad, r) == -1)
+	//	{
+	//		(void)fprintf(stderr, "readChunk: read_int() failed\n");
+	//		return 0;
+	//	}
+	//	size -= r;
+	//	bytesRead += r;
+	//}
+
+	//printf("%sChunk End: %s   %u\n", indent, id, bytesRead);
 
 	return bytesRead+4;
+}
+
+int  gwavi_t::getChunkData( long long int fpos, unsigned char *buf, size_t size )
+{
+	long long int prev_fpos;
+
+	prev_fpos = ftell(in);
+
+	fseek( in, fpos, SEEK_SET );
+
+	fread( buf, 1, size, in );
+
+	fseek( in, prev_fpos, SEEK_SET );
+
+	return 0;
 }
 
 unsigned int gwavi_t::readAviHeader(void)
@@ -1166,4 +1330,63 @@ unsigned int gwavi_t::readIndexBlock( unsigned int chunkSize )
 		bytesRead += 16;
 	}
 	return bytesRead;
+}
+
+
+gwavi_dataBuffer::gwavi_dataBuffer(void)
+{
+	buf = NULL; size = 0;
+}
+
+gwavi_dataBuffer::~gwavi_dataBuffer(void)
+{
+	if ( buf )
+	{
+		free(buf); buf = NULL;
+	}
+}
+
+int gwavi_dataBuffer::malloc( size_t s )
+{
+	buf = (unsigned char*)::malloc(s); size = s;
+
+	return 0;
+}
+
+int16_t gwavi_dataBuffer::readI16( int ofs )
+{
+	int16_t out = 0;
+
+	out = (buf[ofs+1] << 8) | (buf[ofs]);
+
+	return out;
+}
+
+uint16_t gwavi_dataBuffer::readU16( int ofs )
+{
+	uint16_t out = 0;
+
+	out = (buf[ofs+1] << 8) | (buf[ofs]);
+
+	return out;
+}
+
+int32_t gwavi_dataBuffer::readI32( int ofs )
+{
+	int32_t out = 0;
+
+	out = (buf[3+ofs] << 24) | (buf[2+ofs] << 16) | 
+	      (buf[1+ofs] <<  8) | (buf[0+ofs]);
+
+	return out;
+}
+
+uint32_t gwavi_dataBuffer::readU32( int ofs )
+{
+	uint32_t out = 0;
+
+	out = (buf[3+ofs] << 24) | (buf[2+ofs] << 16) | 
+	      (buf[1+ofs] <<  8) | (buf[0+ofs]);
+
+	return out;
 }
