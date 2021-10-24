@@ -235,6 +235,11 @@ F_OPTS = -fomit-frame-pointer -fno-builtin -fno-common -fpermissive
 DEVICE = gcw0
 ODVERSION =
 
+TARGET = fceux_od
+
+RELEASE = 2.5.0
+RELEASE_DATE = $(shell date +%F)
+
 DEBUG=no
 PERF=no
 
@@ -266,7 +271,7 @@ PROFILE_DIR=/media/data/local/home/profile/fceux
 endif
 OPTIMIZE += -fprofile-generate -fprofile-dir=$(PROFILE_DIR)
 else ifdef PROFILE_USE
-OPTIMIZE += -fprofile-use -fprofile-dir=profile/$(DEVICE)
+OPTIMIZE += -fprofile-use -fprofile-dir=profile/$(DEVICE)/$(RELEASE_DATE)
 endif
 
 CC_OPTS	= $(F_OPTS) $(W_OPTS) $(OPTIMIZE)
@@ -293,10 +298,6 @@ LDFLAGS  += -static-libgcc -static-libstdc++
 endif
 LIBS = $(SDL_LIBS) -lz -lm
 
-TARGET = fceux_od
-
-RELEASE = 2.5.0
-RELEASE_DATE = $(shell date +%F)
 OPK_TARGET = $(TARGET)-$(RELEASE)-$(RELEASE_DATE)
 SKELETON_DESKTOP = opk/default.$(DEVICE).desktop
 SYSTEM_DESKTOP = bin/default.$(DEVICE).desktop
