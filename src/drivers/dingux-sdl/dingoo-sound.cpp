@@ -287,9 +287,9 @@ WriteSound(int32 *buf,
 		uflowMode = 0;
 		ovrFlowSkip = (int)(g_fpsScale * 1000);
 
-		if ( s_BufferIn >= s_BufferSize75 )
+		if ( s_BufferIn >= s_BufferSize50 )
 		{
-			ovrFlowSkip += 100;
+			ovrFlowSkip += 1;
 		}
 	}
 	else
