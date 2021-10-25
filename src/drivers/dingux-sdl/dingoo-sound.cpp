@@ -50,6 +50,7 @@ static double noiseGate = 0.0;
 static double noiseGateRate = 0.010;
 static bool   noiseGateActive = true;
 static bool   muteSoundOutput = false;
+static bool   fillInit = 1;
 
 static int s_mute = 0;
 
@@ -65,11 +66,40 @@ fillaudio(void *udata,
 		uint8 *stream,
 		int len)
 {
+	char bufStarveDetected = 0;
 	static int16_t sample = 0;
 	char mute;
 	int16 *tmps = (int16*)stream;
 	len >>= 1;
-
+	
+	if ( s_BufferIn > s_BufferSize25 )
+	{
+		fillInit = 0;
+	}
+	// If emulation is paused:
+	// 1. preserve sound buffer as is
+	// 2. fade from last known sample to zero
+	// 3. activate noise gate to avoid popping when coming out of pause.
+	if ( EmulationPaused || fillInit )
+	{
+		while ( len )
+		{
+			if ( sample > 0 )
+			{
+				sample--;
+			}
+			else if ( sample < 0 )
+			{
+				sample++;
+			}
+			*tmps = sample;
+			tmps++;
+			len--;
+		}
+		noiseGate = 0.0;
+		noiseGateActive = 1;
+		return;
+	}
 	mute = EmulationPaused || muteSoundOutput;
 
 	if ( mute || noiseGateActive )
@@ -107,7 +137,7 @@ fillaudio(void *udata,
 				s_BufferRead = (s_BufferRead + 1) % s_BufferSize;
 				s_BufferIn--;
 
-				*tmps = sample;
+				*tmps = sample * noiseGate;;
 			}
 			else
 			{
@@ -133,12 +163,22 @@ fillaudio(void *udata,
         	 		// Retain last known sample value, helps avoid clicking
         	 		// noise when sound system is starved of audio data.
 				//sample = 0; 
+				
+				bufStarveDetected = 1;
+				//nes_shm->sndBuf.starveCounter++;
 			}
+
+			//nes_shm->push_sound_sample( sample );
 
 			*tmps = sample;
 			tmps++;
 			len--;
 		}
+	}
+	if ( bufStarveDetected )
+	{
+		//s_StarveCounter = nes_shm->sndBuf.starveCounter - starve_lp;
+		//printf("Starve:%u\n", s_StarveCounter );
 	}
 }
 
@@ -208,6 +248,7 @@ int InitSound()
     noiseGate = 0.0;
     noiseGateRate = 1.0 / (double)spec.samples;
     noiseGateActive = true;
+    fillInit = 1;
 
     s_Buffer = (int *)FCEU_dmalloc(sizeof(int) * s_BufferSize);
 
