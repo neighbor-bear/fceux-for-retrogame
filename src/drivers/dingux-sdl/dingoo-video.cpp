@@ -30,6 +30,7 @@
 #include "dingoo.h"
 #include "dingoo-video.h"
 #include "scaler.h"
+#include "throttle.h"
 
 #include "../common/vidblit.h"
 #include "../../fceu.h"
@@ -42,8 +43,12 @@
 // GLOBALS
 SDL_Surface *screen;
 SDL_Surface *nes_screen; // 256x224
+#if defined(RETROFW) || defined(OD2014)
+void *org_pixels;
+#endif
 
 extern Config *g_config;
+extern double g_fpsScale; // defined in sdl-throttle
 
 // STATIC GLOBALS
 static int s_curbpp;
@@ -198,9 +203,15 @@ int InitVideo(FCEUGI *gi) {
 			w = 320; h = 240;
 		}
 		// OpenDingux - SDL_VideoModeOK seems not to work in the new beta
-		screen = SDL_SetVideoMode(w, h, 16, SDL_HWSURFACE | DINGOO_MULTIBUF);
+		if (NoWaiting || g_fpsScale > 1.0)
+			screen = SDL_SetVideoMode(w, h, 16, SDL_HWSURFACE);
+		else
+			screen = SDL_SetVideoMode(w, h, 16, SDL_HWSURFACE | DINGOO_MULTIBUF);
 		if (screen) {
 			s_VideoModeSet = true;
+#if defined(RETROFW) || defined(OD2014)
+			org_pixels = screen->pixels;
+#endif
 		}
 	}
 
@@ -447,6 +458,8 @@ void BlitScreen(uint8 *XBuf) {
 
 	if (SDL_MUSTLOCK(screen)) SDL_UnlockSurface(screen);
 	SDL_Flip(screen);
+	
+	videoBufferSwapMark();
 }
 
 /**
@@ -486,3 +499,12 @@ void dingoo_clear_video(void) {
 	SDL_Flip(screen);
 #endif
 }
+
+#if defined(RETROFW) || defined(OD2014)
+//flip all screens
+void dingoo_flip_all_video(void) {
+	while (screen->pixels != org_pixels)
+		SDL_Flip(screen);
+	SDL_Flip(screen);
+}
+#endif

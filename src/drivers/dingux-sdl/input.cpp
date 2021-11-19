@@ -384,12 +384,17 @@ static void KeyboardCommands() {
 	if(ispressed(DINGOO_L)) {
 		extern int s_fullscreen; // from dingoo_video.cpp
 		if(_keyonly(DINGOO_A)) { // R + A Toggle throttling
-			FCEUD_TurboToggle();
-			if (NoWaiting)
-				FCEU_DispMessage("Turbo speed",0);
-			else
-				FCEU_DispMessage("Normal speed",0);
-			resetkey(DINGOO_A);
+				SilenceSound(1);
+				FCEUD_TurboToggle();
+				if (NoWaiting)
+					FCEU_DispMessage("Turbo speed",0);
+				else
+					FCEU_DispMessage("Normal speed",0);
+#if defined(RETROFW) || defined(OD2014)
+				dingoo_flip_all_video();
+#endif
+				FCEUD_DriverReset();
+				SilenceSound(0);
 		}
 		if(_keyonly(DINGOO_B)) { // R + B Clip top/bottom
 			if (s_fullscreen == 1) {
