@@ -53,6 +53,7 @@ class  emulatorThread_t : public QThread
 		int getMaxSchedPriority(void);
 		#endif
 		void signalFrameFinished(void);
+		void signalRomLoad(const char *rom);
 	private:
 		void init(void);
 
@@ -64,6 +65,7 @@ class  emulatorThread_t : public QThread
 	signals:
 		void finished(void);
 		void frameFinished(void);
+		void loadRomRequest( QString s );
 };
 
 class  consoleMenuBar : public QMenuBar
@@ -329,6 +331,7 @@ class  consoleWin_t : public QMainWindow
 		void aboutQt(void);
 		void openOnlineDocs(void);
 		void openOfflineDocs(void);
+		void openTasEditor(void);
 		void openMsgLogWin(void);
 		void openInputConfWin(void);
 		void openGameSndConfWin(void);
@@ -446,6 +449,7 @@ class  consoleWin_t : public QMainWindow
 		void winActiveChanged(void);
 		void emuFrameFinish(void);
 		void videoBgColorChanged( QColor &c );
+		void loadRomRequestCB( QString s );
 
 };
 

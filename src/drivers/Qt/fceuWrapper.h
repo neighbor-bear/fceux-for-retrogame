@@ -28,6 +28,7 @@ extern Config *g_config;
 int LoadGame(const char *path, bool silent = false);
 int CloseGame(void);
 int reloadLastGame(void);
+int LoadGameFromLua( const char *path );
 
 int  fceuWrapperInit( int argc, char *argv[] );
 int  fceuWrapperMemoryCleanup( void );
@@ -43,3 +44,18 @@ int  fceuWrapperTogglePause(void);
 bool fceuWrapperGameLoaded(void);
 void fceuWrapperRequestAppExit(void);
 
+class  fceuCriticalSection
+{
+	public:
+		fceuCriticalSection(void)
+		{
+			//printf("Wrapper Lock\n");
+			fceuWrapperLock();
+		}
+
+		~fceuCriticalSection(void)
+		{
+			//printf("Wrapper UnLock\n");
+			fceuWrapperUnLock();
+		}
+};
