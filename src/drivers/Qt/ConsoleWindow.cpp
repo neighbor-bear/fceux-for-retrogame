@@ -98,6 +98,7 @@
 #include "Qt/RamSearch.h"
 #include "Qt/keyscan.h"
 #include "Qt/nes_shm.h"
+#include "Qt/TasEditor/TasEditorWindow.h"
 
 consoleWin_t::consoleWin_t(QWidget *parent)
 	: QMainWindow( parent )
@@ -158,6 +159,7 @@ consoleWin_t::consoleWin_t(QWidget *parent)
 
 	connect(emulatorThread, &QThread::finished, emulatorThread, &QObject::deleteLater);
 	connect(emulatorThread, SIGNAL(frameFinished(void)), this, SLOT(emuFrameFinish(void)) );
+	connect(emulatorThread, SIGNAL(loadRomRequest(QString)), this, SLOT(loadRomRequestCB(QString)) );
 
 	connect( gameTimer, &QTimer::timeout, this, &consoleWin_t::updatePeriodic );
 
@@ -1606,6 +1608,14 @@ void consoleWin_t::createMainMenu(void)
 
 	toolsMenu->addAction(act);
 
+	// Tools -> TAS Editor
+	act = new QAction(tr("&TAS Editor ..."), this);
+	//act->setShortcut( QKeySequence(tr("Shift+F7")));
+	act->setStatusTip(tr("Open TAS Editor Window"));
+	connect(act, SIGNAL(triggered()), this, SLOT(openTasEditor(void)) );
+
+	toolsMenu->addAction(act);
+
 	 //-----------------------------------------------------------------------
 	 // Debug
 
@@ -2259,6 +2269,15 @@ void consoleWin_t::openROMFile(void)
    return;
 }
 
+void consoleWin_t::loadRomRequestCB( QString s )
+{
+	printf("Load ROM Req: '%s'\n", s.toStdString().c_str() );
+	fceuWrapperLock();
+	CloseGame ();
+	LoadGame ( s.toStdString().c_str() );
+	fceuWrapperUnLock();
+}
+
 void consoleWin_t::closeROMCB(void)
 {
 	fceuWrapperLock();
@@ -2808,6 +2827,27 @@ void consoleWin_t::openAviRiffViewer(void)
 	win = new AviRiffViewerDialog(this);
 	
 	win->show();
+}
+
+void consoleWin_t::openTasEditor(void)
+{
+	fceuWrapperLock();
+
+	if ( tasWindowIsOpen() )
+	{
+		tasWindowSetFocus(true);
+	}
+	else if (FCEU_IsValidUI(FCEUI_TASEDITOR))
+	{
+		TasEditorWindow *win;
+
+		win = new TasEditorWindow(this);
+		
+		win->show();
+
+		connect(emulatorThread, SIGNAL(frameFinished(void)), win, SLOT(frameUpdate(void)) );
+	}
+	fceuWrapperUnLock();
 }
 
 void consoleWin_t::openMovieOptWin(void)
@@ -4480,6 +4520,11 @@ void emulatorThread_t::run(void)
 void emulatorThread_t::signalFrameFinished(void)
 {
 	emit frameFinished();
+}
+
+void emulatorThread_t::signalRomLoad( const char *path )
+{
+	emit loadRomRequest( QString(path) );
 }
 
 //-----------------------------------------------------------------------------
