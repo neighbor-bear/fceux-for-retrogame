@@ -430,71 +430,11 @@ static void DriverKill() {
  */
 void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count)
 {
-	int blitDone = 0;
-	//extern int FCEUDnetplay;
-
 	WriteSound(Buffer,Count);
 
-	//int ocount = Count;
-	// apply frame scaling to Count
-	//Count = (int)(Count / g_fpsScale);
-	//if(Count) {
-	//	int32 can=GetWriteSound();
-	//	static int uflow=0;
-	//	int32 tmpcan;
-
-	//	// don't underflow when scaling fps
-	//	if(can >= GetMaxSound() && g_fpsScale==1.0) uflow=1;	/* Go into massive underflow mode. */
-
-	//	if(can > Count) can=Count;
-	//	else uflow=0;
-
-	//	  WriteSound(Buffer,can);
-
-	//	//if(uflow) puts("Underflow");
-	//	tmpcan = GetWriteSound();
-	//	// don't underflow when scaling fps
-	//	if(g_fpsScale>1.0 || ((tmpcan < Count*0.90) && !uflow)) {
-	//		if(XBuf && (inited&4) && !(NoWaiting & 2))
-	//		{
-	//			BlitScreen(XBuf); blitDone = 1;
-	//		}
-	//		Buffer+=can;
-	//		Count-=can;
-	//		if(Count) {
-	//			if(NoWaiting) {
-	//				can=GetWriteSound();
-	//				if(Count>can) Count=can;
-	//				  WriteSound(Buffer,Count);
-	//			} else {
-	//				while(Count>0) {
-	//					  WriteSound(Buffer,(Count<ocount) ? Count : ocount);
-	//					Count -= ocount;
-	//				}
-	//			}
-	//		}
-	//	} //else puts("Skipped");
-	//	else if(!NoWaiting && FCEUDnetplay && (uflow || tmpcan >= (Count * 1.8))) {
-	//		if(Count > tmpcan) Count=tmpcan;
-	//		while(tmpcan > 0) {
-	//			//	printf("Overwrite: %d\n", (Count <= tmpcan)?Count : tmpcan);
-	//			  WriteSound(Buffer, (Count <= tmpcan)?Count : tmpcan);
-	//			tmpcan -= Count;
-	//		}
-	//	}
-
-	//} else {
-	//	if (XBuf && (inited&4)) 
-	//	{
-	//		BlitScreen(XBuf); blitDone = 1;
-	//	}
-	//}
-	if ( !blitDone )
+	if (XBuf && (inited&4)) 
 	{
-		if (XBuf && (inited&4)) 
-		{
-			BlitScreen(XBuf); blitDone = 1;
-		}
+		BlitScreen(XBuf);
 	}
     
 	FCEUD_UpdateInput();
