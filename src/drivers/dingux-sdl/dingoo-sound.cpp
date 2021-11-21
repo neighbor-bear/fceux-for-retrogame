@@ -351,6 +351,12 @@ WriteSound(int32 *buf,
 		}
 		uflowMode = (udrFlowDup > 1);
 	}
+
+	if (!Count)
+	{
+		return;
+	}
+
 	extern int EmulationPaused;
 	if (EmulationPaused == 0)
 	{
