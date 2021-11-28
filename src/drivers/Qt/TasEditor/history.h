@@ -1,16 +1,17 @@
 // Specification file for History class
 #pragma once
 #include <stdint.h>
+#include <time.h>
 #include <vector>
 
 #include "fceu.h"
 #include "Qt/TasEditor/bookmark.h"
 #include "Qt/TasEditor/snapshot.h"
 
-#define UNDO_HINT_TIME 200						// in milliseconds
+#define UNDO_HINT_TIME (200 * (CLOCKS_PER_SEC / 1000))	// in milliseconds
 
 #define SAVING_HISTORY_PROGRESSBAR_UPDATE_RATE 10
-#define TIME_BETWEEN_AUTOCOMPRESSIONS 500		// in milliseconds
+#define TIME_BETWEEN_AUTOCOMPRESSIONS (500 * (CLOCKS_PER_SEC / 1000))		// in milliseconds
 
 #define HISTORY_LIST_WIDTH 500
 
@@ -118,7 +119,7 @@ public:
 	void registerBookmarkSet(int slot, BOOKMARK& backupCopy, int oldCurrentBranch);
 	int registerBranching(int slot, bool markersWereChanged);
 	void registerRecording(int frameOfChange, uint32 joypadDifferenceBits);
-	int registerImport(MovieData& md, char* filename);
+	int registerImport(MovieData& md, const char* filename);
 	int registerLuaChanges(const char* name, int start, bool insertionOrDeletionWasDone);
 
 	int getCategoryOfOperation(int modificationType);
