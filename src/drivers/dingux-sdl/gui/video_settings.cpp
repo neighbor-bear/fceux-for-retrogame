@@ -191,12 +191,6 @@ int RunVideoSettings()
 	static int offset_start = 0;
 	static int offset_end = menu_size > max_entries ? max_entries : menu_size;
 
-	int max_entries = 9;
-	int menu_size = vd_menu_items;
-
-	static int offset_start = 0;
-	static int offset_end = menu_size > max_entries ? max_entries : menu_size;
-
 	char tmp[32];
 	int  itmp;
 
