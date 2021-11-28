@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <time.h>
 #include <string>
 #include <list>
 #include <map>
@@ -36,6 +37,7 @@
 #include <QStackedWidget>
 #include <QClipboard>
 
+#include "Qt/ConsoleUtilities.h"
 #include "Qt/TasEditor/taseditor_config.h"
 #include "Qt/TasEditor/taseditor_project.h"
 #include "Qt/TasEditor/greenzone.h"
@@ -55,12 +57,73 @@
 
 class TasEditorWindow;
 
+// Piano Roll Definitions
+enum PIANO_ROLL_COLUMNS
+{
+	COLUMN_ICONS,
+	COLUMN_FRAMENUM,
+	COLUMN_JOYPAD1_A,
+	COLUMN_JOYPAD1_B,
+	COLUMN_JOYPAD1_S,
+	COLUMN_JOYPAD1_T,
+	COLUMN_JOYPAD1_U,
+	COLUMN_JOYPAD1_D,
+	COLUMN_JOYPAD1_L,
+	COLUMN_JOYPAD1_R,
+	COLUMN_JOYPAD2_A,
+	COLUMN_JOYPAD2_B,
+	COLUMN_JOYPAD2_S,
+	COLUMN_JOYPAD2_T,
+	COLUMN_JOYPAD2_U,
+	COLUMN_JOYPAD2_D,
+	COLUMN_JOYPAD2_L,
+	COLUMN_JOYPAD2_R,
+	COLUMN_JOYPAD3_A,
+	COLUMN_JOYPAD3_B,
+	COLUMN_JOYPAD3_S,
+	COLUMN_JOYPAD3_T,
+	COLUMN_JOYPAD3_U,
+	COLUMN_JOYPAD3_D,
+	COLUMN_JOYPAD3_L,
+	COLUMN_JOYPAD3_R,
+	COLUMN_JOYPAD4_A,
+	COLUMN_JOYPAD4_B,
+	COLUMN_JOYPAD4_S,
+	COLUMN_JOYPAD4_T,
+	COLUMN_JOYPAD4_U,
+	COLUMN_JOYPAD4_D,
+	COLUMN_JOYPAD4_L,
+	COLUMN_JOYPAD4_R,
+	COLUMN_FRAMENUM2,
+
+	TOTAL_COLUMNS
+};
+
+#define HEADER_LIGHT_MAX 10
+#define HEADER_LIGHT_HOLD 5
+#define HEADER_LIGHT_MOUSEOVER_SEL 3
+#define HEADER_LIGHT_MOUSEOVER 0
+#define HEADER_LIGHT_UPDATE_TICK  (40 * (CLOCKS_PER_SEC / 1000))	// 25FPS
+
 struct NewProjectParameters
 {
 	int inputType;
 	bool copyCurrentInput;
 	bool copyCurrentMarkers;
 	std::wstring authorName;
+};
+
+class bookmarkPreviewPopup : public fceuCustomToolTip
+{
+   Q_OBJECT
+	public:
+	   bookmarkPreviewPopup( int index, QWidget *parent = nullptr );
+	   ~bookmarkPreviewPopup(void);
+
+	private:
+	   int loadImage(int index);
+
+	   unsigned char *screenShotRaster;
 };
 
 class QPianoRoll : public QWidget
@@ -71,6 +134,7 @@ class QPianoRoll : public QWidget
 		QPianoRoll(QWidget *parent = 0);
 		~QPianoRoll(void);
 
+		void reset(void);
 		void setScrollBars( QScrollBar *h, QScrollBar *v );
 
 		QFont getFont(void){ return font; };
@@ -87,6 +151,8 @@ class QPianoRoll : public QWidget
 		void  followPlaybackCursor(void);
 		void  followPauseframe(void);
 		void  followUndoHint(void);
+		void  setLightInHeaderColumn(int column, int level);
+		void  periodicUpdate(void);
 
 	protected:
 		void calcFontData(void);
@@ -120,8 +186,12 @@ class QPianoRoll : public QWidget
 		QScrollBar *hbar;
 		QScrollBar *vbar;
 		QColor      windowColor;
+		QColor      headerLightsColors[11];
+
+		int8_t headerColors[TOTAL_COLUMNS];
 
 		int numCtlr;
+		int numColumns;
 		int pxCharWidth;
 		int pxCharHeight;
 		int pxCursorHeight;
@@ -151,6 +221,8 @@ class QPianoRoll : public QWidget
 		int markerDragFrameNumber;
 		int markerDragCountdown;
 		int drawingStartTimestamp;
+		int headerItemUnderMouse;
+		int nextHeaderUpdateTime;
 		int mouse_x;
 		int mouse_y;
 
@@ -159,6 +231,7 @@ class QPianoRoll : public QWidget
 	public slots:
 		void hbarChanged(int val);
 		void vbarChanged(int val);
+		void vbarActionTriggered(int act);
 };
 
 class TasEditorWindow : public QDialog
@@ -281,6 +354,8 @@ class TasEditorWindow : public QDialog
 
 		std::vector<std::string> patternsNames;
 		std::vector<std::vector<uint8_t>> patterns;
+
+		bool mustCallManualLuaFunction;
 	private:
 
 		int initModules(void);
@@ -288,6 +363,7 @@ class TasEditorWindow : public QDialog
 		bool saveProject(bool save_compact = false);
 		bool saveProjectAs(bool save_compact = false);
 		bool askToSaveProject(void);
+		void updateToolTips(void);
 
 	public slots:
 		void closeWindow(void);
@@ -300,6 +376,9 @@ class TasEditorWindow : public QDialog
 		void saveProjectAsCb(void);
 		void saveProjectCompactCb(void);
 		void createNewProject(void);
+		void importMovieFile(void);
+		void exportMovieFile(void);
+		void openOnlineDocs(void);
 		void recordingChanged(int);
 		void recordInputChanged(int);
 		void superImposedChanged(int);
@@ -351,7 +430,16 @@ class TasEditorWindow : public QDialog
 		void upperMarkerLabelClicked(void);
 		void lowerMarkerLabelClicked(void);
 		void histTreeItemActivated(QTreeWidgetItem*,int);
+		void playbackFollowCursorCb(bool);
+		void playbackAutoRestoreCb(bool);
+		void playbackTurboSeekCb(bool);
+		void openProjectSaveOptions(void);
+		void setGreenzoneCapacity(void);
+		void setMaxUndoCapacity(void);
+		void setCurrentPattern(int);
 		void tabViewChanged(int);
+		void autoLuaRunChanged(bool);
+		void manLuaRun(void);
 
 	friend class RECORDER;
 	friend class SPLICER;

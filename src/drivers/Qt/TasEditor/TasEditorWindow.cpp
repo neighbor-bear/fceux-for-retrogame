@@ -24,6 +24,7 @@
 #include <string.h>
 #include <math.h>
 #include <string>
+#include <zlib.h>
 
 #include <QDir>
 #include <QPainter>
@@ -32,18 +33,22 @@
 #include <QMessageBox>
 #include <QFontMetrics>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QStandardPaths>
 #include <QApplication>
 #include <QGuiApplication>
+#include <QDesktopServices>
 
 #include "fceu.h"
 #include "movie.h"
 #include "driver.h"
 
+#include "common/vidblit.h"
 #include "Qt/config.h"
 #include "Qt/keyscan.h"
 #include "Qt/throttle.h"
 #include "Qt/fceuWrapper.h"
+#include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/TasEditor/TasColors.h"
 #include "Qt/TasEditor/TasEditorWindow.h"
@@ -63,47 +68,6 @@ HISTORY           *history = NULL;
 SPLICER           *splicer = NULL;
 
 // Piano Roll Definitions
-enum PIANO_ROLL_COLUMNS
-{
-	COLUMN_ICONS,
-	COLUMN_FRAMENUM,
-	COLUMN_JOYPAD1_A,
-	COLUMN_JOYPAD1_B,
-	COLUMN_JOYPAD1_S,
-	COLUMN_JOYPAD1_T,
-	COLUMN_JOYPAD1_U,
-	COLUMN_JOYPAD1_D,
-	COLUMN_JOYPAD1_L,
-	COLUMN_JOYPAD1_R,
-	COLUMN_JOYPAD2_A,
-	COLUMN_JOYPAD2_B,
-	COLUMN_JOYPAD2_S,
-	COLUMN_JOYPAD2_T,
-	COLUMN_JOYPAD2_U,
-	COLUMN_JOYPAD2_D,
-	COLUMN_JOYPAD2_L,
-	COLUMN_JOYPAD2_R,
-	COLUMN_JOYPAD3_A,
-	COLUMN_JOYPAD3_B,
-	COLUMN_JOYPAD3_S,
-	COLUMN_JOYPAD3_T,
-	COLUMN_JOYPAD3_U,
-	COLUMN_JOYPAD3_D,
-	COLUMN_JOYPAD3_L,
-	COLUMN_JOYPAD3_R,
-	COLUMN_JOYPAD4_A,
-	COLUMN_JOYPAD4_B,
-	COLUMN_JOYPAD4_S,
-	COLUMN_JOYPAD4_T,
-	COLUMN_JOYPAD4_U,
-	COLUMN_JOYPAD4_D,
-	COLUMN_JOYPAD4_L,
-	COLUMN_JOYPAD4_R,
-	COLUMN_FRAMENUM2,
-
-	TOTAL_COLUMNS
-};
-
 enum DRAG_MODES
 {
 	DRAG_MODE_NONE,
@@ -115,11 +79,11 @@ enum DRAG_MODES
 	DRAG_MODE_SELECTION,
 	DRAG_MODE_DESELECTION,
 };
-#define BOOKMARKS_WITH_BLUE_ARROW 20
-#define BOOKMARKS_WITH_GREEN_ARROW 40
-#define BLUE_ARROW_IMAGE_ID 60
-#define GREEN_ARROW_IMAGE_ID 61
-#define GREEN_BLUE_ARROW_IMAGE_ID 62
+#define BOOKMARKS_WITH_BLUE_ARROW    0x00010000
+#define BOOKMARKS_WITH_GREEN_ARROW   0x00020000
+#define BLUE_ARROW_IMAGE_ID          0x00040000
+#define GREEN_ARROW_IMAGE_ID         0x00080000
+#define GREEN_BLUE_ARROW_IMAGE_ID   (BLUE_ARROW_IMAGE_ID | GREEN_ARROW_IMAGE_ID)
 
 #define MARKER_DRAG_COUNTDOWN_MAX 14
 
@@ -232,6 +196,7 @@ TasEditorWindow::TasEditorWindow(QWidget *parent)
 	initModules();
 
 	updateCheckedItems();
+	updateToolTips();
 
 	// Restore Window Geometry
 	restoreGeometry(settings.value("tasEditor/geometry").toByteArray());
@@ -300,7 +265,10 @@ void TasEditorWindow::closeEvent(QCloseEvent *event)
 {
 	printf("Tas Editor Close Window Event\n");
 
-	if (!askToSaveProject()) return;
+	if (!askToSaveProject())
+	{
+		return;
+	}
 
 	done(0);
 	deleteLater();
@@ -309,7 +277,10 @@ void TasEditorWindow::closeEvent(QCloseEvent *event)
 //----------------------------------------------------------------------------
 void TasEditorWindow::closeWindow(void)
 {
-	if (!askToSaveProject()) return;
+	if (!askToSaveProject())
+	{
+		return;
+	}
 	//printf("Close Window\n");
 	done(0);
 	deleteLater();
@@ -318,8 +289,9 @@ void TasEditorWindow::closeWindow(void)
 QMenuBar *TasEditorWindow::buildMenuBar(void)
 {
 	QMenu       *fileMenu, *editMenu, *viewMenu,
-		    *confMenu, *luaMenu,  *helpMenu;
-	//QActionGroup *actGroup;
+		    *confMenu, *luaMenu,  *helpMenu,
+		    *patternMenu;
+	QActionGroup *actGroup;
 	QAction     *act;
 	int useNativeMenuBar=0;
 
@@ -393,7 +365,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+Shift+S")));
 	act->setStatusTip(tr("Import Input"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_BrowserStop ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(closeFile(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(importMovieFile(void)) );
 
 	fileMenu->addAction(act);
 
@@ -402,7 +374,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+Shift+S")));
 	act->setStatusTip(tr("Export to fm2"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_BrowserStop ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(closeFile(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(exportMovieFile(void)) );
 
 	fileMenu->addAction(act);
 
@@ -664,7 +636,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+N")));
 	act->setStatusTip(tr("Project File Saving Options"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(createNewProject(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(openProjectSaveOptions(void)) );
 
 	confMenu->addAction(act);
 
@@ -673,7 +645,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+N")));
 	act->setStatusTip(tr("Set Max Undo History"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(createNewProject(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(setMaxUndoCapacity(void)) );
 
 	confMenu->addAction(act);
 
@@ -682,7 +654,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+N")));
 	act->setStatusTip(tr("Set Greenzone Capacity"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(createNewProject(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(setGreenzoneCapacity(void)) );
 
 	confMenu->addAction(act);
 
@@ -834,7 +806,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+N")));
 	act->setStatusTip(tr("Run Function"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(createNewProject(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(manLuaRun(void)) );
 
 	luaMenu->addAction(act);
 
@@ -846,9 +818,30 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+N")));
 	act->setStatusTip(tr("Auto Function"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(createNewProject(void)) );
+	connect(act, SIGNAL(triggered(bool)), this, SLOT(autoLuaRunChanged(bool)) );
 
 	luaMenu->addAction(act);
+
+	// Pattern
+	patternMenu = menuBar->addMenu(tr("&Pattern"));
+
+	actGroup = new QActionGroup(this);
+
+	for (size_t i=0; i<patternsNames.size(); i++)
+	{
+		// Pattern -> Names
+		act = new QAction(tr(patternsNames[i].c_str()), this);
+		act->setCheckable(true);
+		//act->setShortcut(QKeySequence(tr("Ctrl+N")));
+		act->setStatusTip(tr(patternsNames[i].c_str()));
+		//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
+		connect(act, &QAction::triggered, [this, i] { setCurrentPattern(i); } );
+
+		actGroup->addAction(act);
+		patternMenu->addAction(act);
+
+		act->setChecked( taseditorConfig.currentPattern == i );
+	}
 
 	// Help
 	helpMenu = menuBar->addMenu(tr("&Help"));
@@ -858,7 +851,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+N")));
 	act->setStatusTip(tr("Open TAS Editor Manual"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(createNewProject(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(openOnlineDocs(void)) );
 
 	helpMenu->addAction(act);
 
@@ -910,10 +903,12 @@ void TasEditorWindow::buildPianoRollDisplay(void)
 	//pianoRollFrame->setFrameShape( QFrame::StyledPanel );
 	pianoRollFrame->setFrameShape( QFrame::Box );
 
+	pianoRollVBar->setInvertedControls(true);
 	pianoRollVBar->setInvertedAppearance(true);
 	pianoRoll->setScrollBars( pianoRollHBar, pianoRollVBar );
 	connect( pianoRollHBar, SIGNAL(valueChanged(int)), pianoRoll, SLOT(hbarChanged(int)) );
 	connect( pianoRollVBar, SIGNAL(valueChanged(int)), pianoRoll, SLOT(vbarChanged(int)) );
+	connect( pianoRollVBar, SIGNAL(actionTriggered(int)), pianoRoll, SLOT(vbarActionTriggered(int)) );
 
 	grid->addWidget( pianoRoll    , 0, 0 );
 	grid->addWidget( pianoRollVBar, 0, 1 );
@@ -1159,6 +1154,10 @@ void TasEditorWindow::buildSideControlPanel(void)
 	connect( advFrmBtn   , SIGNAL(clicked(void)), this, SLOT(playbackFrameForward(void))    );
 	connect( advMkrBtn   , SIGNAL(clicked(void)), this, SLOT(playbackFrameForwardFull(void)));
 
+	connect( followCursorCbox, SIGNAL(clicked(bool)), this, SLOT(playbackFollowCursorCb(bool)));
+	connect( turboSeekCbox   , SIGNAL(clicked(bool)), this, SLOT(playbackTurboSeekCb(bool)));
+	connect( autoRestoreCbox , SIGNAL(clicked(bool)), this, SLOT(playbackAutoRestoreCb(bool)));
+
 	shortcut = new QShortcut( QKeySequence("Pause"), this);
 	connect( shortcut, SIGNAL(activated(void)), this, SLOT(playbackPauseCB(void)) );
 
@@ -1326,12 +1325,12 @@ int TasEditorWindow::initModules(void)
 	// force the input configuration stored in the movie to apply to FCEUX config
 	applyMovieInputConfig();
 	// reset some modules that need MovieData info
-	//pianoRoll.reset();
+	pianoRoll->reset();
 	recorder.reset();
 	// create initial snapshot in history
 	history.reset();
 	// reset Taseditor variables
-	//mustCallManualLuaFunction = false;
+	mustCallManualLuaFunction = false;
 	
 	//SetFocus(history.hwndHistoryList);		// set focus only once, to show blue selection cursor
 	//SetFocus(pianoRoll.hwndList);
@@ -1349,7 +1348,7 @@ void TasEditorWindow::frameUpdate(void)
 	//taseditorWindow.update();
 	greenzone.update();
 	recorder.update();
-	//pianoRoll.update();
+	pianoRoll->periodicUpdate();
 	markersManager.update();
 	playback.update();
 	bookmarks.update();
@@ -1359,16 +1358,19 @@ void TasEditorWindow::frameUpdate(void)
 	splicer.update();
 	history.update();
 	project.update();
+
+#ifdef _S9XLUA_H
 	// run Lua functions if needed
 	if (taseditorConfig.enableLuaAutoFunction)
 	{
-		//TaseditorAutoFunction();
+		TaseditorAutoFunction();
 	}
-	//if (mustCallManualLuaFunction)
-	//{
-	//	TaseditorManualFunction();
-	//	mustCallManualLuaFunction = false;
-	//}
+	if (mustCallManualLuaFunction)
+	{
+		TaseditorManualFunction();
+		mustCallManualLuaFunction = false;
+	}
+#endif
 	
 	pianoRoll->update();
 
@@ -1541,14 +1543,14 @@ bool TasEditorWindow::askToSaveProject(void)
 	if (changesFound)
 	{
 		int ans = QMessageBox::question( this, tr("TAS Editor"), tr("Save project changes?"),
-				QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes );
+				QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes );
 
 		//int answer = MessageBox(taseditorWindow.hwndTASEditor, "Save Project changes?", "TAS Editor", MB_YESNOCANCEL);
 		if (ans == QMessageBox::Yes)
 		{
 			return saveProject();
 		}
-		return (ans != QMessageBox::No);
+		return (ans != QMessageBox::Cancel);
 	}
 	return true;
 }
@@ -1645,13 +1647,123 @@ void TasEditorWindow::openProject(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::createNewProject(void)
 {
-	//if (!askToSaveProject()) return;
+	int ret;
+	QDialog dialog(this);
+	QGroupBox *gbox;
+	QVBoxLayout *mainLayout, *vbox;
+	QHBoxLayout *hbox;
+	QPushButton *okButton, *cancelButton;
+	QRadioButton *p1, *p2, *p4;
+	QCheckBox    *copyInput, *copyMarkers;
+	QLineEdit    *authorEdit;
+	static struct NewProjectParameters params;
+
+	if (!askToSaveProject())
+	{
+		return;
+	}
 	
+	params.inputType = getInputType(currMovieData);
+	params.copyCurrentInput = params.copyCurrentMarkers = false;
+	if (strlen(taseditorConfig.lastAuthorName) > 0)
+	{
+		int i=0;
+		// convert UTF8 char* string to Unicode wstring
+		wchar_t savedAuthorName[AUTHOR_NAME_MAX_LEN] = {0};
+
+		while ( taseditorConfig.lastAuthorName[i] != 0 )
+		{
+			savedAuthorName[i] = taseditorConfig.lastAuthorName[i]; i++;
+		}
+		savedAuthorName[i] = 0;
+		params.authorName = savedAuthorName;
+	}
+	else
+	{
+		params.authorName = L"";
+	}
+
+	mainLayout = new QVBoxLayout();
+	hbox       = new QHBoxLayout();
+	vbox       = new QVBoxLayout();
+	gbox       = new QGroupBox( tr("Input Type") );
+
+	mainLayout->addLayout( hbox );
+	hbox->addWidget( gbox );
+	gbox->setLayout( vbox );
+
+	p1 = new QRadioButton( tr("1 Player") );
+	p2 = new QRadioButton( tr("2 Players") );
+	p4 = new QRadioButton( tr("4 Score") );
+
+	p1->setChecked( params.inputType == INPUT_TYPE_1P );
+	p2->setChecked( params.inputType == INPUT_TYPE_2P );
+	p4->setChecked( params.inputType == INPUT_TYPE_FOURSCORE );
+
+	vbox->addWidget( p1 );
+	vbox->addWidget( p2 );
+	vbox->addWidget( p4 );
+
+	vbox       = new QVBoxLayout();
+	hbox->addLayout( vbox );
+
+	copyInput   = new QCheckBox( tr("Copy Input") );
+	copyMarkers = new QCheckBox( tr("Copy Markers") );
+
+	vbox->addWidget( copyInput );
+	vbox->addWidget( copyMarkers );
+
+	hbox       = new QHBoxLayout();
+	mainLayout->addLayout( hbox );
+
+	authorEdit = new QLineEdit();
+	hbox->addWidget( new QLabel( tr("Author") ), 1 );
+	hbox->addWidget( authorEdit, 5 );
+
+	hbox       = new QHBoxLayout();
+	mainLayout->addLayout( hbox );
+
+	okButton     = new QPushButton( tr("Ok") );
+	cancelButton = new QPushButton( tr("Cancel") );
+
+	hbox->addWidget( cancelButton, 1 );
+	hbox->addStretch( 5 );
+	hbox->addWidget( okButton    , 1 );
+
+	okButton->setIcon( style()->standardIcon( QStyle::SP_DialogApplyButton ) );
+	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
+
+	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+
+	dialog.setLayout( mainLayout );
+
+	dialog.setWindowTitle( tr("Create New Project") );
+
+	okButton->setDefault(true);
+
+	ret = dialog.exec();
+	
+	if ( p4->isChecked() )
+	{
+		params.inputType = INPUT_TYPE_FOURSCORE;
+	}
+	else if ( p2->isChecked() )
+	{
+		params.inputType = INPUT_TYPE_2P;
+	}
+	else
+	{
+		params.inputType = INPUT_TYPE_1P;
+	}
+	params.copyCurrentInput   = copyInput->isChecked();
+	params.copyCurrentMarkers = copyMarkers->isChecked();
+	params.authorName = authorEdit->text().toStdWString();
+
 	fceuWrapperLock();
 
-	static struct NewProjectParameters params;
-	//if (DialogBoxParam(fceu_hInstance, MAKEINTRESOURCE(IDD_TASEDITOR_NEWPROJECT), taseditorWindow.hwndTASEditor, newProjectProc, (LPARAM)&params) > 0)
-	//{
+	if ( QDialog::Accepted == ret )
+	{
 		FCEUMOV_CreateCleanMovie();
 		// apply selected options
 		setInputType(currMovieData, params.inputType);
@@ -1680,7 +1792,7 @@ void TasEditorWindow::createNewProject(void)
 		bookmarks.reset();
 		branches.reset();
 		history.reset();
-		//pianoRoll.reset();
+		pianoRoll->reset();
 		selection.reset();
 		//editor.reset();
 		splicer.reset();
@@ -1689,8 +1801,243 @@ void TasEditorWindow::createNewProject(void)
 		//taseditorWindow.redraw();
 		//taseditorWindow.updateCaption();
 		update();
-	//}
+	}
 	fceuWrapperUnLock();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::importMovieFile(void)
+{
+	std::string last;
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	std::string lastPath;
+	//char dir[512];
+	const char *base, *rom;
+	QFileDialog  dialog(this, tr("Import Movie File") );
+	QList<QUrl> urls;
+	QDir d;
+
+	dialog.setFileMode(QFileDialog::ExistingFile);
+
+	dialog.setNameFilter(tr("FCEUX Movie Files (*.fm2) ;; TAS Project Files (*.fm3) ;; All files (*)"));
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Import") );
+
+	base = FCEUI_GetBaseDirectory();
+
+	urls << QUrl::fromLocalFile( QDir::rootPath() );
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
+
+	if ( base )
+	{
+		urls << QUrl::fromLocalFile( QDir( base ).absolutePath() );
+
+		d.setPath( QString(base) + "/movies");
+
+		if ( d.exists() )
+		{
+			urls << QUrl::fromLocalFile( d.absolutePath() );
+		}
+
+		dialog.setDirectory( d.absolutePath() );
+	}
+	dialog.setDefaultSuffix( tr(".fm3") );
+
+	g_config->getOption ("SDL.TasProjectFilePath", &lastPath);
+	if ( lastPath.size() > 0 )
+	{
+		dialog.setDirectory( QString::fromStdString(lastPath) );
+	}
+
+	rom = getRomFile();
+
+	if ( rom )
+	{
+		char baseName[512];
+		getFileBaseName( rom, baseName );
+
+		if ( baseName[0] != 0 )
+		{
+			dialog.selectFile(baseName);
+		}
+	}
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+	dialog.setSidebarUrls(urls);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return;
+	}
+	//qDebug() << "selected file path : " << filename.toUtf8();
+
+	EMUFILE_FILE ifs( filename.toStdString().c_str(), "rb");
+
+	// Load Input to temporary moviedata
+	MovieData md;
+	if (LoadFM2(md, &ifs, ifs.size(), false))
+	{
+		QFileInfo fi( filename );
+		// loaded successfully, now register Input changes
+		//char drv[512], dir[512], name[1024], ext[512];
+		//splitpath(filename.toStdString().c_str(), drv, dir, name, ext);
+		//strcat(name, ext);
+		int result = history.registerImport(md, fi.fileName().toStdString().c_str() );
+		if (result >= 0)
+		{
+			greenzone.invalidateAndUpdatePlayback(result);
+			greenzone.lagLog.invalidateFromFrame(result);
+			// keep current snapshot laglog in touch
+			history.getCurrentSnapshot().laglog.invalidateFromFrame(result);
+		}
+		else
+		{
+			//MessageBox(taseditorWindow.hwndTASEditor, "Imported movie has the same Input.\nNo changes were made.", "TAS Editor", MB_OK);
+		}
+	}
+	else
+	{
+		FCEUD_PrintError("Error loading movie data!");
+	}
+
+	return;
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::exportMovieFile(void)
+{
+	std::string last;
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	std::string lastPath;
+	//char dir[512];
+	const char *base, *rom;
+	QFileDialog  dialog(this, tr("Export to FM2 File") );
+	QList<QUrl> urls;
+	QDir d;
+
+	dialog.setFileMode(QFileDialog::AnyFile);
+
+	dialog.setNameFilter(tr("FCEUX Movie File (*.fm2) ;; All files (*)"));
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Export") );
+
+	base = FCEUI_GetBaseDirectory();
+
+	urls << QUrl::fromLocalFile( QDir::rootPath() );
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
+
+	if ( base )
+	{
+		urls << QUrl::fromLocalFile( QDir( base ).absolutePath() );
+
+		d.setPath( QString(base) + "/movies");
+
+		if ( d.exists() )
+		{
+			urls << QUrl::fromLocalFile( d.absolutePath() );
+		}
+
+		dialog.setDirectory( d.absolutePath() );
+	}
+	dialog.setDefaultSuffix( tr(".fm2") );
+
+	g_config->getOption ("SDL.TasProjectFilePath", &lastPath);
+	if ( lastPath.size() > 0 )
+	{
+		dialog.setDirectory( QString::fromStdString(lastPath) );
+	}
+
+	rom = getRomFile();
+
+	if ( rom )
+	{
+		char baseName[512];
+		getFileBaseName( rom, baseName );
+
+		if ( baseName[0] != 0 )
+		{
+			dialog.selectFile(baseName);
+		}
+	}
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+	dialog.setSidebarUrls(urls);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return;
+	}
+
+	EMUFILE* osRecordingMovie = FCEUD_UTF8_fstream( filename.toStdString().c_str(), "wb");
+	// create copy of current movie data
+	MovieData temp_md = currMovieData;
+	// modify the copy according to selected type of export
+	setInputType(temp_md, taseditorConfig.lastExportedInputType);
+	temp_md.loadFrameCount = -1;
+	// also add subtitles if needed
+	if (taseditorConfig.lastExportedSubtitlesStatus)
+	{
+		// convert Marker Notes to Movie Subtitles
+		char framenum[16];
+		std::string subtitle;
+		int markerID;
+		for (int i = 0; i < markersManager.getMarkersArraySize(); ++i)
+		{
+			markerID = markersManager.getMarkerAtFrame(i);
+			if (markerID)
+			{
+				sprintf( framenum, "%i ", i );
+				//_itoa(i, framenum, 10);
+				//strcat(framenum, " ");
+				subtitle = framenum;
+				subtitle.append(markersManager.getNoteCopy(markerID));
+				temp_md.subtitles.push_back(subtitle);
+			}
+		}
+	}
+	// dump to disk
+	temp_md.dump(osRecordingMovie, false);
+	delete osRecordingMovie;
+	osRecordingMovie = 0;
+
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::saveProjectCb(void)
@@ -1706,6 +2053,30 @@ void TasEditorWindow::saveProjectAsCb(void)
 void TasEditorWindow::saveProjectCompactCb(void)
 {
 	saveProject(true);
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::openOnlineDocs(void)
+{
+	if ( QDesktopServices::openUrl( QUrl("https://fceux.com/web/help/taseditor/Title.html") ) == false )
+	{
+		QMessageBox::critical( this, tr("Error"), 
+		                        tr("Error: Failed to open link to: https://fceux.com/web/help/taseditor/Title.html") );
+	}
+	return;
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::setCurrentPattern(int idx)
+{
+	if ( idx < 0 )
+	{
+		return;
+	}
+	if ( (size_t)idx >= patternsNames.size() )
+	{
+		return;
+	}
+	//printf("Set Pattern: %i\n", idx);
+	taseditorConfig.currentPattern = idx;
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::recordingChanged(int state)
@@ -1954,9 +2325,93 @@ void TasEditorWindow::pauseAtEndActChanged(bool val)
 	taseditorConfig.autopauseAtTheEndOfMovie = val;
 }
 //----------------------------------------------------------------------------
+void TasEditorWindow::manLuaRun(void)
+{
+	mustCallManualLuaFunction = true;
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::autoLuaRunChanged(bool val)
+{
+	taseditorConfig.enableLuaAutoFunction = val;
+}
+//----------------------------------------------------------------------------
 void TasEditorWindow::showToolTipsActChanged(bool val)
 {
 	taseditorConfig.tooltipsEnabled = val;
+
+	updateToolTips();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::updateToolTips(void)
+{
+	if ( taseditorConfig.tooltipsEnabled )
+	{
+		upperMarkerLabel->setToolTip( tr("Click here to scroll Piano Roll to Playback cursor") );
+		lowerMarkerLabel->setToolTip( tr("Click here to scroll Piano Roll to Selection") );
+		upperMarkerNote->setToolTip( tr("Click to edit text") );
+		lowerMarkerNote->setToolTip( tr("Click to edit text") );
+
+		recRecordingCbox->setToolTip( tr("Switch Input Recording on/off") );
+		recSuperImposeCbox->setToolTip( tr("Allows to superimpose old Input with new buttons, instead of overwriting") );
+		recUsePatternCbox->setToolTip( tr("Applies current Autofire Pattern to Input recording") );
+		recAllBtn->setToolTip( tr("Switch off Multitracking") );
+		rec1PBtn->setToolTip( tr("Select Joypad 1 as Current") );
+		rec2PBtn->setToolTip( tr("Select Joypad 2 as Current") );
+		rec3PBtn->setToolTip( tr("Select Joypad 3 as Current") );
+		rec4PBtn->setToolTip( tr("Select Joypad 4 as Current") );
+
+		rewindMkrBtn->setToolTip( tr("Send Playback to previous Marker (mouse: Shift+Wheel up) (hotkey: Shift+PageUp)") );
+		rewindFrmBtn->setToolTip( tr("Rewind 1 frame (mouse: Right button+Wheel up) (hotkey: Shift+Up)") );
+		playPauseBtn->setToolTip( tr("Pause/Unpause Emulation (mouse: Middle button)") );
+		   advFrmBtn->setToolTip( tr("Advance 1 frame (mouse: Right button+Wheel down) (hotkey: Shift+Down)") );
+		   advMkrBtn->setToolTip( tr("Send Playback to next Marker (mouse: Shift+Wheel down) (hotkey: Shift+PageDown)") );
+
+		followCursorCbox->setToolTip( tr("The Piano Roll will follow Playback cursor movements") );
+		   turboSeekCbox->setToolTip( tr("Uncheck when you need to watch seeking in slow motion") );
+		 autoRestoreCbox->setToolTip( tr("Whenever you change Input above Playback cursor, the cursor returns to where it was before the change") );
+
+		 selectionLbl->setToolTip( tr("Current size of Selection") );
+		 clipboardLbl->setToolTip( tr("Current size of Input in the Clipboard") );
+
+		 prevMkrBtn->setToolTip( tr("Send Selection to previous Marker (mouse: Ctrl+Wheel up) (hotkey: Ctrl+PageUp)") );
+		 nextMkrBtn->setToolTip( tr("Send Selection to next Marker (mouse: Ctrl+Wheel up) (hotkey: Ctrl+PageDown)") );
+		 similarBtn->setToolTip( tr("Auto-search for Marker Note") );
+		    moreBtn->setToolTip( tr("Continue Auto-search") );
+	}
+	else
+	{
+		upperMarkerLabel->setToolTip( tr("") );
+		lowerMarkerLabel->setToolTip( tr("") );
+		upperMarkerNote->setToolTip( tr("") );
+		lowerMarkerNote->setToolTip( tr("") );
+
+		recRecordingCbox->setToolTip( tr("") );
+		recSuperImposeCbox->setToolTip( tr("") );
+		recUsePatternCbox->setToolTip( tr("") );
+		recAllBtn->setToolTip( tr("") );
+		rec1PBtn->setToolTip( tr("") );
+		rec2PBtn->setToolTip( tr("") );
+		rec3PBtn->setToolTip( tr("") );
+		rec4PBtn->setToolTip( tr("") );
+
+		rewindMkrBtn->setToolTip( tr("") );
+		rewindFrmBtn->setToolTip( tr("") );
+		playPauseBtn->setToolTip( tr("") );
+		   advFrmBtn->setToolTip( tr("") );
+		   advMkrBtn->setToolTip( tr("") );
+
+		followCursorCbox->setToolTip( tr("") );
+		   turboSeekCbox->setToolTip( tr("") );
+		 autoRestoreCbox->setToolTip( tr("") );
+
+		 selectionLbl->setToolTip( tr("") );
+		 clipboardLbl->setToolTip( tr("") );
+
+		 prevMkrBtn->setToolTip( tr("") );
+		 nextMkrBtn->setToolTip( tr("") );
+		 similarBtn->setToolTip( tr("") );
+		    moreBtn->setToolTip( tr("") );
+	}
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::playbackPauseCB(void)
@@ -1997,6 +2452,21 @@ void TasEditorWindow::playbackFrameForwardFull(void)
 	playback.handleForwardFull();
 	pianoRoll->update();
 	fceuWrapperUnLock();
+}
+// ----------------------------------------------------------------------------------------------
+void TasEditorWindow::playbackFollowCursorCb(bool val)
+{
+	taseditorConfig.followPlaybackCursor = val;
+}
+// ----------------------------------------------------------------------------------------------
+void TasEditorWindow::playbackTurboSeekCb(bool val)
+{
+	taseditorConfig.turboSeek = val;
+}
+// ----------------------------------------------------------------------------------------------
+void TasEditorWindow::playbackAutoRestoreCb(bool val)
+{
+	taseditorConfig.autoRestoreLastPlaybackPosition = val;
 }
 // ----------------------------------------------------------------------------------------------
 void TasEditorWindow::scrollSelectionUpOne(void)
@@ -2058,6 +2528,233 @@ void TasEditorWindow::tabViewChanged(int idx)
 	bookmarks.redrawBookmarksSectionCaption();
 }
 // ----------------------------------------------------------------------------------------------
+void TasEditorWindow::openProjectSaveOptions(void)
+{
+	int ret;
+	QDialog dialog(this);
+	fceuCriticalSection emuLock;
+	QGroupBox *settingsBox, *fileContentsBox, *greenZoneSaveBox;
+	QVBoxLayout *mainLayout, *vbox1, *vbox;
+	QHBoxLayout *hbox1, *hbox;
+	QCheckBox *autoSaveOpt, *saveSilentOpt;
+	QSpinBox  *autoSavePeriod;
+	QCheckBox *binaryInput, *saveMarkers, *saveBookmarks;
+	QCheckBox *saveHistory, *savePianoRoll, *saveSelection;
+	QRadioButton *allFrames, *every16thFrame, *markedFrames, *dontSave;
+	QPushButton  *okButton, *cancelButton;
+
+	dialog.setWindowTitle( tr("Project File Saving Options") );
+
+	mainLayout       = new QVBoxLayout();
+	settingsBox      = new QGroupBox( tr("Settings") );
+	fileContentsBox  = new QGroupBox( tr("File Contents") );
+	greenZoneSaveBox = new QGroupBox( tr("Greenzone Saving Options") );
+	hbox1            = new QHBoxLayout();
+
+	autoSaveOpt    = new QCheckBox( tr("Autosave project") );
+	saveSilentOpt  = new QCheckBox( tr("silently") );
+	autoSavePeriod = new QSpinBox();
+
+	binaryInput    = new QCheckBox( tr("Binary Input") );
+	saveMarkers    = new QCheckBox( tr("Markers") );
+	saveBookmarks  = new QCheckBox( tr("Bookmarks") );
+	saveHistory    = new QCheckBox( tr("History") );
+	savePianoRoll  = new QCheckBox( tr("Piano Roll") );
+	saveSelection  = new QCheckBox( tr("Selection") );
+
+	allFrames      = new QRadioButton( tr("All Frames") );
+	every16thFrame = new QRadioButton( tr("Every 16th Frame") );
+	markedFrames   = new QRadioButton( tr("Marked Frame") );
+	dontSave       = new QRadioButton( tr("Don't Save") );
+
+	okButton       = new QPushButton( tr("Ok") );
+	cancelButton   = new QPushButton( tr("Cancel") );
+
+	okButton->setIcon( style()->standardIcon( QStyle::SP_DialogApplyButton ) );
+	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
+
+	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+
+	hbox1->addWidget( settingsBox );
+	hbox1->addWidget( fileContentsBox );
+
+	dialog.setLayout( mainLayout );
+	mainLayout->addLayout( hbox1 );
+
+	vbox = new QVBoxLayout();
+	hbox = new QHBoxLayout();
+	settingsBox->setLayout( vbox );
+
+	hbox->addWidget( new QLabel( tr("every") ) );
+	hbox->addWidget( autoSavePeriod );
+	hbox->addWidget( new QLabel( tr("minutes") ) );
+
+	vbox->addWidget( autoSaveOpt );
+	vbox->addLayout( hbox );
+	vbox->addWidget( saveSilentOpt );
+	vbox->addStretch( 10 );
+
+	vbox1 = new QVBoxLayout();
+	fileContentsBox->setLayout( vbox1 );
+
+	vbox1->addWidget( binaryInput    );
+	vbox1->addWidget( saveMarkers    );
+	vbox1->addWidget( saveBookmarks  );
+	vbox1->addWidget( saveHistory    );
+	vbox1->addWidget( savePianoRoll  );
+	vbox1->addWidget( saveSelection  );
+	vbox1->addWidget( greenZoneSaveBox );
+
+	vbox  = new QVBoxLayout();
+	greenZoneSaveBox->setLayout( vbox );
+
+	vbox->addWidget( allFrames      );
+	vbox->addWidget( every16thFrame );
+	vbox->addWidget( markedFrames   );
+	vbox->addWidget( dontSave       );
+
+	hbox1 = new QHBoxLayout();
+	mainLayout->addLayout( hbox1 );
+	hbox1->addStretch(5);
+	hbox1->addWidget( okButton );
+	hbox1->addWidget( cancelButton );
+
+	autoSavePeriod->setRange( AUTOSAVE_PERIOD_MIN, AUTOSAVE_PERIOD_MAX );
+
+	autoSaveOpt->setChecked( taseditorConfig.autosaveEnabled );
+	autoSavePeriod->setValue( taseditorConfig.autosavePeriod );
+	saveSilentOpt->setChecked( taseditorConfig.autosaveSilent );
+
+	autoSavePeriod->setEnabled( taseditorConfig.autosaveEnabled );
+	saveSilentOpt->setEnabled( taseditorConfig.autosaveEnabled );
+
+	binaryInput->setChecked( taseditorConfig.projectSavingOptions_SaveInBinary );
+	saveMarkers->setChecked( taseditorConfig.projectSavingOptions_SaveMarkers );
+	saveBookmarks->setChecked( taseditorConfig.projectSavingOptions_SaveBookmarks );
+	saveHistory->setChecked( taseditorConfig.projectSavingOptions_SaveHistory );
+	savePianoRoll->setChecked( taseditorConfig.projectSavingOptions_SavePianoRoll );
+	saveSelection->setChecked( taseditorConfig.projectSavingOptions_SaveSelection );
+
+	     allFrames->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_ALL );
+	every16thFrame->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_16TH );
+	  markedFrames->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_MARKED );
+	      dontSave->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_NO );
+
+	connect( autoSaveOpt, SIGNAL(clicked(bool)), autoSavePeriod, SLOT(setEnabled(bool)) );
+	connect( autoSaveOpt, SIGNAL(clicked(bool)), saveSilentOpt , SLOT(setEnabled(bool)) );
+
+	okButton->setDefault(true);
+
+	ret = dialog.exec();
+
+	if ( ret == QDialog::Accepted )
+	{
+		taseditorConfig.autosaveEnabled = autoSaveOpt->isChecked();
+		taseditorConfig.autosavePeriod  = autoSavePeriod->value();
+		taseditorConfig.autosaveSilent  = saveSilentOpt->isChecked();
+
+		taseditorConfig.projectSavingOptions_SaveInBinary  = binaryInput->isChecked();
+		taseditorConfig.projectSavingOptions_SaveMarkers   = saveMarkers->isChecked();
+		taseditorConfig.projectSavingOptions_SaveBookmarks = saveBookmarks->isChecked();
+		taseditorConfig.projectSavingOptions_SaveHistory   = saveHistory->isChecked();
+		taseditorConfig.projectSavingOptions_SavePianoRoll = savePianoRoll->isChecked();
+		taseditorConfig.projectSavingOptions_SaveSelection = saveSelection->isChecked();
+
+		if ( allFrames->isChecked() )
+		{
+			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_ALL;
+		}
+		else if ( every16thFrame->isChecked() )
+		{
+			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_16TH;
+		}
+		else if ( markedFrames->isChecked() )
+		{
+			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_MARKED;
+		}
+		else
+		{
+			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_NO;
+		}
+	}
+}
+// ----------------------------------------------------------------------------------------------
+void TasEditorWindow::setGreenzoneCapacity(void)
+{
+	int ret;
+	int newValue = taseditorConfig.greenzoneCapacity;
+	QInputDialog dialog(this);
+	fceuCriticalSection emuLock;
+
+	dialog.setWindowTitle( tr("Greenzone Capacity") );
+	dialog.setInputMode( QInputDialog::IntInput );
+	dialog.setIntRange( GREENZONE_CAPACITY_MIN, GREENZONE_CAPACITY_MAX );
+	dialog.setLabelText( tr("Keep savestates for how many frames?\n(actual limit of savestates can be 5 times more than the number provided)") );
+	dialog.setIntValue( newValue );
+
+	ret = dialog.exec();
+
+	if ( ret == QDialog::Accepted )
+	{
+		newValue = dialog.intValue();
+
+		if (newValue < GREENZONE_CAPACITY_MIN)
+		{
+			newValue = GREENZONE_CAPACITY_MIN;
+		}
+		else if (newValue > GREENZONE_CAPACITY_MAX)
+		{
+			newValue = GREENZONE_CAPACITY_MAX;
+		}
+		if (newValue < taseditorConfig.greenzoneCapacity)
+		{
+			taseditorConfig.greenzoneCapacity = newValue;
+			greenzone.runGreenzoneCleaning();
+		}
+		else
+		{
+			taseditorConfig.greenzoneCapacity = newValue;
+		}
+	}
+}
+// ----------------------------------------------------------------------------------------------
+void TasEditorWindow::setMaxUndoCapacity(void)
+{
+	int ret;
+	int newValue = taseditorConfig.maxUndoLevels;
+	QInputDialog dialog(this);
+	fceuCriticalSection emuLock;
+
+	dialog.setWindowTitle( tr("Max undo levels") );
+	dialog.setInputMode( QInputDialog::IntInput );
+	dialog.setIntRange( UNDO_LEVELS_MIN, UNDO_LEVELS_MAX );
+	dialog.setLabelText( tr("Keep history of how many changes?") );
+	dialog.setIntValue( newValue );
+
+	ret = dialog.exec();
+
+	if ( ret == QDialog::Accepted )
+	{
+		newValue = dialog.intValue();
+
+		if (newValue < UNDO_LEVELS_MIN)
+		{
+			newValue = UNDO_LEVELS_MIN;
+		}
+		else if (newValue > UNDO_LEVELS_MAX)
+		{
+			newValue = UNDO_LEVELS_MAX;
+		}
+		if (newValue != taseditorConfig.maxUndoLevels)
+		{
+			taseditorConfig.maxUndoLevels = newValue;
+			history.updateHistoryLogSize();
+			selection.updateHistoryLogSize();
+		}
+	}
+}
+// ----------------------------------------------------------------------------------------------
 void TasEditorWindow::loadClipboard(const char *txt)
 {
 	clipboard->setText( tr(txt), QClipboard::Clipboard );
@@ -2112,7 +2809,9 @@ void TasEditorWindow::setInputUsingPattern(int start, int end, int joy, int butt
 	}
 	if (start < 0) start = end;
 	if (end >= currMovieData.getNumRecords())
+	{
 		return;
+	}
 
 	int pattern_offset = 0, current_pattern = taseditorConfig.currentPattern;
 	bool changes_made = false;
@@ -2122,7 +2821,9 @@ void TasEditorWindow::setInputUsingPattern(int start, int end, int joy, int butt
 	{
 		// skip lag frames
 		if (taseditorConfig.autofirePatternSkipsLag && greenzone.lagLog.getLagInfoAtFrame(i) == LAGGED_YES)
+		{
 			continue;
+		}
 		value = (patterns[current_pattern][pattern_offset] != 0);
 		if (currMovieData.records[i].checkBit(joy, button) != value)
 		{
@@ -2131,10 +2832,14 @@ void TasEditorWindow::setInputUsingPattern(int start, int end, int joy, int butt
 		}
 		pattern_offset++;
 		if (pattern_offset >= (int)patterns[current_pattern].size())
+		{
 			pattern_offset -= patterns[current_pattern].size();
+		}
 	}
 	if (changes_made)
+	{
 		greenzone.invalidateAndUpdatePlayback(history.registerChanges(MODTYPE_PATTERN, start, end, 0, patternsNames[current_pattern].c_str(), consecutivenessTag));
+	}
 }
 
 // following functions use current Selection to determine range of frames
@@ -2440,6 +3145,7 @@ QPianoRoll::QPianoRoll(QWidget *parent)
 	this->setPalette(pal);
 
 	numCtlr = 2;
+	numColumns = 2 + (NUM_JOYPAD_BUTTONS * numCtlr);
 	calcFontData();
 
 	vbar = NULL;
@@ -2454,11 +3160,36 @@ QPianoRoll::QPianoRoll(QWidget *parent)
 	markerDragFrameNumber = 0;
 	markerDragCountdown = 0;
 	drawingStartTimestamp = 0;
+	headerItemUnderMouse = 0;
+	nextHeaderUpdateTime = 0;
 	mouse_x = mouse_y = -1;
+	memset( headerColors, 0, sizeof(headerColors) );
+
+	headerLightsColors[ 0] = QColor( 0x00, 0x00, 0x00 );
+	headerLightsColors[ 1] = QColor( 0x13, 0x73, 0x00 );
+	headerLightsColors[ 2] = QColor( 0x00, 0x91, 0x00 );
+	headerLightsColors[ 3] = QColor( 0x00, 0xAF, 0x1D );
+	headerLightsColors[ 4] = QColor( 0x00, 0xC7, 0x42 );
+	headerLightsColors[ 5] = QColor( 0x00, 0xD9, 0x65 );
+	headerLightsColors[ 6] = QColor( 0x00, 0xE5, 0x91 );
+	headerLightsColors[ 7] = QColor( 0x00, 0xF0, 0xB0 );
+	headerLightsColors[ 8] = QColor( 0x00, 0xF7, 0xDA );
+	headerLightsColors[ 9] = QColor( 0x7C, 0xFC, 0xF0 );
+	headerLightsColors[10] = QColor( 0xBA, 0xFF, 0xFC );
 }
 //----------------------------------------------------------------------------
 QPianoRoll::~QPianoRoll(void)
 {
+
+}
+//----------------------------------------------------------------------------
+void QPianoRoll::reset(void)
+{
+	int num_joysticks = joysticksPerFrame[getInputType(currMovieData)];
+
+	numCtlr = num_joysticks;
+
+	numColumns = 2 + (NUM_JOYPAD_BUTTONS * num_joysticks);
 
 }
 //----------------------------------------------------------------------------
@@ -2478,6 +3209,33 @@ void QPianoRoll::hbarChanged(int val)
 		pxLineXScroll = val;
 	}
 	update();
+}
+//----------------------------------------------------------------------------
+void QPianoRoll::vbarActionTriggered(int act)
+{
+	int val = vbar->value();
+
+	if ( act == QAbstractSlider::SliderSingleStepAdd )
+	{
+		val = val - 1;
+
+		if ( val < 0 )
+		{
+			val = 0;
+		}
+		vbar->setSliderPosition(val);
+	}
+	else if ( act == QAbstractSlider::SliderSingleStepSub )
+	{
+		val = val + 1;
+
+		if ( val >= maxLineOffset )
+		{
+			val = maxLineOffset;
+		}
+		vbar->setSliderPosition(val);
+	}
+	//printf("ACT:%i\n", act);
 }
 //----------------------------------------------------------------------------
 void QPianoRoll::vbarChanged(int val)
@@ -2591,30 +3349,86 @@ void QPianoRoll::drawArrow( QPainter *painter, int xl, int yl, int value )
 {
 	int x, y, w, h, b, b2;
 	QPoint p[3];
+	bool hasBookmark = false;
+	bool draw2ndArrow = false;
+	bool draw1stArrow = true;
+	QColor green( 0, 0xC0, 0x40 ), blue( 0x60, 0xC0, 0xC0 );
+	QColor arrowColor1 = green;
+	QColor arrowColor2 = blue;
 
 	x = xl+(pxCharWidth/3);
 	y = yl+1;
 	w = pxCharWidth;
 	h = pxLineSpacing-2;
 
+	if ( (value & BOOKMARKS_WITH_GREEN_ARROW) || (value & BOOKMARKS_WITH_BLUE_ARROW) )
+	{
+		char txt[4];
+		int bookmarkNum;
+
+		bookmarkNum = (value & 0x0000FFFF);
+
+		txt[0] = (bookmarkNum % TOTAL_BOOKMARKS) + '0';
+		txt[1] = 0;
+		
+		painter->drawText( x, y+pxLineTextOfs, tr(txt) );
+
+		draw2ndArrow = hasBookmark = true;
+		draw1stArrow = false;
+
+		x += pxCharWidth;
+	}
+
 	p[0] = QPoint( x, y );
 	p[1] = QPoint( x, y+h );
 	p[2] = QPoint( x+w, y+(h/2) );
 
-	if ( value == GREEN_BLUE_ARROW_IMAGE_ID )
+	if ( hasBookmark )
 	{
-		painter->setBrush( QColor( 96, 192, 192) );
+		if ( value & BOOKMARKS_WITH_GREEN_ARROW )
+		{
+			arrowColor1 = green;
+		}
+		else if ( value & BOOKMARKS_WITH_BLUE_ARROW )
+		{
+			arrowColor1 = blue;
+		}
 	}
-	else if ( value == GREEN_ARROW_IMAGE_ID )
+	else
 	{
-		painter->setBrush( QColor(0, 192, 64) );
+		if ( value & GREEN_ARROW_IMAGE_ID )
+		{
+			arrowColor1 = green;
+
+			if ( value & BLUE_ARROW_IMAGE_ID )
+			{
+				draw2ndArrow = true;
+				arrowColor2 = blue;
+			}
+		}
+		else if ( value & BLUE_ARROW_IMAGE_ID )
+		{
+			arrowColor1 = blue;
+		}
 	}
-	else if ( value == BLUE_ARROW_IMAGE_ID )
+	if ( draw1stArrow )
 	{
-		painter->setBrush( QColor(10, 36, 106) );
+		painter->setBrush( arrowColor1 );
+		painter->drawPolygon( p, 3 );
 	}
 
-	painter->drawPolygon( p, 3 );
+	if ( draw2ndArrow )
+	{
+		x += (pxCharWidth / 4);
+
+		p[0] = QPoint( x, y+1 );
+		p[1] = QPoint( x, y+h-1 );
+		p[2] = QPoint( x+w-1, y+(h/2) );
+
+		painter->setBrush( arrowColor2 );
+
+		painter->drawPolygon( p, 3 );
+	}
 }
 //----------------------------------------------------------------------------
 bool QPianoRoll::lineIsVisible( int lineNum )
@@ -2628,13 +3442,21 @@ void QPianoRoll::ensureTheLineIsVisible( int lineNum )
 {
 	if ( !lineIsVisible( lineNum ) )
 	{
+		int scrollOfs;
+
 		lineOffset = lineNum - 3;
 
 		if ( lineOffset < 0 )
 		{
 			lineOffset = 0;
 		}
-		vbar->setValue( lineOffset );
+		scrollOfs = maxLineOffset - lineOffset;
+
+		if ( scrollOfs < 0 )
+		{
+			scrollOfs = 0;
+		}
+		vbar->setValue( scrollOfs );
 
 		update();
 	}
@@ -2711,6 +3533,7 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 {
 	fceuCriticalSection emuLock;
 	int col, line, row_index, column_index, kbModifiers, alt_pressed;
+	bool row_valid;
 	QPoint c = convPixToCursor( event->pos() );
 
 	mouse_x = event->pos().x();
@@ -2722,6 +3545,8 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 	row_index = line;
 	rowUnderMouse = realRowUnderMouse = line;
 	columnUnderMouse = column_index = col;
+
+	row_valid = (row_index >= 0) && ( (size_t)row_index < currMovieData.records.size() );
 
 	kbModifiers = QApplication::keyboardModifiers();
 	alt_pressed = (kbModifiers & Qt::AltModifier) ? 1 : 0;
@@ -2842,7 +3667,7 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 					if (taseditorConfig->drawInputByDragging)
 					{
 						// if clicked this click created buttonpress, then start painting, else start erasing
-						if (currMovieData.records[row_index].checkBit(joy, button))
+						if ( row_valid && currMovieData.records[row_index].checkBit(joy, button))
 						{
 							dragMode = DRAG_MODE_SET;
 						}
@@ -3194,14 +4019,14 @@ void QPianoRoll::handleColumnSet(int column, bool altPressed)
 		{
 			if (parent->handleColumnSetUsingPattern())
 			{
-				//setLightInHeaderColumn(COLUMN_FRAMENUM, HEADER_LIGHT_MAX);
+				setLightInHeaderColumn(COLUMN_FRAMENUM, HEADER_LIGHT_MAX);
 			}
 		}
 		else
 		{
 			if (parent->handleColumnSet())
 			{
-				//setLightInHeaderColumn(COLUMN_FRAMENUM, HEADER_LIGHT_MAX);
+				setLightInHeaderColumn(COLUMN_FRAMENUM, HEADER_LIGHT_MAX);
 			}
 		}
 	}
@@ -3214,16 +4039,90 @@ void QPianoRoll::handleColumnSet(int column, bool altPressed)
 		{
 			if (parent->handleInputColumnSetUsingPattern(joy, button))
 			{
-				//setLightInHeaderColumn(column, HEADER_LIGHT_MAX);
+				setLightInHeaderColumn(column, HEADER_LIGHT_MAX);
 			}
 		}
 		else
 		{
 			if (parent->handleInputColumnSet(joy, button))
 			{
-				//setLightInHeaderColumn(column, HEADER_LIGHT_MAX);
+				setLightInHeaderColumn(column, HEADER_LIGHT_MAX);
 			}
 		}
+	}
+}
+//----------------------------------------------------------------------------
+void QPianoRoll::periodicUpdate(void)
+{
+	// once per 40 milliseconds update colors alpha in the Header
+	if (clock() > nextHeaderUpdateTime)
+	{
+		nextHeaderUpdateTime = clock() + HEADER_LIGHT_UPDATE_TICK;
+		bool changes_made = false;
+		int light_value = 0;
+		// 1 - update Frame# columns' heads
+		//if (GetAsyncKeyState(VK_MENU) & 0x8000) light_value = HEADER_LIGHT_HOLD; else
+		if (dragMode == DRAG_MODE_NONE && (headerItemUnderMouse == COLUMN_FRAMENUM || headerItemUnderMouse == COLUMN_FRAMENUM2))
+		{
+			light_value = (selection->getCurrentRowsSelectionSize() > 0) ? HEADER_LIGHT_MOUSEOVER_SEL : HEADER_LIGHT_MOUSEOVER;
+		}
+		if (headerColors[COLUMN_FRAMENUM] < light_value)
+		{
+			headerColors[COLUMN_FRAMENUM]++;
+			changes_made = true;
+		}
+		else if (headerColors[COLUMN_FRAMENUM] > light_value)
+		{
+			headerColors[COLUMN_FRAMENUM]--;
+			changes_made = true;
+		}
+		headerColors[COLUMN_FRAMENUM2] = headerColors[COLUMN_FRAMENUM];
+		// 2 - update Input columns' heads
+		int i = numColumns-1;
+		if (i == COLUMN_FRAMENUM2) i--;
+		for (; i >= COLUMN_JOYPAD1_A; i--)
+		{
+			light_value = 0;
+			if (recorder->currentJoypadData[(i - COLUMN_JOYPAD1_A) / NUM_JOYPAD_BUTTONS] & (1 << ((i - COLUMN_JOYPAD1_A) % NUM_JOYPAD_BUTTONS)))
+			{
+				light_value = HEADER_LIGHT_HOLD;
+			}
+			else if (dragMode == DRAG_MODE_NONE && headerItemUnderMouse == i)
+			{
+				light_value = (selection->getCurrentRowsSelectionSize() > 0) ? HEADER_LIGHT_MOUSEOVER_SEL : HEADER_LIGHT_MOUSEOVER;
+			}
+
+			if (headerColors[i] < light_value)
+			{
+				headerColors[i]++;
+				changes_made = true;
+			}
+			else if (headerColors[i] > light_value)
+			{
+				headerColors[i]--;
+				changes_made = true;
+			}
+		}
+		// 3 - redraw
+		if (changes_made)
+		{
+			update();
+		}
+	}
+}
+//----------------------------------------------------------------------------
+void QPianoRoll::setLightInHeaderColumn(int column, int level)
+{
+	if (column < COLUMN_FRAMENUM || column >= numColumns || level < 0 || level > HEADER_LIGHT_MAX)
+	{
+		return;
+	}
+
+	if (headerColors[column] != level)
+	{
+		headerColors[column] = level;
+		//redrawHeader();
+		nextHeaderUpdateTime = clock() + HEADER_LIGHT_UPDATE_TICK;
 	}
 }
 //----------------------------------------------------------------------------
@@ -3462,7 +4361,7 @@ void QPianoRoll::finishDrag(void)
 								markersManager->setNote(destination_marker_id, dragged_marker_note);
 								history->registerMarkersChange(MODTYPE_MARKER_SWAP, markerDragFrameNumber, rowUnderMouse);
 								selection->mustFindCurrentMarker = playback->mustFindCurrentMarker = true;
-								//setLightInHeaderColumn(COLUMN_FRAMENUM, HEADER_LIGHT_MAX);
+								setLightInHeaderColumn(COLUMN_FRAMENUM, HEADER_LIGHT_MAX);
 							}
 						}
 						else
@@ -3476,7 +4375,7 @@ void QPianoRoll::finishDrag(void)
 								markersManager->removeMarkerFromFrame(markerDragFrameNumber);
 								history->registerMarkersChange(MODTYPE_MARKER_DRAG, markerDragFrameNumber, rowUnderMouse, markersManager->getNoteCopy(markersManager->getMarkerAtFrame(rowUnderMouse)).c_str());
 								selection->mustFindCurrentMarker = playback->mustFindCurrentMarker = true;
-								//setLightInHeaderColumn(COLUMN_FRAMENUM, HEADER_LIGHT_MAX);
+								setLightInHeaderColumn(COLUMN_FRAMENUM, HEADER_LIGHT_MAX);
 								//redrawRow(rowUnderMouse);
 							}
 						}
@@ -3556,8 +4455,14 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 	painter.fillRect( 0, 0, viewWidth, pxLineSpacing, windowColor );
 	painter.setPen( black );
 
+	font.setBold(true);
+	painter.setFont(font);
+
 	x = -pxLineXScroll + pxFrameColX + (pxWidthFrameCol - 6*pxCharWidth) / 2;
 	painter.drawText( x, pxLineTextOfs, tr("Frame#") );
+
+	font.setBold(false);
+	painter.setFont(font);
 
 	// Draw Grid
 	painter.drawLine( -pxLineXScroll, 0, -pxLineXScroll, viewHeight );
@@ -3813,6 +4718,15 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 
 		sprintf( stmp, "%010i", lineNum );
 
+		if (markersManager->getMarkerAtFrame(lineNum))
+		{
+			font.setBold(true);
+		}
+		else
+		{
+			font.setBold(false);
+		}
+		painter.setFont(font);
 		painter.drawText( x, y+pxLineTextOfs, tr(stmp) );
 
 		x = -pxLineXScroll;
@@ -3842,11 +4756,11 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 			// bookmark at this frame
 			if (lineNum == playback->getLastPosition())
 			{
-				iImage += BOOKMARKS_WITH_GREEN_ARROW;
+				iImage |= BOOKMARKS_WITH_GREEN_ARROW;
 			}
 			else if (lineNum == currFrameCounter)
 			{
-				iImage += BOOKMARKS_WITH_BLUE_ARROW;
+				iImage |= BOOKMARKS_WITH_BLUE_ARROW;
 			}
 		}
 
@@ -3861,6 +4775,9 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 	x = pxFrameColX - pxLineXScroll;
 	painter.drawLine( x, 0, x, viewHeight );
 	
+	font.setBold(true);
+	painter.setFont(font);
+
 	for (int i=0; i<numCtlr; i++)
 	{
 		x = pxFrameCtlX[i] - pxLineXScroll;
@@ -3872,6 +4789,7 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 			painter.setPen( QColor(   0,   0,   0 ) );
 			painter.drawLine( x, 0, x, viewHeight ); x--;
 
+			painter.setPen( headerLightsColors[ headerColors[COLUMN_JOYPAD1_A + (i*8) + j] ] );
 			painter.drawText( x + pxCharWidth, pxLineTextOfs, tr(buttonNames[j]) );
 
 			x += pxWidthBtnCol;
@@ -3888,6 +4806,108 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 		
 		y += pxLineSpacing;
 	}
+	font.setBold(false);
+	painter.setFont(font);
 
+
+}
+//----------------------------------------------------------------------------
+//----------------------------------------------------------------------------
+//---- Bookmark Preview Popup
+//----------------------------------------------------------------------------
+//----------------------------------------------------------------------------
+bookmarkPreviewPopup::bookmarkPreviewPopup( int index, QWidget *parent )
+	: fceuCustomToolTip( parent )
+{
+	int p;
+	QVBoxLayout *vbox;
+	QLabel *imgLbl, *descLbl;
+	uint32_t *pixBuf;
+	uint32_t  pixel;
+	QPixmap pixmap;
+
+	setHideOnMouseMove(true);
+
+	fceuWrapperLock();
+
+	// retrieve info from the pointed bookmark's Markers
+	int frame = bookmarks->bookmarksArray[index].snapshot.keyFrame;
+	int markerID = markersManager->getMarkerAboveFrame(bookmarks->bookmarksArray[index].snapshot.markers, frame);
+
+	screenShotRaster = (unsigned char *)malloc( SCREENSHOT_SIZE );
+
+	if ( screenShotRaster == NULL )
+	{
+		printf("Error: Failed to allocate screenshot image memory\n");
+	}
+	// bookmarks.itemUnderMouse
+
+	pixBuf = (uint32_t *)malloc( SCREENSHOT_SIZE * sizeof(uint32_t) );
+
+	loadImage(index);
+
+	p=0;
+	for (int h=0; h<SCREENSHOT_HEIGHT; h++)
+	{
+		for (int w=0; w<SCREENSHOT_WIDTH; w++)
+		{
+			pixel = ModernDeemphColorMap( &screenShotRaster[p], screenShotRaster, 1 );
+			pixBuf[p]  = 0xFF000000;
+			pixBuf[p] |= (pixel & 0x000000FF) << 16;
+			pixBuf[p] |= (pixel & 0x00FF0000) >> 16;
+			pixBuf[p] |= (pixel & 0x0000FF00);
+			p++;
+		}
+	}
+	QImage img( (unsigned char*)pixBuf, SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH*4, QImage::Format_RGBA8888 );
+	pixmap.convertFromImage( img );
+
+	vbox = new QVBoxLayout();
+
+	setLayout( vbox );
+
+	imgLbl  = new QLabel();
+	descLbl = new QLabel();
+
+	imgLbl->setPixmap( pixmap );
+
+	vbox->addWidget( imgLbl , 100 );
+	vbox->addWidget( descLbl, 1 );
+
+	descLbl->setText( tr(markersManager->getNoteCopy(bookmarks->bookmarksArray[index].snapshot.markers, markerID).c_str()) );
+
+	resize( 256, 256 );
+
+	if ( pixBuf )
+	{
+		free( pixBuf ); pixBuf = NULL;
+	}
+	fceuWrapperUnLock();
+}
+//----------------------------------------------------------------------------
+bookmarkPreviewPopup::~bookmarkPreviewPopup( void )
+{
+	if ( screenShotRaster != NULL )
+	{
+		free( screenShotRaster ); screenShotRaster = NULL;
+	}
+	//printf("Popup Deleted\n");
+}
+//----------------------------------------------------------------------------
+int bookmarkPreviewPopup::loadImage(int index)
+{
+	// uncompress
+	int ret = 0;
+	uLongf destlen = SCREENSHOT_SIZE;
+	int e = uncompress(screenShotRaster, &destlen, &bookmarks->bookmarksArray[index].savedScreenshot[0], bookmarks->bookmarksArray[index].savedScreenshot.size());
+	if (e != Z_OK && e != Z_BUF_ERROR)
+	{
+		// error decompressing
+		FCEU_printf("Error decompressing screenshot %d\n", index);
+		// at least fill bitmap with zeros
+		memset(screenShotRaster, 0, SCREENSHOT_SIZE);
+		ret = -1;
+	}
+	return ret;
 }
 //----------------------------------------------------------------------------
