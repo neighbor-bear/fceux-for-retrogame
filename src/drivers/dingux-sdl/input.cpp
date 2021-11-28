@@ -379,6 +379,85 @@ static void KeyboardCommands() {
 			resetkey(DINGOO_START);
 		}
 	}
+	
+	// L shift + combokeys
+	if(ispressed(DINGOO_L)) {
+		extern int s_fullscreen; // from dingoo_video.cpp
+		if(_keyonly(DINGOO_A)) { // R + A Toggle throttling
+			FCEUD_TurboToggle();
+			if (NoWaiting)
+				FCEU_DispMessage("Turbo speed",0);
+			else
+				FCEU_DispMessage("Normal speed",0);
+			resetkey(DINGOO_A);
+		}
+		if(_keyonly(DINGOO_B)) { // R + B Clip top/bottom
+			if (s_fullscreen == 1) {
+				int pal, clip = 0;
+				int start, end;
+				g_config->getOption("SDL.PAL", &pal);
+				if (pal) {
+					g_config->getOption("SDL.ScanLineStartPAL", &start);
+					g_config->getOption("SDL.ScanLineEndPAL", &end);
+				} else {
+					g_config->getOption("SDL.ScanLineStartNTSC", &start);
+					g_config->getOption("SDL.ScanLineEndNTSC", &end);
+				}
+				if (start) {
+					start = 0;
+					end = 239;
+				} else {
+					start = 8;
+					end = 231;
+					clip = 1;
+				}
+				if (pal) {
+					g_config->setOption("SDL.ScanLineStartPAL", start);
+					g_config->setOption("SDL.ScanLineEndPAL", end);
+				} else {
+					g_config->setOption("SDL.ScanLineStartNTSC", start);
+					g_config->setOption("SDL.ScanLineEndNTSC", end);	
+				}
+				FCEU_DispMessage("Clip top/bottom %s",0,clip?"on":"off");
+				UpdateEMUCore(g_config);
+				FCEUD_DriverReset();
+				dingoo_clear_video();
+			}
+			resetkey(DINGOO_B);
+		}
+		if(_keyonly(DINGOO_X)) { // R + X Pixel Astect Ratio
+			if (s_fullscreen == 1) {
+				int aspect_select;
+				char as_message[4];
+				g_config->getOption("SDL.AspectSelect", &aspect_select);
+				aspect_select = (aspect_select + 1) % 3;
+				g_config->setOption("SDL.AspectSelect", aspect_select);
+				switch (aspect_select) {
+				case 0: snprintf(as_message,4,"1:1"); break;
+				case 1: snprintf(as_message,4,"8:7"); break;
+				case 2: 
+				default: snprintf(as_message,4,"4:3"); break;
+				}
+				FCEU_DispMessage("Aspect %s",0,as_message);
+				FCEUD_DriverReset();
+				dingoo_clear_video();
+			}
+			resetkey(DINGOO_X);
+		}
+		if(_keyonly(DINGOO_Y)) { // R + Y Clip sides
+			if (s_fullscreen == 1) {
+				int clipsides;
+				g_config->getOption("SDL.ClipSides", &clipsides);
+				clipsides ^= 1;
+				g_config->setOption("SDL.ClipSides", clipsides);
+				FCEU_DispMessage("Clipsides %s",0,clipsides?"on":"off");
+				UpdateEMUCore(g_config);
+				FCEUD_DriverReset();
+				dingoo_clear_video();
+			}
+			resetkey(DINGOO_Y);
+		}
+	}
 
 	/*
 	 // Toggle Movie auto-backup
@@ -467,10 +546,6 @@ static void KeyboardCommands() {
 	if (_keyonly(Hotkeys[HK_PAUSE]))
 		FCEUI_ToggleEmulationPause();
 
-	// Toggle throttling
-	if (_keyonly(DINGOO_L)) {
-        FCEUD_TurboToggle();
-    }
 /*
 	static bool frameAdvancing = false;
 	if ((dingoo_key & frameAdvanceKey) == frameAdvanceKey) {

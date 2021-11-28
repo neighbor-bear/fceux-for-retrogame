@@ -13,6 +13,13 @@ static char *scale_tag[] = {
 		"FS Smooth"
 };
 
+// Fullscreen mode
+static char *aspect_tag[] = {
+		"1:1",
+		"8:7",
+		"4:3",
+};
+
 static void fullscreen_update(unsigned long key)
 {
 	int val;
@@ -22,6 +29,17 @@ static void fullscreen_update(unsigned long key)
 	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
    
 	g_config->setOption("SDL.Fullscreen", val);
+}
+
+static void aspectselect_update(unsigned long key)
+{
+	int val;
+	g_config->getOption("SDL.AspectSelect", &val);
+
+	if (key == DINGOO_RIGHT) val = val < 2 ? val+1 : 2;
+	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
+   
+	g_config->setOption("SDL.AspectSelect", val);
 }
 
 // Clip sides
@@ -87,46 +105,79 @@ static void hue_update(unsigned long key)
 static void slstart_update(unsigned long key)
 {
 	int val;
-	g_config->getOption("SDL.ScanLineStart", &val);
+	g_config->getOption("SDL.ScanLineStartNTSC", &val);
 
 	if (key == DINGOO_RIGHT) val = val < 239 ? val+1 : 239;
 	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
 
-	g_config->setOption("SDL.ScanLineStart", val);
+	g_config->setOption("SDL.ScanLineStartNTSC", val);
 }
 
 // Scanline end
 static void slend_update(unsigned long key)
 {
 	int val;
-	g_config->getOption("SDL.ScanLineEnd", &val);
+	g_config->getOption("SDL.ScanLineEndNTSC", &val);
 
 	if (key == DINGOO_RIGHT) val = val < 239 ? val+1 : 239;
 	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
 
-	g_config->setOption("SDL.ScanLineEnd", val);
+	g_config->setOption("SDL.ScanLineEndNTSC", val);
 }
 
+// Scanline start
+static void slstartpal_update(unsigned long key)
+{
+	int val;
+	g_config->getOption("SDL.ScanLineStartPAL", &val);
+
+	if (key == DINGOO_RIGHT) val = val < 239 ? val+1 : 239;
+	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
+
+	g_config->setOption("SDL.ScanLineStartPAL", val);
+}
+
+// Scanline end
+static void slendpal_update(unsigned long key)
+{
+	int val;
+	g_config->getOption("SDL.ScanLineEndPAL", &val);
+
+	if (key == DINGOO_RIGHT) val = val < 239 ? val+1 : 239;
+	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
+
+	g_config->setOption("SDL.ScanLineEndPAL", val);
+}
 
 /* VIDEO SETTINGS MENU */
 
 static SettingEntry vd_menu[] = 
 {
 	{"Video scaling", "Select video scale mode", "SDL.Fullscreen", fullscreen_update},
+	{"HW PAR", "Hardware scaling Pixel AR", "SDL.AspectSelect", aspectselect_update},
 	{"Clip sides", "Clips left and right columns", "SDL.ClipSides", clip_update},
 	{"New PPU", "New PPU emulation engine", "SDL.NewPPU", newppu_update},
 	{"NTSC Palette", "Emulate NTSC TV's colors", "SDL.NTSCpalette", ntsc_update},
 	{"Tint", "Sets tint for NTSC color", "SDL.Tint", tint_update},
 	{"Hue", "Sets hue for NTSC color", "SDL.Hue", hue_update},
-	{"Scanline start", "The first drawn scanline", "SDL.ScanLineStart", slstart_update},
-	{"Scanline end", "The last drawn scanline", "SDL.ScanLineEnd", slend_update},
+	{"NTSC Scanline start", "NTSC first drawn scanline", "SDL.ScanLineStartNTSC", slstart_update},
+	{"NTSC Scanline end", "NTSC last drawn scanline", "SDL.ScanLineEndNTSC", slend_update},
+	{"PAL Scanline start", "PAL first drawn scanline", "SDL.ScanLineStartPAL", slstartpal_update},
+	{"PAL Scanline end", "PAL last drawn scanline", "SDL.ScanLineEndPAL", slendpal_update},
 };
+static int vd_menu_items = sizeof(vd_menu) / sizeof(vd_menu[0]);
 
 int RunVideoSettings()
 {
 	static int index = 0;
 	static int spy = 72;
 	int done = 0, y, i;
+
+	int max_entries = 9;
+	int menu_size = vd_menu_items;
+
+	static int offset_start = 0;
+	static int offset_end = menu_size > max_entries ? max_entries : menu_size;
 
 	char tmp[32];
 	int  itmp;
@@ -138,20 +189,38 @@ int RunVideoSettings()
 		if (parsekey(DINGOO_B)) done = 1;
    		if (parsekey(DINGOO_UP, 1)) {
 			if (index > 0) {
-				index--; 
-				spy -= 15;
+				index--;
+
+				if (index >= offset_start)
+					spy -= 15;
+
+				if ((offset_start > 0) && (index < offset_start)) {
+					offset_start--;
+					offset_end--;
+				}
 			} else {
-				index = 7;
-				spy = 72 + 15*index;
+				index = menu_size-1;
+				offset_end = menu_size;
+				offset_start = menu_size <= max_entries ? 0 : offset_end - max_entries;
+				spy = 72 + 15*(index - offset_start);
 			}
 		}
 
 		if (parsekey(DINGOO_DOWN, 1)) {
-			if (index < 7) {
+			if (index < (menu_size - 1)) {
 				index++;
-				spy += 15;
+
+				if (index < offset_end)
+					spy += 15;
+
+				if ((offset_end < menu_size) && (index >= offset_end)) {
+					offset_end++;
+					offset_start++;
+				}
 			} else {
 				index = 0;
+				offset_start = 0;
+				offset_end = menu_size <= max_entries ? menu_size : max_entries;
 				spy = 72;
 			}
 		}
@@ -178,12 +247,15 @@ int RunVideoSettings()
 			DrawText(gui_screen, "Video Settings", 8, 37); 
 
 			// Draw menu
-			for(i=0,y=72;i < 8;i++,y+=15) {
+			for(i=offset_start,y=72;i < offset_end;i++,y+=15) {
 				DrawText(gui_screen, vd_menu[i].name, OPTION_LABEL_COLUMN, y);
 		
 				g_config->getOption(vd_menu[i].option, &itmp);
-				if (!strncmp(vd_menu[i].name, "Video scaling", 5)) {
+				if (!strncmp(vd_menu[i].name, "Video scaling", 13)) {
 					sprintf(tmp, "%s", scale_tag[itmp]);
+				}
+				else if (!strncmp(vd_menu[i].name, "HW PAR", 6)) {
+					sprintf(tmp, "%s", aspect_tag[itmp]);
 				}
 				else if (!strncmp(vd_menu[i].name, "Clip sides", 10) \
 					|| !strncmp(vd_menu[i].name, "New PPU", 7)   \
@@ -197,6 +269,12 @@ int RunVideoSettings()
 
 			// Draw info
 			DrawText(gui_screen, vd_menu[index].info, 8, 225);
+			
+			// Draw offset marks
+			if (offset_start > 0)
+				DrawChar(gui_screen, SP_UPARROW, 157, 57);
+			if (offset_end < menu_size)
+				DrawChar(gui_screen, SP_DOWNARROW, 157, 212);
 
 			g_dirty = 0;
 		}

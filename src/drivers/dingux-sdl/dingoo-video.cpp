@@ -161,7 +161,26 @@ int InitVideo(FCEUGI *gi) {
 	if (!s_VideoModeSet) {
 		int w, h;
 		if (s_fullscreen == 1) {
-			w = 256; h = PAL ? 240 : 224;
+			int aspect_ratio;
+			g_config->getOption("SDL.AspectSelect", &aspect_ratio);
+			switch (aspect_ratio) {
+			// 1:1
+			case 0:
+				w = 320;
+				h = 240;
+				break;
+			// 8:7
+			case 1:
+				w = PAL ? 352 : 280;
+				h = 240;
+				break;
+			// 4:3
+			case 2:
+			default:
+				w = s_clipSides ? 240 : 256;
+				h = PAL ? 240 : s_tlines > 224 ? 240 : 224;
+				break;
+			}
 #ifdef OD2014
 		        FILE* integer_scaling_file = fopen("/sys/class/graphics/fb0/device/integer_scaling", "w");
 		        if (integer_scaling_file) {

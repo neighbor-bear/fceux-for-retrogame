@@ -110,7 +110,10 @@ R1 + LEFT			|Insert vsuni coin
 R1 + RIGHT			|Open Cheat browser
 R1 + SELECT		|Save snapshot
 R1 + START		|Pause emulation
-L1					  |Toggle throttling
+L1 + A				|Toggle throttling
+L1 + B 				|Clip top/bottom (8 pixels each)
+L1 + X				|Change Pixel Aspect Ratio
+L1 + Y				|Clip sides (8 pixels each side)
 
 #### Controls in menus
 
@@ -192,9 +195,16 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
-#### 24 October 2021
+#### 28 November 2021
   - Updated to upstream 2.5.0
   - Change video mode to 320x240 when access cheats with hotkey
+  - Added Pixel Aspect Ratio for hardware scaling (1:1, 8:7, 4:3).
+  - Added configuration to change NTSC start & end scanlines.
+  - Added L hotkeys:
+     - L + A Turbo mode
+     - L + B Clip top/bottom (8 pixels each)
+     - L + X Change Pixel Aspect Ratio
+     - L + Y Clip sides (8 pixels each side)
 
 #### 25 September 2021
   - Merged [asoderq/sydarn2 overclocking work](https://github.com/asoderq/fceux-for-retrogame/releases/tag/2021-09-11). As upstream it only works with Old PPU.

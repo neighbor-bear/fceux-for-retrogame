@@ -152,8 +152,10 @@ Config * InitConfig() {
 	config->addOption("ntsccolor", "SDL.NTSCpalette", 0);
 
 	// scanline settings
-	config->addOption("slstart", "SDL.ScanLineStart", 0);
-	config->addOption("slend", "SDL.ScanLineEnd", 239);
+	config->addOption("slstart", "SDL.ScanLineStartNTSC", 0+8);
+	config->addOption("slend", "SDL.ScanLineEndNTSC", 239-8);
+	config->addOption("slstartpal", "SDL.ScanLineStartPAL", 0);
+	config->addOption("slendpal", "SDL.ScanLineEndPAL", 239);
 
     // overclocking settings
     config->addOption("ocenabled", "SDL.OverclockEnabled", 0);
@@ -168,7 +170,8 @@ Config * InitConfig() {
 	config->addOption('b', "bpp", "SDL.BitsPerPixel", 8);
 	config->addOption("doublebuf", "SDL.DoubleBuffering", 0);
 	config->addOption("autoscale", "SDL.AutoScale", 1);
-	config->addOption("keepratio", "SDL.KeepRatio", 1);
+	config->addOption("forceAspect", "SDL.ForceAspect", 0);
+	config->addOption("aspectSelect", "SDL.AspectSelect", 2); // Standard (4:3)
 	config->addOption("xscale", "SDL.XScale", 1.0);
 	config->addOption("yscale", "SDL.YScale", 1.0);
 	config->addOption("xstretch", "SDL.XStretch", 0);
@@ -422,7 +425,7 @@ Config * InitConfig() {
 }
 
 void UpdateEMUCore(Config *config) {
-	int ntsccol, ntsctint, ntschue, flag, start, end;
+	int ntsccol, ntsctint, ntschue, flag, startNTSC, endNTSC, startPAL, endPAL;
 	std::string cpalette;
 
 	config->getOption("SDL.NTSCpalette", &ntsccol);
@@ -454,8 +457,10 @@ void UpdateEMUCore(Config *config) {
 	//config->getOption("SDL.SnapName", &flag);
 	//FCEUI_SetSnapName(flag ? true : false);
 
-	config->getOption("SDL.ScanLineStart", &start);
-	config->getOption("SDL.ScanLineEnd", &end);
+	config->getOption("SDL.ScanLineStartNTSC", &startNTSC);
+	config->getOption("SDL.ScanLineEndNTSC", &endNTSC);
+	config->getOption("SDL.ScanLineStartPAL", &startPAL);
+	config->getOption("SDL.ScanLineEndPAL", &endPAL);
 
 #if DOING_SCANLINE_CHECKS
 	for(int i = 0; i < 2; x++) {
@@ -464,7 +469,7 @@ void UpdateEMUCore(Config *config) {
 	}
 #endif
 
-	FCEUI_SetRenderedLines(start + 8, end - 8, start, end);
+	FCEUI_SetRenderedLines(startNTSC, endNTSC, startPAL, endPAL);
 
     // Overclock settings
     config->getOption("SDL.OverclockEnabled", &flag);
