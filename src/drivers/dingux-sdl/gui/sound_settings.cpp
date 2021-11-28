@@ -49,7 +49,7 @@ static void soundhq_update(unsigned long key) {
 
 // Custom palette
 static void lowpass_update(unsigned long key) {
-	int val, tmp;
+	int val;
 
 	if (key == DINGOO_RIGHT)
 		val = 1;
@@ -57,6 +57,19 @@ static void lowpass_update(unsigned long key) {
 		val = 0;
 
 	g_config->setOption("SDL.Sound.LowPass", val);
+}
+
+// Buffer size
+static void bufsize_update(unsigned long key) {
+	int val;
+	int step = g_keyState[DINGOO_A] ? 1 : g_keyState[DINGOO_Y] ? 50 : 10;
+	
+	g_config->getOption("SDL.Sound.BufSize", &val);
+
+	if (key == DINGOO_RIGHT) val = val <= (200 - step) ? val + step : 15;
+	if (key == DINGOO_LEFT) val = val >= (15 + step) ? val - step : 200;;
+
+	g_config->setOption("SDL.Sound.BufSize", val);
 }
 
 // Sound volume
@@ -143,6 +156,7 @@ static SettingEntry sd_menu[] = {
 	{ "Sound rate",	"Sound playback rate (Hz)", "SDL.Sound.Rate", soundrate_update },
 	{ "Quality", "Sound quality", "SDL.Sound.Quality", soundhq_update},
 	{ "Lowpass", "Enables low-pass filter",	"SDL.Sound.LowPass", lowpass_update },
+	{ "Buffer size", "Buffer size (in ms)",	"SDL.Sound.BufSize", bufsize_update },
 	{ "Volume", "Sets global volume", "SDL.Sound.Volume", volume_update },
 	{ "Triangle volume", "Sets Triangle volume", "SDL.Sound.TriangleVolume", triangle_update },
 	{ "Square1 volume", "Sets Square 1 volume",	"SDL.Sound.Square1Volume", square1_update },
@@ -170,6 +184,12 @@ int RunSoundSettings() {
 	while (!done) {
 		// Parse input
 		readkey();
+		// get the keyboard input
+		#if SDL_VERSION_ATLEAST(1, 3, 0)	 
+		g_keyState = SDL_GetKeyboardState(NULL);	 
+		#else
+		g_keyState = SDL_GetKeyState(NULL);
+		#endif
 		if (parsekey(DINGOO_B))
 			done = 1;
 		if (parsekey(DINGOO_UP, 1)) {
