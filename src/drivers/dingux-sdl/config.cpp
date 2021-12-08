@@ -13,6 +13,7 @@
 #include "throttle.h"
 #include "config.h"
 
+#include "fceu.h"
 #include "../common/cheat.h"
 
 #include "input.h"
@@ -25,15 +26,6 @@
 #ifdef WIN32
 #include <windows.h>
 #endif
-
-/* Declare global overclocking variables */
-extern bool overclock_enabled;
-//extern bool overclocking;
-extern bool skip_7bit_overclocking;
-extern int normalscanlines;
-extern int totalscanlines;
-extern int postrenderscanlines;
-extern int vblankscanlines;
 
 /**
  * Read a custom pallete from a file and load it into the core.
@@ -158,11 +150,11 @@ Config * InitConfig() {
 	config->addOption("slstartpal", "SDL.ScanLineStartPAL", 0);
 	config->addOption("slendpal", "SDL.ScanLineEndPAL", 239);
 
-    // overclocking settings
-    config->addOption("ocenabled", "SDL.OverclockEnabled", 0);
-    config->addOption("skip7bitoc", "SDL.Skip7BitOverclocking", 1);
-    config->addOption("vblanksls", "SDL.VBlankScanlines", 0);
-    config->addOption("postrendersls", "SDL.PostRenderScanlines", 0);
+	// overclocking settings
+	config->addOption("ocenabled", "SDL.OverclockEnabled", 0);
+	config->addOption("skip7bitoc", "SDL.Skip7BitOverclocking", 1);
+	config->addOption("vblanksls", "SDL.VBlankScanlines", 0);
+	config->addOption("postrendersls", "SDL.PostRenderScanlines", 0);
 
 	// video controls
 	config->addOption('x', "xres", "SDL.XResolution", 320);
@@ -433,7 +425,8 @@ Config * InitConfig() {
 }
 
 void UpdateEMUCore(Config *config) {
-	int ntsccol, ntsctint, ntschue, flag, startNTSC, endNTSC, startPAL, endPAL;
+	int ntsccol, ntsctint, ntschue, flag, region;
+	int startNTSC, endNTSC, startPAL, endPAL;
 	std::string cpalette;
 
 	config->getOption("SDL.NTSCpalette", &ntsccol);
@@ -442,14 +435,16 @@ void UpdateEMUCore(Config *config) {
 	FCEUI_SetNTSCTH(ntsccol, ntsctint, ntschue);
 	
 	config->getOption("SDL.IntFrameRate"  , &useIntFrameRate);
-
+	
 	config->getOption("SDL.Palette", &cpalette);
 	if (cpalette.size()) {
 		LoadCPalette(cpalette);
 	}
 
-	config->getOption("SDL.PAL", &flag);
-	FCEUI_SetVidSystem(flag ? 1 : 0);
+	config->getOption("SDL.NewPPU", &newppu);
+	
+	config->getOption("SDL.PAL", &region);
+	FCEUI_SetRegion(region);
 
 	config->getOption("SDL.GameGenie", &flag);
 	FCEUI_SetGameGenie(flag ? 1 : 0);
@@ -481,12 +476,12 @@ void UpdateEMUCore(Config *config) {
 
 	FCEUI_SetRenderedLines(startNTSC, endNTSC, startPAL, endPAL);
 
-    // Overclock settings
-    config->getOption("SDL.OverclockEnabled", &flag);
-    overclock_enabled = flag ? true : false;
-    config->getOption("SDL.Skip7BitOverclocking", &flag);
-    skip_7bit_overclocking = flag ? true : false;
-    config->getOption("SDL.VBlankScanlines", &vblankscanlines);
-    config->getOption("SDL.PostRenderScanlines", &postrenderscanlines);
-    totalscanlines = normalscanlines + (overclock_enabled ? postrenderscanlines : 0);
+	// Overclock settings
+	config->getOption("SDL.OverclockEnabled", &flag);
+	overclock_enabled = flag ? true : false;
+	config->getOption("SDL.Skip7BitOverclocking", &flag);
+	skip_7bit_overclocking = flag ? true : false;
+	config->getOption("SDL.VBlankScanlines", &vblankscanlines);
+	config->getOption("SDL.PostRenderScanlines", &postrenderscanlines);
+	totalscanlines = normalscanlines + (overclock_enabled ? postrenderscanlines : 0);
 }
