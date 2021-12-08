@@ -20,6 +20,8 @@ Playback - Player of emulation states
 * stores resources: upper text field prefix, timings of target frame animation, response times of GUI buttons, progressbar scale
 ------------------------------------------------------------------------------------ */
 
+#include <QApplication>
+
 #include "fceu.h"
 #include "driver.h"
 #include "Qt/TasEditor/taseditor_project.h"
@@ -287,48 +289,60 @@ void PLAYBACK::restoreLastPosition()
 }
 void PLAYBACK::handleMiddleButtonClick()
 {
-//	if (emuPausedState)
-//	{
-//		// Unpause or start seeking
-//		// works only when right mouse button is released
-//		if (GetAsyncKeyState(GetSystemMetrics(SM_SWAPBUTTON) ? VK_LBUTTON : VK_RBUTTON) >= 0)
-//		{
-//			if (GetAsyncKeyState(VK_SHIFT) < 0)
-//			{
-//				// if Shift is held, seek to nearest Marker
-//				int last_frame = markersManager.getMarkersArraySize() - 1;	// the end of movie Markers
-//				int target_frame = currFrameCounter + 1;
-//				for (; target_frame <= last_frame; ++target_frame)
-//					if (markersManager.getMarkerAtFrame(target_frame)) break;
-//				if (target_frame <= last_frame)
-//					startSeekingToFrame(target_frame);
-//			} else if (GetAsyncKeyState(VK_CONTROL) < 0)
-//			{
-//				// if Ctrl is held, seek to Selection cursor or replay from Selection cursor
-//				int selection_beginning = selection.getCurrentRowsSelectionBeginning();
-//				if (selection_beginning > currFrameCounter)
-//				{
-//					startSeekingToFrame(selection_beginning);
-//				} else if (selection_beginning < currFrameCounter)
-//				{
-//					int saved_currFrameCounter = currFrameCounter;
-//					if (selection_beginning < 0)
-//						selection_beginning = 0;
-//					jump(selection_beginning);
-//					startSeekingToFrame(saved_currFrameCounter);
-//				}
-//			} else if (getPauseFrame() < 0 && getLastPosition() >= greenzone.getSize())
-//			{
-//				restoreLastPosition();
-//			} else
-//			{
-//				unpauseEmulation();
-//			}
-//		}
-//	} else
-//	{
-//		pauseEmulation();
-//	}
+	if (emuPausedState)
+	{
+		int msState     = QApplication::mouseButtons();
+		int kbModifiers = QApplication::keyboardModifiers();
+		//bool   alt_down = (kbModifiers & Qt::AltModifier    ) ? 1 : 0;
+		bool shift_down = (kbModifiers & Qt::ShiftModifier  ) ? 1 : 0;
+		bool  ctrl_down = (kbModifiers & Qt::ControlModifier) ? 1 : 0;
+		bool rgtMsBtnDown = (msState & Qt::RightButton) ? 1 : 0;
+
+		// Unpause or start seeking
+		// works only when right mouse button is released
+		if (!rgtMsBtnDown)
+		{
+			if (shift_down)
+			{
+				// if Shift is held, seek to nearest Marker
+				int last_frame = markersManager->getMarkersArraySize() - 1;	// the end of movie Markers
+				int target_frame = currFrameCounter + 1;
+				for (; target_frame <= last_frame; ++target_frame)
+					if (markersManager->getMarkerAtFrame(target_frame)) break;
+				if (target_frame <= last_frame)
+					startSeekingToFrame(target_frame);
+			}
+			else if (ctrl_down)
+			{
+				// if Ctrl is held, seek to Selection cursor or replay from Selection cursor
+				int selection_beginning = selection->getCurrentRowsSelectionBeginning();
+				if (selection_beginning > currFrameCounter)
+				{
+					startSeekingToFrame(selection_beginning);
+				}
+				else if (selection_beginning < currFrameCounter)
+				{
+					int saved_currFrameCounter = currFrameCounter;
+					if (selection_beginning < 0)
+						selection_beginning = 0;
+					jump(selection_beginning);
+					startSeekingToFrame(saved_currFrameCounter);
+				}
+			}
+			else if (getPauseFrame() < 0 && getLastPosition() >= greenzone->getSize())
+			{
+				restoreLastPosition();
+			}
+			else
+			{
+				unpauseEmulation();
+			}
+		}
+	}
+	else
+	{
+		pauseEmulation();
+	}
 }
 
 void PLAYBACK::startSeekingToFrame(int frame)
@@ -664,5 +678,46 @@ void UpperMarkerNoteEdit::focusOutEvent(QFocusEvent *event)
 		markersManager->markerNoteEditMode = MARKER_NOTE_EDIT_NONE;
 	}
 	QLineEdit::focusOutEvent(event);
+}
+// -------------------------------------------------------------------------
+void UpperMarkerNoteEdit::keyPressEvent(QKeyEvent *event)
+{
+	//printf("Key Press: 0x%x \n", event->key() );
+
+	if ( event->key() == Qt::Key_Escape)
+	{
+		setText( QString::fromStdString(markersManager->getNoteCopy(playback->displayedMarkerNumber)) );
+		event->accept();
+	}
+	else if ( (event->key() == Qt::Key_Enter) || (event->key() == Qt::Key_Return) )
+	{
+		if (markersManager->markerNoteEditMode == MARKER_NOTE_EDIT_UPPER)
+		{
+			markersManager->updateEditedMarkerNote();
+			markersManager->markerNoteEditMode = MARKER_NOTE_EDIT_NONE;
+		}
+		tasWin->pianoRoll->setFocus();
+		event->accept();
+	}
+	else
+	{
+		QLineEdit::keyPressEvent(event);
+	}
+}
+// -------------------------------------------------------------------------
+void UpperMarkerNoteEdit::mousePressEvent(QMouseEvent * event)
+{
+	if ( event->button() == Qt::MiddleButton )
+	{
+		playback->handleMiddleButtonClick();
+	}
+	else if ( (event->button() == Qt::LeftButton) || (event->button() == Qt::RightButton) )
+	{
+		// scroll to the Marker
+		if (taseditorConfig->followMarkerNoteContext)
+		{
+			tasWin->pianoRoll->followMarker(playback->displayedMarkerNumber);
+		}
+	}
 }
 // -------------------------------------------------------------------------

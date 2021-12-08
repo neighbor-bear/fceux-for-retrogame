@@ -1609,7 +1609,7 @@ void consoleWin_t::createMainMenu(void)
 	toolsMenu->addAction(act);
 
 	// Tools -> TAS Editor
-	act = new QAction(tr("&TAS Editor ..."), this);
+	tasEditorAct = act = new QAction(tr("&TAS Editor ..."), this);
 	//act->setShortcut( QKeySequence(tr("Shift+F7")));
 	act->setStatusTip(tr("Open TAS Editor Window"));
 	connect(act, SIGNAL(triggered()), this, SLOT(openTasEditor(void)) );
@@ -3590,7 +3590,13 @@ void consoleWin_t::toggleMovieFrameDisplay(void)
 void consoleWin_t::toggleMovieReadWrite(void)
 {
 	fceuWrapperLock();
-	FCEUI_SetMovieToggleReadOnly (!FCEUI_GetMovieToggleReadOnly ());
+	//FCEUI_SetMovieToggleReadOnly (!FCEUI_GetMovieToggleReadOnly ());
+	FCEUI_MovieToggleReadOnly();
+
+	if ( tasWin != NULL )
+	{
+		tasWin->updateRecordStatus();
+	}
 	fceuWrapperUnLock();
 }
 
@@ -4278,6 +4284,7 @@ void consoleWin_t::updatePeriodic(void)
 		recWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );
 		recAsWavAct->setEnabled( FCEU_IsValidUI( FCEUI_RECORDMOVIE ) && !FCEUI_WaveRecordRunning() );
 		stopWavAct->setEnabled( FCEUI_WaveRecordRunning() );
+		tasEditorAct->setEnabled( FCEU_IsValidUI(FCEUI_TASEDITOR) );
 	}
 
 	if ( errorMsgValid )

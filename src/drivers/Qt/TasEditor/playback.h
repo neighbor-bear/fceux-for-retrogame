@@ -21,6 +21,8 @@ class UpperMarkerNoteEdit : public QLineEdit
 	protected:
 		void focusInEvent(QFocusEvent *event);
 		void focusOutEvent(QFocusEvent *event);
+		void keyPressEvent(QKeyEvent *event);
+		void mousePressEvent(QMouseEvent * event);
 };
 
 class PLAYBACK

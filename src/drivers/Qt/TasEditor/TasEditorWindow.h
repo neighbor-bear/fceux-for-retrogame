@@ -37,6 +37,7 @@
 #include <QStackedWidget>
 #include <QClipboard>
 
+#include "Qt/config.h"
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/TasEditor/taseditor_config.h"
 #include "Qt/TasEditor/taseditor_project.h"
@@ -135,6 +136,8 @@ class QPianoRoll : public QWidget
 		~QPianoRoll(void);
 
 		void reset(void);
+		void save(EMUFILE *os, bool really_save);
+		bool load(EMUFILE *is, unsigned int offset);
 		void setScrollBars( QScrollBar *h, QScrollBar *v );
 
 		QFont getFont(void){ return font; };
@@ -142,7 +145,9 @@ class QPianoRoll : public QWidget
 		int   getDragMode(void){ return dragMode; };
 
 		bool  lineIsVisible( int lineNum );
+		bool  checkIfTheresAnIconAtFrame(int frame);
 
+		void  updateLinesCount(void);
 		void  handleColumnSet(int column, bool altPressed);
 		void  centerListAroundLine(int rowIndex);
 		void  ensureTheLineIsVisible( int lineNum );
@@ -162,11 +167,14 @@ class QPianoRoll : public QWidget
 		void mouseReleaseEvent(QMouseEvent * event);
 		void mouseMoveEvent(QMouseEvent * event);
 		void mouseDoubleClickEvent(QMouseEvent * event);
+		void wheelEvent(QWheelEvent *event);
 		void keyPressEvent(QKeyEvent *event);
 		void keyReleaseEvent(QKeyEvent *event);
 		void focusInEvent(QFocusEvent *event);
 		void focusOutEvent(QFocusEvent *event);
+		void contextMenuEvent(QContextMenuEvent *event);
 
+		void crossGaps(int zDelta);
 		void startDraggingPlaybackCursor(void);
 		void startDraggingMarker(int mouseX, int mouseY, int rowIndex, int columnIndex);
 		void startSelectingDrag(int start_frame);
@@ -221,6 +229,7 @@ class QPianoRoll : public QWidget
 		int markerDragFrameNumber;
 		int markerDragCountdown;
 		int drawingStartTimestamp;
+		int wheelPixelCounter;
 		int headerItemUnderMouse;
 		int nextHeaderUpdateTime;
 		int mouse_x;
@@ -232,6 +241,50 @@ class QPianoRoll : public QWidget
 		void hbarChanged(int val);
 		void vbarChanged(int val);
 		void vbarActionTriggered(int act);
+};
+
+class  TasRecentProjectAction : public QAction
+{
+	Q_OBJECT
+
+	public:
+		TasRecentProjectAction( QString title, QWidget *parent = 0);
+		~TasRecentProjectAction(void);
+
+		std::string  path;
+
+	public slots:
+		void activateCB(void);
+
+};
+
+class TasFindNoteWindow : public QDialog
+{
+	Q_OBJECT
+
+	public:
+		TasFindNoteWindow(QWidget *parent = 0);
+		~TasFindNoteWindow(void);
+
+	protected:
+		void closeEvent(QCloseEvent *event);
+
+		QLineEdit     *searchPattern;
+		QCheckBox     *matchCase;
+		QRadioButton  *up;
+		QRadioButton  *down;
+		QPushButton   *nextBtn;
+		QPushButton   *closeBtn;
+
+	public slots:
+		void closeWindow(void);
+
+	private slots:
+		void matchCaseChanged(bool);
+		void upDirectionSelected(void);
+		void downDirectionSelected(void);
+		void findNextClicked(void);
+		void searchPatternChanged(const QString &);
 };
 
 class TasEditorWindow : public QDialog
@@ -259,6 +312,9 @@ class TasEditorWindow : public QDialog
 		HISTORY   history;
 		BRANCHES  branches;
 
+		void initHotKeys(void);
+		void updateCaption(void);
+		bool loadProject(const char* fullname);
 		void loadClipboard(const char *txt);
 		void toggleInput(int start, int end, int joy, int button, int consecutivenessTag);
 		void setInputUsingPattern(int start, int end, int joy, int button, int consecutivenessTag);
@@ -266,8 +322,6 @@ class TasEditorWindow : public QDialog
 		bool handleColumnSetUsingPattern(void);
 		bool handleInputColumnSet(int joy, int button);
 		bool handleInputColumnSetUsingPattern(int joy, int button);
-		void setMarkers(void);
-		void removeMarkers(void);
 
 	protected:
 		void closeEvent(QCloseEvent *event);
@@ -277,7 +331,7 @@ class TasEditorWindow : public QDialog
 		void buildSideControlPanel(void);
 		void initPatterns(void);
 
-		QMenu     *recentMenu;
+		QMenu     *recentProjectMenu;
 		QAction   *followUndoAct;
 		QAction   *followMkrAct;
 		QAction   *enaHotChgAct;
@@ -352,24 +406,33 @@ class TasEditorWindow : public QDialog
 
 		QClipboard *clipboard;
 
+		QShortcut  *hotkeyShortcut[HK_MAX];
+
 		std::vector<std::string> patternsNames;
 		std::vector<std::vector<uint8_t>> patterns;
+		std::list <std::string*> projList;
 
 		bool mustCallManualLuaFunction;
+		bool recentProjectMenuReset;
 	private:
 
 		int initModules(void);
-		bool loadProject(const char* fullname);
 		bool saveProject(bool save_compact = false);
 		bool saveProjectAs(bool save_compact = false);
 		bool askToSaveProject(void);
 		void updateToolTips(void);
+
+		void clearProjectList(void);
+		void buildRecentProjectMenu(void);
+		void saveRecentProjectMenu(void);
+		void addRecentProject(const char *prog);
 
 	public slots:
 		void closeWindow(void);
 		void frameUpdate(void);
 		void updateCheckedItems(void);
 		void updateHistoryItems(void);
+		void updateRecordStatus(void);
 	private slots:
 		void openProject(void);
 		void saveProjectCb(void);
@@ -408,6 +471,7 @@ class TasEditorWindow : public QDialog
 		void editInsertCB(void);
 		void editInsertNumFramesCB(void);
 		void editTruncateMovieCB(void);
+		void openFindNoteWindow(void);
 		void dpyBrnchScrnChanged(bool);
 		void dpyBrnchDescChanged(bool);
 		void enaHotChgChanged(bool);
@@ -438,8 +502,17 @@ class TasEditorWindow : public QDialog
 		void setMaxUndoCapacity(void);
 		void setCurrentPattern(int);
 		void tabViewChanged(int);
+		void findSimilarNote(void);
+		void findNextSimilarNote(void);
+		void jumpToPreviousMarker(void);
+		void jumpToNextMarker(void);
+		void openAboutWindow(void);
 		void autoLuaRunChanged(bool);
 		void manLuaRun(void);
+		void setMarkers(void);
+		void removeMarkers(void);
+		void ungreenzoneSelectedFrames(void);
+		void activateHotkey( int hkIdx, QShortcut *shortcut );
 
 	friend class RECORDER;
 	friend class SPLICER;
@@ -447,6 +520,7 @@ class TasEditorWindow : public QDialog
 	friend class PLAYBACK;
 	friend class HISTORY;
 	friend class MARKERS_MANAGER;
+	friend class TASEDITOR_PROJECT;
 	friend class QPianoRoll;
 };
 
