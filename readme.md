@@ -195,7 +195,7 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
-#### 28 November 2021
+#### 8 December 2021
   - Updated to upstream 2.5.0
   - Change video mode to 320x240 when access cheats with hotkey
   - Added Pixel Aspect Ratio for hardware scaling (1:1, 8:7, 4:3).
@@ -205,6 +205,15 @@ Build files are created in the `bin`directory.
      - L + B Clip top/bottom (8 pixels each)
      - L + X Change Pixel Aspect Ratio
      - L + Y Clip sides (8 pixels each side)
+  - Matched throttle and sound implementations with the upstream Qt/SDL driver.
+  - Added Integer Frame Rate option to better sync video with the video display refresh.
+  - Added sound Buffer size option. It is expressed in ms. Default value is 128 and the valid values range is from 15 to 200.
+  - Enabled Frameskip configuration with Auto and 0 to 11 levels. Default is 0.
+  - This changes have impact in previously configured games so you must revise its configurations:
+    - FPS throttle 'Off' previously implements an implicit frameskip based on sound buffer. Now this frameskip is configured by setting the option Frameskip to 'Auto'.
+    - FPS throttle 'On' now uses nanosleep to sync the game to the intended framerate.
+    - The Frameskip levels (0-11) are done via a framekip table, the upstream FCEUX frameskipping is very aggresive. The frameskip table is borrowed from mame084 source so the thanks goes to MAME dev team.
+    - Sound Buffer size is defaulted to 128 ms. Previous builds have 30 ms as default value.
 
 #### 25 September 2021
   - Merged [asoderq/sydarn2 overclocking work](https://github.com/asoderq/fceux-for-retrogame/releases/tag/2021-09-11). As upstream it only works with Old PPU.
