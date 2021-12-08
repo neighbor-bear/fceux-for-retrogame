@@ -27,8 +27,10 @@
 #include <zlib.h>
 
 #include <QDir>
+#include <QString>
 #include <QPainter>
 #include <QSettings>
+#include <QTextEdit>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QFontMetrics>
@@ -86,6 +88,13 @@ enum DRAG_MODES
 #define GREEN_BLUE_ARROW_IMAGE_ID   (BLUE_ARROW_IMAGE_ID | GREEN_ARROW_IMAGE_ID)
 
 #define MARKER_DRAG_COUNTDOWN_MAX 14
+#define PIANO_ROLL_ID_LEN 11
+#define PLAYBACK_WHEEL_BOOST 2
+
+// resources
+static char pianoRollSaveID[PIANO_ROLL_ID_LEN] = "PIANO_ROLL";
+static char pianoRollSkipSaveID[PIANO_ROLL_ID_LEN] = "PIANO_ROLX";
+static TasFindNoteWindow *findWin = NULL;
 
 //----------------------------------------------------------------------------
 //----  Main TAS Editor Window
@@ -173,6 +182,7 @@ TasEditorWindow::TasEditorWindow(QWidget *parent)
 	clipboard = QGuiApplication::clipboard();
 
 	setWindowTitle("TAS Editor");
+	//setWindowIcon( QIcon(":icons/taseditor-icon32.png") );
 
 	resize(512, 512);
 
@@ -193,6 +203,11 @@ TasEditorWindow::TasEditorWindow(QWidget *parent)
 	mainLayout->setMenuBar( menuBar );
 	pianoRoll->setFocus();
 
+	for (int i=0; i<HK_MAX; i++)
+	{
+		hotkeyShortcut[i] = nullptr;	
+	}
+	initHotKeys();
 	initModules();
 
 	updateCheckedItems();
@@ -354,9 +369,10 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	fileMenu->addAction(act);
 
 	// File -> Recent
-	recentMenu = fileMenu->addMenu( tr("Recent") );
-	
-	recentMenu->setEnabled(false); // TODO: setup recent projects menu
+	recentProjectMenu = fileMenu->addMenu( tr("&Recent") );
+
+	buildRecentProjectMenu();
+	recentProjectMenuReset = false;
 
 	fileMenu->addSeparator();
 
@@ -570,7 +586,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	act->setShortcut(QKeySequence(tr("Ctrl+F")));
 	act->setStatusTip(tr("Find Note Window"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(createNewProject(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(openFindNoteWindow(void)) );
 
 	viewMenu->addAction(act);
 
@@ -872,7 +888,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 	//act->setShortcut(QKeySequence(tr("Ctrl+N")));
 	act->setStatusTip(tr("About"));
 	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
-	//connect(act, SIGNAL(triggered()), this, SLOT(createNewProject(void)) );
+	connect(act, SIGNAL(triggered()), this, SLOT(openAboutWindow(void)) );
 
 	helpMenu->addAction(act);
 
@@ -1158,8 +1174,13 @@ void TasEditorWindow::buildSideControlPanel(void)
 	connect( turboSeekCbox   , SIGNAL(clicked(bool)), this, SLOT(playbackTurboSeekCb(bool)));
 	connect( autoRestoreCbox , SIGNAL(clicked(bool)), this, SLOT(playbackAutoRestoreCb(bool)));
 
-	shortcut = new QShortcut( QKeySequence("Pause"), this);
-	connect( shortcut, SIGNAL(activated(void)), this, SLOT(playbackPauseCB(void)) );
+	connect( prevMkrBtn, SIGNAL(clicked(void)), this, SLOT(jumpToPreviousMarker(void)) );
+	connect( nextMkrBtn, SIGNAL(clicked(void)), this, SLOT(jumpToNextMarker(void)) );
+	connect( similarBtn, SIGNAL(clicked(void)), this, SLOT(findSimilarNote(void)) );
+	connect( moreBtn   , SIGNAL(clicked(void)), this, SLOT(findNextSimilarNote(void)) );
+
+	//shortcut = new QShortcut( QKeySequence("Pause"), this);
+	//connect( shortcut, SIGNAL(activated(void)), this, SLOT(playbackPauseCB(void)) );
 
 	shortcut = new QShortcut( QKeySequence("Shift+Up"), this);
 	connect( shortcut, SIGNAL(activated(void)), this, SLOT(playbackFrameRewind(void)) );
@@ -1183,6 +1204,53 @@ void TasEditorWindow::buildSideControlPanel(void)
 	connect( histTree, SIGNAL(itemActivated(QTreeWidgetItem*,int)), this, SLOT(histTreeItemActivated(QTreeWidgetItem*,int) ) );
 
 	connect( bkmkBrnchStack, SIGNAL(currentChanged(int)), this, SLOT(tabViewChanged(int) ) );
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::initHotKeys(void)
+{
+	for (int i=0; i<HK_MAX; i++)
+	{
+		QKeySequence ks = Hotkeys[i].getKeySeq();
+		QShortcut *shortcut = Hotkeys[i].getShortcut();
+
+		//printf("HotKey: %i   %s\n", i, ks.toString().toStdString().c_str() );
+
+		if ( hotkeyShortcut[i] == nullptr )
+		{
+			hotkeyShortcut[i] = new QShortcut( ks, this );
+
+			if ( shortcut != nullptr )
+			{
+				connect( hotkeyShortcut[i], &QShortcut::activated, [ this, i, shortcut ] { activateHotkey( i, shortcut ); } );
+			}
+		}
+		else
+		{
+			hotkeyShortcut[i]->setKey( ks );
+		}
+	}
+
+	// Frame Advance uses key state directly, disable shortcut events
+	hotkeyShortcut[HK_FRAME_ADVANCE]->setEnabled(false);
+	hotkeyShortcut[HK_TURBO        ]->setEnabled(false);
+
+	// Disable shortcuts that are not allowed with TAS Editor
+	hotkeyShortcut[HK_OPEN_ROM      ]->setEnabled(false);
+	hotkeyShortcut[HK_CLOSE_ROM     ]->setEnabled(false);
+	hotkeyShortcut[HK_QUIT          ]->setEnabled(false);
+	hotkeyShortcut[HK_FULLSCREEN    ]->setEnabled(false);
+	hotkeyShortcut[HK_MAIN_MENU_HIDE]->setEnabled(false);
+	hotkeyShortcut[HK_LOAD_LUA      ]->setEnabled(false);
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::activateHotkey( int hkIdx, QShortcut *shortcut )
+{
+	shortcut->activated();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::updateRecordStatus(void)
+{
+	recRecordingCbox->setChecked( !movie_readonly );
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::updateCheckedItems(void)
@@ -1371,8 +1439,14 @@ void TasEditorWindow::frameUpdate(void)
 		mustCallManualLuaFunction = false;
 	}
 #endif
-	
+
 	pianoRoll->update();
+
+	if ( recentProjectMenuReset )
+	{
+		buildRecentProjectMenu();
+		recentProjectMenuReset = false;
+	}
 
 	fceuWrapperUnLock();
 }
@@ -1389,14 +1463,14 @@ bool TasEditorWindow::loadProject(const char* fullname)
 		// loaded successfully
 		applyMovieInputConfig();
 		// add new file to Recent menu
-		//taseditorWindow.updateRecentProjectsArray(fullname);
-		//taseditorWindow.updateCaption();
+		addRecentProject( fullname );
+		updateCaption();
 		update();
 		success = true;
 	} else
 	{
 		// failed to load
-		//taseditorWindow.updateCaption();
+		updateCaption();
 		update();
 	}
 	fceuWrapperUnLock();
@@ -1412,7 +1486,8 @@ bool TasEditorWindow::saveProject(bool save_compact)
 	if (project.getProjectFile().empty())
 	{
 		ret = saveProjectAs(save_compact);
-	} else
+	}
+	else
 	{
 		if (save_compact)
 		{
@@ -1422,7 +1497,7 @@ bool TasEditorWindow::saveProject(bool save_compact)
 		{
 			project.save(0, taseditorConfig.projectSavingOptions_SaveInBinary, taseditorConfig.projectSavingOptions_SaveMarkers, taseditorConfig.projectSavingOptions_SaveBookmarks, taseditorConfig.projectSavingOptions_GreenzoneSavingMode, taseditorConfig.projectSavingOptions_SaveHistory, taseditorConfig.projectSavingOptions_SavePianoRoll, taseditorConfig.projectSavingOptions_SaveSelection);
 		}
-		//taseditorWindow.updateCaption();
+		updateCaption();
 	}
 
 	fceuWrapperUnLock();
@@ -1524,9 +1599,9 @@ bool TasEditorWindow::saveProjectAs(bool save_compact)
 	{
 		project.save( filename.toStdString().c_str(), taseditorConfig.projectSavingOptions_SaveInBinary, taseditorConfig.projectSavingOptions_SaveMarkers, taseditorConfig.projectSavingOptions_SaveBookmarks, taseditorConfig.projectSavingOptions_GreenzoneSavingMode, taseditorConfig.projectSavingOptions_SaveHistory, taseditorConfig.projectSavingOptions_SavePianoRoll, taseditorConfig.projectSavingOptions_SaveSelection);
 	}
-	//taseditorWindow.updateRecentProjectsArray(nameo);
+	addRecentProject( filename.toStdString().c_str() );
 	// saved successfully - remove * mark from caption
-	//taseditorWindow.updateCaption();
+	updateCaption();
 	return true;
 }
 
@@ -1799,7 +1874,7 @@ void TasEditorWindow::createNewProject(void)
 		recorder.reset();
 		//popupDisplay.reset();
 		//taseditorWindow.redraw();
-		//taseditorWindow.updateCaption();
+		updateCaption();
 		update();
 	}
 	fceuWrapperUnLock();
@@ -2040,6 +2115,145 @@ void TasEditorWindow::exportMovieFile(void)
 
 }
 //----------------------------------------------------------------------------
+void TasEditorWindow::updateCaption(void)
+{
+	char newCaption[300];
+	strcpy(newCaption, "TAS Editor");
+	if (!movie_readonly)
+	{
+		strcat(newCaption, recorder.getRecordingCaption());
+	}
+	// add project name
+	std::string projectname = project.getProjectName();
+	if (!projectname.empty())
+	{
+		strcat(newCaption, " - ");
+		strcat(newCaption, projectname.c_str());
+	}
+	// and * if project has unsaved changes
+	if (project.getProjectChanged())
+	{
+		strcat(newCaption, "*");
+	}
+	setWindowTitle( tr(newCaption) );
+	//SetWindowText(hwndTASEditor, newCaption);
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::clearProjectList(void)
+{
+	std::list <std::string*>::iterator it;
+
+	for (it=projList.begin(); it != projList.end(); it++)
+	{
+		delete *it;
+	}
+	projList.clear();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::buildRecentProjectMenu(void)
+{
+	QAction *act;
+	std::string s;
+	std::string *sptr;
+	char buf[128];
+
+	clearProjectList();
+	recentProjectMenu->clear();
+
+	for (int i=0; i<10; i++)
+	{
+		sprintf(buf, "SDL.RecentTasProject%02i", i);
+
+		g_config->getOption( buf, &s);
+
+		//printf("Recent Rom:%i  '%s'\n", i, s.c_str() );
+
+		if ( s.size() > 0 )
+		{
+			act = new TasRecentProjectAction( tr(s.c_str()), recentProjectMenu);
+
+			recentProjectMenu->addAction( act );
+
+			connect(act, SIGNAL(triggered()), act, SLOT(activateCB(void)) );
+
+			sptr = new std::string();
+
+			sptr->assign( s.c_str() );
+
+			projList.push_front( sptr );
+		}
+	}
+	recentProjectMenu->setEnabled( !recentProjectMenu->isEmpty() );
+}
+//---------------------------------------------------------------------------
+void TasEditorWindow::saveRecentProjectMenu(void)
+{
+	int i;
+	std::string *s;
+	std::list <std::string*>::iterator it;
+	char buf[128];
+
+	i = projList.size() - 1;
+
+	for (it=projList.begin(); it != projList.end(); it++)
+	{
+		s = *it;
+		sprintf(buf, "SDL.RecentTasProject%02i", i);
+
+		g_config->setOption( buf, s->c_str() );
+
+		//printf("Recent Rom:%u  '%s'\n", i, s->c_str() );
+		i--;
+	}
+}
+//---------------------------------------------------------------------------
+void TasEditorWindow::addRecentProject( const char *proj )
+{
+	std::string *s;
+	std::list <std::string*>::iterator match_it;
+
+	for (match_it=projList.begin(); match_it != projList.end(); match_it++)
+	{
+		s = *match_it;
+
+		if ( s->compare( proj ) == 0 )
+		{
+			//printf("Found Match: %s\n", proj );
+			break;
+		}
+	}
+
+	if ( match_it != projList.end() )
+	{
+		s = *match_it;
+
+		projList.erase(match_it);
+
+		projList.push_back(s);
+	}
+	else
+	{
+		s = new std::string();
+
+		s->assign( proj );
+		
+		projList.push_back(s);
+
+		if ( projList.size() > 10 )
+		{
+			s = projList.front();
+
+			projList.pop_front();
+
+			delete s;
+		}
+	}
+
+	saveRecentProjectMenu();
+
+	recentProjectMenuReset = true;
+}
+//----------------------------------------------------------------------------
 void TasEditorWindow::saveProjectCb(void)
 {
 	saveProject();
@@ -2079,23 +2293,35 @@ void TasEditorWindow::setCurrentPattern(int idx)
 	taseditorConfig.currentPattern = idx;
 }
 //----------------------------------------------------------------------------
-void TasEditorWindow::recordingChanged(int state)
+void TasEditorWindow::recordingChanged(int newState)
 {
-	FCEUI_MovieToggleReadOnly();
+	fceuCriticalSection emuLock;
+	int oldState = !movie_readonly ? Qt::Checked : Qt::Unchecked;
+
+	if ( newState != oldState )
+	{
+		FCEUI_MovieToggleReadOnly();
+	}
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editUndoCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	history.undo();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editRedoCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	history.redo();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editUndoSelCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	int dragMode = pianoRoll->getDragMode();
 
 	if ( (dragMode != DRAG_MODE_SELECTION) && (dragMode != DRAG_MODE_DESELECTION) )
@@ -2107,6 +2333,8 @@ void TasEditorWindow::editUndoSelCB(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editRedoSelCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	int dragMode = pianoRoll->getDragMode();
 
 	if ( (dragMode != DRAG_MODE_SELECTION) && (dragMode != DRAG_MODE_DESELECTION) )
@@ -2118,6 +2346,8 @@ void TasEditorWindow::editRedoSelCB(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editDeselectAll(void)
 {
+	fceuCriticalSection emuLock;
+
 	int dragMode = pianoRoll->getDragMode();
 
 	if ( (dragMode != DRAG_MODE_SELECTION) && (dragMode != DRAG_MODE_DESELECTION) )
@@ -2128,6 +2358,8 @@ void TasEditorWindow::editDeselectAll(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editSelectAll(void)
 {
+	fceuCriticalSection emuLock;
+
 	int dragMode = pianoRoll->getDragMode();
 
 	if ( (dragMode != DRAG_MODE_SELECTION) && (dragMode != DRAG_MODE_DESELECTION) )
@@ -2138,6 +2370,8 @@ void TasEditorWindow::editSelectAll(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editSelBtwMkrs(void)
 {
+	fceuCriticalSection emuLock;
+
 	int dragMode = pianoRoll->getDragMode();
 
 	if ( (dragMode != DRAG_MODE_SELECTION) && (dragMode != DRAG_MODE_DESELECTION) )
@@ -2148,6 +2382,8 @@ void TasEditorWindow::editSelBtwMkrs(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editReselectClipboard(void)
 {
+	fceuCriticalSection emuLock;
+
 	int dragMode = pianoRoll->getDragMode();
 
 	if ( (dragMode != DRAG_MODE_SELECTION) && (dragMode != DRAG_MODE_DESELECTION) )
@@ -2159,51 +2395,71 @@ void TasEditorWindow::editReselectClipboard(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editCutCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.cutSelectedInputToClipboard();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editCopyCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.copySelectedInputToClipboard();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editPasteCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.pasteInputFromClipboard();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editPasteInsertCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.pasteInsertInputFromClipboard();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editClearCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.clearSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editDeleteCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.deleteSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editCloneCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.cloneSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editInsertCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.insertSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editInsertNumFramesCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.insertNumberOfFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editTruncateMovieCB(void)
 {
+	fceuCriticalSection emuLock;
+
 	splicer.truncateMovie();
 }
 //----------------------------------------------------------------------------
@@ -2233,6 +2489,21 @@ void TasEditorWindow::recordInputChanged(int input)
 {
 	//printf("Input Change: %i\n", input);
 	recorder.multitrackRecordingJoypadNumber = input;
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::openFindNoteWindow(void)
+{
+	if ( findWin )
+	{
+		findWin->activateWindow();
+		findWin->raise();
+		findWin->setFocus();
+	}
+	else
+	{
+		findWin = new TasFindNoteWindow(this);
+		findWin->show();
+	}
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::dpyBrnchScrnChanged(bool val)
@@ -2871,7 +3142,8 @@ bool TasEditorWindow::handleColumnSet(void)
 				{
 					changes_made = true;
 					//pianoRoll.redrawRow(*it);
-					pianoRoll->update();
+					//pianoRoll->update(); // Piano roll will update at next periodic cycle
+					lowerMarkerNote->setFocus();
 				}
 			}
 		}
@@ -2890,7 +3162,7 @@ bool TasEditorWindow::handleColumnSet(void)
 				markersManager.removeMarkerFromFrame(*it);
 				changes_made = true;
 				//pianoRoll.redrawRow(*it);
-				pianoRoll->update();
+				//pianoRoll->update(); // Piano roll will update at next periodic cycle
 			}
 		}
 		if (changes_made)
@@ -3021,6 +3293,8 @@ bool TasEditorWindow::handleInputColumnSet(int joy, int button)
 
 void TasEditorWindow::setMarkers(void)
 {
+	fceuCriticalSection emuLock;
+
 	RowsSelection* current_selection = selection.getCopyOfCurrentRowsSelection();
 	if (current_selection->size())
 	{
@@ -3034,7 +3308,7 @@ void TasEditorWindow::setMarkers(void)
 				if (markersManager.setMarkerAtFrame(*it))
 				{
 					changes_made = true;
-					pianoRoll->update();
+					//pianoRoll->update();
 				}
 			}
 		}
@@ -3047,6 +3321,8 @@ void TasEditorWindow::setMarkers(void)
 }
 void TasEditorWindow::removeMarkers(void)
 {
+	fceuCriticalSection emuLock;
+
 	RowsSelection* current_selection = selection.getCopyOfCurrentRowsSelection();
 	if (current_selection->size())
 	{
@@ -3059,7 +3335,7 @@ void TasEditorWindow::removeMarkers(void)
 			{
 				markersManager.removeMarkerFromFrame(*it);
 				changes_made = true;
-				pianoRoll->update();
+				//pianoRoll->update();
 			}
 		}
 		if (changes_made)
@@ -3068,6 +3344,13 @@ void TasEditorWindow::removeMarkers(void)
 			history.registerMarkersChange(MODTYPE_MARKER_REMOVE, *current_selection_begin, *current_selection->rbegin());
 		}
 	}
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::ungreenzoneSelectedFrames(void)
+{
+	fceuCriticalSection emuLock;
+
+	greenzone.ungreenzoneSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::upperMarkerLabelClicked(void)
@@ -3085,6 +3368,78 @@ void TasEditorWindow::lowerMarkerLabelClicked(void)
 	}
 }
 //----------------------------------------------------------------------------
+void TasEditorWindow::jumpToPreviousMarker(void)
+{
+	selection.jumpToPreviousMarker();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::jumpToNextMarker(void)
+{
+	selection.jumpToNextMarker();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::findSimilarNote(void)
+{
+	markersManager.findSimilarNote();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::findNextSimilarNote(void)
+{
+	markersManager.findNextSimilarNote();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::openAboutWindow(void)
+{
+	QDialog about(this);
+	QVBoxLayout *mainLayout, *vbox;
+	QHBoxLayout *hbox;
+	QPixmap pm(":icons/taseditor-icon32.png");
+	QPixmap pm2;
+	QLabel *imgLbl;
+	QTextEdit *txtEdit;
+	QPushButton *okButton;
+	const char *txt = "\
+Created by AnS\n\n\
+Originated from TASEdit\n\
+made by zeromus & adelikat\n\n\
+Ported to Qt by mjbudd77\n\
+";
+	
+	pm2 = pm.scaled( 64, 64 );
+
+	mainLayout = new QVBoxLayout();
+	vbox       = new QVBoxLayout();
+	hbox       = new QHBoxLayout();
+	txtEdit    = new QTextEdit();
+	okButton   = new QPushButton( tr("OK") );
+
+	about.setWindowTitle( tr("About") );
+	about.setLayout( mainLayout );
+
+	imgLbl = new QLabel();
+	imgLbl->setPixmap(pm2);
+
+	mainLayout->addLayout( hbox );
+	hbox->addWidget( imgLbl, 2, Qt::AlignCenter );
+	hbox->addLayout( vbox, 2 );
+	vbox->addWidget( new QLabel( tr("TAS Editor") ), 1, Qt::AlignCenter );
+	vbox->addWidget( new QLabel( tr("Version 1.01") ), 1, Qt::AlignCenter );
+	mainLayout->addWidget( txtEdit );
+
+	hbox = new QHBoxLayout();
+	hbox->addStretch(5);
+	hbox->addWidget( okButton, 1 );
+	mainLayout->addLayout( hbox );
+
+	txtEdit->setText( tr(txt) );
+	txtEdit->setReadOnly(true);
+
+	okButton->setDefault(true);
+	okButton->setIcon(style()->standardIcon(QStyle::SP_DialogOkButton));
+	connect( okButton, SIGNAL(clicked(void)), &about, SLOT(accept(void)) );
+
+	about.exec();
+}
 //----------------------------------------------------------------------------
 //----  TAS Piano Roll Widget
 //----------------------------------------------------------------------------
@@ -3160,6 +3515,7 @@ QPianoRoll::QPianoRoll(QWidget *parent)
 	markerDragFrameNumber = 0;
 	markerDragCountdown = 0;
 	drawingStartTimestamp = 0;
+	wheelPixelCounter = 0;
 	headerItemUnderMouse = 0;
 	nextHeaderUpdateTime = 0;
 	mouse_x = mouse_y = -1;
@@ -3191,6 +3547,69 @@ void QPianoRoll::reset(void)
 
 	numColumns = 2 + (NUM_JOYPAD_BUTTONS * num_joysticks);
 
+}
+//----------------------------------------------------------------------------
+void QPianoRoll::save(EMUFILE *os, bool really_save)
+{
+	if (really_save)
+	{
+		updateLinesCount();
+		// write "PIANO_ROLL" string
+		os->fwrite(pianoRollSaveID, PIANO_ROLL_ID_LEN);
+		// write current top item
+		int top_item = lineOffset;
+		write32le(top_item, os);
+	}
+	else
+	{
+		// write "PIANO_ROLX" string
+		os->fwrite(pianoRollSkipSaveID, PIANO_ROLL_ID_LEN);
+	}
+}
+//----------------------------------------------------------------------------
+// returns true if couldn't load
+bool QPianoRoll::load(EMUFILE *is, unsigned int offset)
+{
+	reset();
+	updateLinesCount();
+	if (offset)
+	{
+		if (is->fseek(offset, SEEK_SET)) goto error;
+	}
+	else
+	{
+		// scroll to the beginning
+		//ListView_EnsureVisible(hwndList, 0, FALSE);
+		lineOffset = 0;
+		return false;
+	}
+	// read "PIANO_ROLL" string
+	char save_id[PIANO_ROLL_ID_LEN];
+	if ((int)is->fread(save_id, PIANO_ROLL_ID_LEN) < PIANO_ROLL_ID_LEN) goto error;
+	if (!strcmp(pianoRollSkipSaveID, save_id))
+	{
+		// string says to skip loading Piano Roll
+		FCEU_printf("No Piano Roll data in the file\n");
+		// scroll to the beginning
+		//ListView_EnsureVisible(hwndList, 0, FALSE);
+		lineOffset = 0;
+		return false;
+	}
+	if (strcmp(pianoRollSaveID, save_id)) goto error;		// string is not valid
+	// read current top item and scroll Piano Roll there
+	int top_item;
+	if (!read32le(&top_item, is)) goto error;
+	//ListView_EnsureVisible(hwndList, currMovieData.getNumRecords() - 1, FALSE);
+	//ListView_EnsureVisible(hwndList, top_item, FALSE);
+	ensureTheLineIsVisible( currMovieData.getNumRecords() - 1 );
+	ensureTheLineIsVisible( top_item );
+	return false;
+error:
+	FCEU_printf("Error loading Piano Roll data\n");
+	// scroll to the beginning
+	//ListView_EnsureVisible(hwndList, 0, FALSE);
+	lineOffset = 0;
+	return true;
 }
 //----------------------------------------------------------------------------
 void QPianoRoll::setScrollBars( QScrollBar *h, QScrollBar *v )
@@ -3431,9 +3850,22 @@ void QPianoRoll::drawArrow( QPainter *painter, int xl, int yl, int value )
 	}
 }
 //----------------------------------------------------------------------------
+void QPianoRoll::updateLinesCount(void)
+{
+	// update the number of items in the list
+	int movie_size = currMovieData.getNumRecords();
+
+	maxLineOffset = movie_size - viewLines + 5;
+
+	if ( maxLineOffset < 0 )
+	{
+		maxLineOffset = 0;
+	}
+}
+//----------------------------------------------------------------------------
 bool QPianoRoll::lineIsVisible( int lineNum )
 {
-	int lineEnd = lineOffset + viewLines;
+	int lineEnd = lineOffset + viewLines - 1;
 
 	return ( (lineNum >= lineOffset) && (lineNum < lineEnd) );
 }
@@ -3444,7 +3876,9 @@ void QPianoRoll::ensureTheLineIsVisible( int lineNum )
 	{
 		int scrollOfs;
 
-		lineOffset = lineNum - 3;
+		//printf("Seeking Frame %i\n", lineNum );
+
+		lineOffset = lineNum;
 
 		if ( lineOffset < 0 )
 		{
@@ -3529,6 +3963,96 @@ void QPianoRoll::mouseDoubleClickEvent(QMouseEvent * event)
 	}
 }
 //----------------------------------------------------------------------------
+void QPianoRoll::contextMenuEvent(QContextMenuEvent *event)
+{
+	bool drawContext, rowIsSel;
+
+	rowIsSel = selection->isRowSelected( rowUnderMouse );
+
+	drawContext = rowIsSel && 
+		( (columnUnderMouse == COLUMN_ICONS) || (columnUnderMouse == COLUMN_FRAMENUM) || (columnUnderMouse == COLUMN_FRAMENUM2) );
+
+	if ( !drawContext )
+	{
+		return;
+	}
+	int mkr;
+	QAction *act;
+	QMenu menu(this);
+	fceuCriticalSection emuLock;
+
+	mkr = markersManager->getMarkerAtFrame( rowUnderMouse );
+
+	act = new QAction(tr("Set Markers\tDbl-Clk"), &menu);
+	menu.addAction(act);
+	act->setEnabled( mkr == 0 );
+	//act->setShortcut(QKeySequence(tr("Double Click")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(setMarkers(void)));
+
+	act = new QAction(tr("Remove Markers"), &menu);
+	menu.addAction(act);
+	act->setEnabled( mkr > 0 );
+	//act->setShortcut(QKeySequence(tr("Dbl-clk")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(removeMarkers(void)));
+
+	menu.addSeparator();
+
+	act = new QAction(tr("Deselect"), &menu);
+	menu.addAction(act);
+	//act->setShortcut(QKeySequence(tr("D")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(editDeselectAll(void)));
+
+	act = new QAction(tr("Select between markers"), &menu);
+	menu.addAction(act);
+	act->setShortcut(QKeySequence(tr("Ctrl-A")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(editSelBtwMkrs(void)));
+
+	menu.addSeparator();
+
+	act = new QAction(tr("Ungreenzone"), &menu);
+	menu.addAction(act);
+	//act->setShortcut(QKeySequence(tr("Ctrl-A")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(ungreenzoneSelectedFrames(void)));
+
+	menu.addSeparator();
+
+	act = new QAction(tr("Clear"), &menu);
+	menu.addAction(act);
+	act->setShortcut(QKeySequence(tr("Del")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(editClearCB(void)));
+
+	act = new QAction(tr("Delete"), &menu);
+	menu.addAction(act);
+	act->setShortcut(QKeySequence(tr("Ctrl+Del")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(editDeleteCB(void)));
+
+	act = new QAction(tr("Clone"), &menu);
+	menu.addAction(act);
+	act->setShortcut(QKeySequence(tr("Ctrl+Ins")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(editCloneCB(void)));
+
+	act = new QAction(tr("Insert"), &menu);
+	menu.addAction(act);
+	act->setShortcut(QKeySequence(tr("Ctrl+Shift+Ins")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(editInsertCB(void)));
+
+	act = new QAction(tr("Insert # of Frames"), &menu);
+	menu.addAction(act);
+	act->setShortcut(QKeySequence(tr("Ins")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(editInsertNumFramesCB(void)));
+
+	menu.addSeparator();
+
+	act = new QAction(tr("Truncate Movie"), &menu);
+	menu.addAction(act);
+	//act->setShortcut(QKeySequence(tr("Ins")));
+	connect(act, SIGNAL(triggered(void)), tasWin, SLOT(editTruncateMovieCB(void)));
+
+	menu.exec(event->globalPos());
+
+	event->accept();
+}
+//----------------------------------------------------------------------------
 void QPianoRoll::mousePressEvent(QMouseEvent * event)
 {
 	fceuCriticalSection emuLock;
@@ -3551,7 +4075,7 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 	kbModifiers = QApplication::keyboardModifiers();
 	alt_pressed = (kbModifiers & Qt::AltModifier) ? 1 : 0;
 
-	printf("Mouse Button Pressed: 0x%x (%i,%i)\n", event->button(), c.x(), c.y() );
+	//printf("Mouse Button Pressed: 0x%x (%i,%i)\n", event->button(), c.x(), c.y() );
 	
 	if ( event->button() == Qt::LeftButton )
 	{
@@ -3712,7 +4236,7 @@ void QPianoRoll::mouseReleaseEvent(QMouseEvent * event)
 	rowUnderMouse = realRowUnderMouse = line;
 	columnUnderMouse = col;
 
-	printf("Mouse Button Released: 0x%x (%i,%i)\n", event->button(), c.x(), c.y() );
+	//printf("Mouse Button Released: 0x%x (%i,%i)\n", event->button(), c.x(), c.y() );
 	
 	if ( event->button() == Qt::LeftButton )
 	{
@@ -3724,7 +4248,7 @@ void QPianoRoll::mouseReleaseEvent(QMouseEvent * event)
 	}
 	else if ( event->button() == Qt::RightButton )
 	{
-		//rightButtonDragMode = true;
+		//rightButtonDragMode = false;
 	}
 }
 //----------------------------------------------------------------------------
@@ -3752,6 +4276,130 @@ void QPianoRoll::mouseMoveEvent(QMouseEvent * event)
 	updateDrag();
 }
 //----------------------------------------------------------------------------
+void QPianoRoll::wheelEvent(QWheelEvent *event)
+{
+	fceuCriticalSection emuLock;
+	int ofs, kbModifiers, msButtons, zDelta;
+
+	QPoint numPixels = event->pixelDelta();
+	QPoint numDegrees = event->angleDelta();
+
+	msButtons   = QApplication::mouseButtons();
+	kbModifiers = QApplication::keyboardModifiers();
+
+	ofs = vbar->value();
+
+	if (!numPixels.isNull())
+	{
+		wheelPixelCounter -= numPixels.y();
+		//printf("numPixels: (%i,%i) \n", numPixels.x(), numPixels.y() );
+	}
+	else if (!numDegrees.isNull())
+	{
+		//QPoint numSteps = numDegrees / 15;
+		//printf("numSteps: (%i,%i) \n", numSteps.x(), numSteps.y() );
+		//printf("numDegrees: (%i,%i)  %i\n", numDegrees.x(), numDegrees.y(), pxLineSpacing );
+		wheelPixelCounter -= (pxLineSpacing * numDegrees.y()) / (15 * 8);
+	}
+	//printf("Wheel Event: %i\n", wheelPixelCounter);
+
+	zDelta = 0;
+	if (wheelPixelCounter <= -pxLineSpacing)
+	{
+		zDelta = (wheelPixelCounter / pxLineSpacing);
+
+		wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
+	}
+	else if (wheelPixelCounter >= pxLineSpacing)
+	{
+		zDelta = (wheelPixelCounter / pxLineSpacing);
+
+		wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
+	}
+	//printf("zDelta:%i\n", zDelta );
+
+	if ( kbModifiers & Qt::ShiftModifier )
+	{
+		// Shift + wheel = Playback rewind full(speed)/forward full(speed)
+		if (zDelta < 0)
+		{
+			playback->handleForwardFull( -zDelta );
+		}
+		else if (zDelta > 0)
+		{
+			playback->handleRewindFull( zDelta );
+		}
+	}
+	else if ( kbModifiers & Qt::ControlModifier )
+	{
+		// Ctrl + wheel = Selection rewind full(speed)/forward full(speed)
+		if (zDelta < 0)
+		{
+			selection->jumpToNextMarker( -zDelta );
+		}
+		else if (zDelta > 0)
+		{
+			selection->jumpToPreviousMarker( zDelta );
+		}
+	}
+	else if ( msButtons & Qt::RightButton )
+	{
+		// Right button + wheel = rewind/forward Playback
+		int delta = zDelta;
+		if (delta < -1 || delta > 1)
+		{
+			delta *= PLAYBACK_WHEEL_BOOST;
+		}
+		int destination_frame;
+		if (FCEUI_EmulationPaused() || playback->getPauseFrame() < 0)
+		{
+			destination_frame = currFrameCounter - delta;
+		}
+		else
+		{
+			destination_frame = playback->getPauseFrame() - delta;
+		}
+		if (destination_frame < 0)
+		{
+			destination_frame = 0;
+		}
+		playback->jump(destination_frame);
+	}
+	else if (kbModifiers & Qt::AltModifier)
+	{
+		// cross gaps in Input/Markers
+		if ( zDelta != 0 )
+		{
+			crossGaps(zDelta);
+		}
+	}
+	else
+	{
+		if (zDelta > 0)
+		{
+			ofs += zDelta;
+
+			if (ofs > maxLineOffset)
+			{
+				ofs = maxLineOffset;
+			}
+			vbar->setValue(ofs);
+		}
+		else if (zDelta < 0)
+		{
+			ofs += zDelta;
+
+			if (ofs < 0)
+			{
+				ofs = 0;
+			}
+			vbar->setValue(ofs);
+		}
+	}
+
+	event->accept();
+}
+//----------------------------------------------------------------------------
 void QPianoRoll::keyPressEvent(QKeyEvent *event)
 {
 	//printf("Key Press: 0x%x \n", event->key() );
@@ -3772,7 +4420,7 @@ void QPianoRoll::focusInEvent(QFocusEvent *event)
 {
 	QWidget::focusInEvent(event);
 
-	printf("PianoRoll Focus In\n");
+	//printf("PianoRoll Focus In\n");
 
 	parent->pianoRollFrame->setStyleSheet("QFrame { border: 2px solid rgb(48,140,198); }");
 }
@@ -3781,9 +4429,166 @@ void QPianoRoll::focusOutEvent(QFocusEvent *event)
 {
 	QWidget::focusOutEvent(event);
 
-	printf("PianoRoll Focus Out\n");
+	//printf("PianoRoll Focus Out\n");
 
 	parent->pianoRollFrame->setStyleSheet(NULL);
+}
+//----------------------------------------------------------------------------
+bool QPianoRoll::checkIfTheresAnIconAtFrame(int frame)
+{
+	if (frame == currFrameCounter)
+		return true;
+	if (frame == playback->getLastPosition())
+		return true;
+	if (frame == playback->getPauseFrame())
+		return true;
+	if (bookmarks->findBookmarkAtFrame(frame) >= 0)
+		return true;
+	return false;
+}
+//----------------------------------------------------------------------------
+void QPianoRoll::crossGaps(int zDelta)
+{
+	int row_index = rowUnderMouse;
+	int column_index = columnUnderMouse;
+
+	if (row_index >= 0 && column_index >= COLUMN_ICONS && column_index <= COLUMN_FRAMENUM2)
+	{
+		if (column_index == COLUMN_ICONS)
+		{
+			// cross gaps in Icons
+			if (zDelta < 0)
+			{
+				// search down
+				int last_frame = currMovieData.getNumRecords() - 1;
+				if (row_index < last_frame)
+				{
+					int frame = row_index + 1;
+					bool result_of_closest_frame = checkIfTheresAnIconAtFrame(frame);
+					while ((++frame) <= last_frame)
+					{
+						if (checkIfTheresAnIconAtFrame(frame) != result_of_closest_frame)
+						{
+							// found different result, so we crossed the gap
+							//ListView_Scroll(hwndList, 0, listRowHeight * (frame - row_index));
+							centerListAroundLine(frame);
+							break;
+						}
+					}
+				}
+			}
+			else
+			{
+				// search up
+				int first_frame = 0;
+				if (row_index > first_frame)
+				{
+					int frame = row_index - 1;
+					bool result_of_closest_frame = checkIfTheresAnIconAtFrame(frame);
+					while ((--frame) >= first_frame)
+					{
+						if (checkIfTheresAnIconAtFrame(frame) != result_of_closest_frame)
+						{
+							// found different result, so we crossed the gap
+							//ListView_Scroll(hwndList, 0, listRowHeight * (frame - row_index));
+							centerListAroundLine(frame);
+							break;
+						}
+					}
+				}
+			}
+		}
+		else if (column_index == COLUMN_FRAMENUM || column_index == COLUMN_FRAMENUM2)
+		{
+			// cross gaps in Markers
+			if (zDelta < 0)
+			{
+				// search down
+				int last_frame = currMovieData.getNumRecords() - 1;
+				if (row_index < last_frame)
+				{
+					int frame = row_index + 1;
+					bool result_of_closest_frame = (markersManager->getMarkerAtFrame(frame) != 0);
+					while ((++frame) <= last_frame)
+					{
+						if ((markersManager->getMarkerAtFrame(frame) != 0) != result_of_closest_frame)
+						{
+							// found different result, so we crossed the gap
+							//ListView_Scroll(hwndList, 0, listRowHeight * (frame - row_index));
+							centerListAroundLine(frame);
+							break;
+						}
+					}
+				}
+			}
+			else
+			{
+				// search up
+				int first_frame = 0;
+				if (row_index > first_frame)
+				{
+					int frame = row_index - 1;
+					bool result_of_closest_frame = (markersManager->getMarkerAtFrame(frame) != 0);
+					while ((--frame) >= first_frame)
+					{
+						if ((markersManager->getMarkerAtFrame(frame) != 0) != result_of_closest_frame)
+						{
+							// found different result, so we crossed the gap
+							//ListView_Scroll(hwndList, 0, listRowHeight * (frame - row_index));
+							centerListAroundLine(frame);
+							break;
+						}
+					}
+				}
+			}
+		}
+		else
+		{
+			// cross gaps in Input
+			int joy = (column_index - COLUMN_JOYPAD1_A) / NUM_JOYPAD_BUTTONS;
+			int button = (column_index - COLUMN_JOYPAD1_A) % NUM_JOYPAD_BUTTONS;
+			if (zDelta < 0)
+			{
+				// search down
+				int last_frame = currMovieData.getNumRecords() - 1;
+				if (row_index < last_frame)
+				{
+					int frame = row_index + 1;
+					bool result_of_closest_frame = currMovieData.records[frame].checkBit(joy, button);
+					while ((++frame) <= last_frame)
+					{
+						if (currMovieData.records[frame].checkBit(joy, button) != result_of_closest_frame)
+						{
+							// found different result, so we crossed the gap
+							//ListView_Scroll(hwndList, 0, listRowHeight * (frame - row_index));
+							centerListAroundLine(frame);
+							break;
+						}
+					}
+				}
+			}
+			else
+			{
+				// search up
+				int first_frame = 0;
+				if (row_index > first_frame)
+				{
+					int frame = row_index - 1;
+					bool result_of_closest_frame = currMovieData.records[frame].checkBit(joy, button);
+					while ((--frame) >= first_frame)
+					{
+						if (currMovieData.records[frame].checkBit(joy, button) != result_of_closest_frame)
+						{
+							// found different result, so we crossed the gap
+							//ListView_Scroll(hwndList, 0, listRowHeight * (frame - row_index));
+							centerListAroundLine(frame);
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
 }
 //----------------------------------------------------------------------------
 void QPianoRoll::updateDrag(void)
@@ -4909,5 +5714,216 @@ int bookmarkPreviewPopup::loadImage(int index)
 		ret = -1;
 	}
 	return ret;
+}
+//----------------------------------------------------------------------------
+//---- TAS Find Note Window
+//----------------------------------------------------------------------------
+TasFindNoteWindow::TasFindNoteWindow( QWidget *parent )
+	: QDialog( parent, Qt::Window )
+{
+	QSettings  settings;
+	QVBoxLayout *mainLayout, *vbox;
+	QHBoxLayout *hbox, *hbox1;
+	QGroupBox   *gbox;
+
+	setWindowTitle( tr("Find Note") );
+
+	mainLayout = new QVBoxLayout();
+	hbox1      = new QHBoxLayout();
+	hbox       = new QHBoxLayout();
+	vbox       = new QVBoxLayout();
+
+	setLayout( mainLayout );
+
+	searchPattern = new QLineEdit();
+	matchCase     = new QCheckBox( tr("Match Case") );
+	up            = new QRadioButton( tr("Up") );
+	down          = new QRadioButton( tr("Down") );
+	nextBtn       = new QPushButton( tr("Next") );
+	closeBtn      = new QPushButton( tr("Close") );
+	gbox          = new QGroupBox( tr("Direction") );
+
+	mainLayout->addWidget( searchPattern );
+	mainLayout->addLayout( hbox1 );
+
+	hbox1->addWidget( matchCase );
+	hbox1->addWidget( gbox );
+	hbox1->addLayout( vbox );
+
+	gbox->setLayout( hbox );
+
+	hbox->addWidget( up );
+	hbox->addWidget( down );
+
+	vbox->addWidget( nextBtn );
+	vbox->addWidget( closeBtn );
+
+	findWin = this;
+
+	nextBtn->setDefault(true);
+
+	matchCase->setChecked( taseditorConfig->findnoteMatchCase );
+	up->setChecked( taseditorConfig->findnoteSearchUp );
+	down->setChecked( !taseditorConfig->findnoteSearchUp );
+
+	searchPattern->setText( QString(markersManager->findNoteString) );
+
+	nextBtn->setEnabled( searchPattern->text().size() > 0 );
+
+	connect( matchCase, SIGNAL(clicked(bool)), this, SLOT(matchCaseChanged(bool)) );
+	connect( up       , SIGNAL(clicked(void)), this, SLOT(upDirectionSelected(void)) );
+	connect( down     , SIGNAL(clicked(void)), this, SLOT(downDirectionSelected(void)) );
+	connect( closeBtn , SIGNAL(clicked(void)), this, SLOT(closeWindow(void)) );
+	connect( nextBtn  , SIGNAL(clicked(void)), this, SLOT(findNextClicked(void)) );
+
+	connect( searchPattern, SIGNAL(textChanged(const QString &)), this, SLOT(searchPatternChanged(const QString &)) );
+
+	// Restore Window Geometry
+	restoreGeometry(settings.value("tasEditorFindDialog/geometry").toByteArray());
+}
+//----------------------------------------------------------------------------
+TasFindNoteWindow::~TasFindNoteWindow(void)
+{
+	QSettings  settings;
+
+	if ( findWin == this )
+	{
+		findWin = NULL;
+	}
+
+	// Save Window Geometry
+	settings.setValue("tasEditorFindDialog/geometry", saveGeometry());
+}
+//----------------------------------------------------------------------------
+void TasFindNoteWindow::closeEvent(QCloseEvent *event)
+{
+	done(0);
+	deleteLater();
+	event->accept();
+}
+//----------------------------------------------------------------------------
+void TasFindNoteWindow::closeWindow(void)
+{
+	done(0);
+	deleteLater();
+}
+//----------------------------------------------------------------------------
+void TasFindNoteWindow::matchCaseChanged(bool val)
+{
+	taseditorConfig->findnoteMatchCase = val;
+}
+//----------------------------------------------------------------------------
+void TasFindNoteWindow::upDirectionSelected(void)
+{
+	taseditorConfig->findnoteSearchUp = true;
+}
+//----------------------------------------------------------------------------
+void TasFindNoteWindow::downDirectionSelected(void)
+{
+	taseditorConfig->findnoteSearchUp = false;
+}
+//----------------------------------------------------------------------------
+void TasFindNoteWindow::searchPatternChanged(const QString &s)
+{
+	nextBtn->setEnabled( s.size() > 0 );
+}
+//----------------------------------------------------------------------------
+void TasFindNoteWindow::findNextClicked(void)
+{
+
+	if ( searchPattern->text().size() == 0 )
+	{
+		return;
+	}
+	strncpy( markersManager->findNoteString, searchPattern->text().toStdString().c_str(), MAX_NOTE_LEN );
+
+	// scan frames from current Selection to the border
+	int cur_marker = 0;
+	bool result;
+	int movie_size = currMovieData.getNumRecords();
+	int current_frame = selection->getCurrentRowsSelectionBeginning();
+	if ( (current_frame < 0) && taseditorConfig->findnoteSearchUp)
+	{
+		current_frame = movie_size;
+	}
+	while (true)
+	{
+		// move forward
+		if (taseditorConfig->findnoteSearchUp)
+		{
+			current_frame--;
+			if (current_frame < 0)
+			{
+				QMessageBox::information( this, tr("Find Note"), tr("Nothing was found!") );
+				printf("Nothing was found\n");
+				//MessageBox(taseditorWindow.hwndFindNote, "Nothing was found.", "Find Note", MB_OK);
+				break;
+			}
+		}
+		else
+		{
+			current_frame++;
+			if (current_frame >= movie_size)
+			{
+				QMessageBox::information( this, tr("Find Note"), tr("Nothing was found!") );
+				printf("Nothing was found\n");
+				//MessageBox(taseditorWindow.hwndFindNote, "Nothing was found!", "Find Note", MB_OK);
+				break;
+			}
+		}
+		// scan marked frames
+		cur_marker = markersManager->getMarkerAtFrame(current_frame);
+		if (cur_marker)
+		{
+			QString haystack, needle;
+
+			needle   = QString(markersManager->findNoteString);
+			haystack = QString::fromStdString(markersManager->getNoteCopy(cur_marker));
+
+			if (taseditorConfig->findnoteMatchCase)
+			{
+				result = haystack.indexOf( needle, 0, Qt::CaseSensitive ) >= 0;
+				//result = (strstr(markersManager->getNoteCopy(cur_marker).c_str(), markersManager->findNoteString) != 0);
+			}
+			else
+			{
+				result = haystack.indexOf( needle, 0, Qt::CaseInsensitive ) >= 0;
+//#ifdef WIN32
+//				result = (StrStrI(markersManager->getNoteCopy(cur_marker).c_str(), markersManager->findNoteString) != 0);
+//#else
+//				result = (strcasestr(markersManager->getNoteCopy(cur_marker).c_str(), markersManager->findNoteString) != 0);
+//#endif
+			}
+			if (result)
+			{
+				// found note containing searched string - jump there
+				selection->jumpToFrame(current_frame);
+				break;
+			}
+		}
+	}
+}
+//----------------------------------------------------------------------------
+//---- TAS Recent Project Menu Action
+//----------------------------------------------------------------------------
+TasRecentProjectAction::TasRecentProjectAction(QString desc, QWidget *parent)
+	: QAction( desc, parent )
+{
+	path = desc.toStdString();
+}
+//----------------------------------------------------------------------------
+TasRecentProjectAction::~TasRecentProjectAction(void)
+{
+	//printf("Recent TAS Project Menu Action Deleted\n");
+}
+//----------------------------------------------------------------------------
+void TasRecentProjectAction::activateCB(void)
+{
+	//printf("Activate Recent TAS Project: %s \n", path.c_str() );
+
+	if ( tasWin )
+	{
+		tasWin->loadProject( path.c_str() );
+	}
 }
 //----------------------------------------------------------------------------
