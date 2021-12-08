@@ -95,6 +95,24 @@ int pal_emulation;
 int dendy;
 bool swapDuty;
 
+// Taken from mame084s, so credits to mame dev team
+// frameskip table
+static const int frameskip_table[12][12] =
+{
+	{ 0,0,0,0,0,0,0,0,0,0,0,0 },
+	{ 0,0,0,0,0,0,0,0,0,0,0,1 },
+	{ 0,0,0,0,0,1,0,0,0,0,0,1 },
+	{ 0,0,0,1,0,0,0,1,0,0,0,1 },
+	{ 0,0,1,0,0,1,0,0,1,0,0,1 },
+	{ 0,1,0,0,1,0,1,0,0,1,0,1 },
+	{ 0,1,0,1,0,1,0,1,0,1,0,1 },
+	{ 0,1,0,1,1,0,1,0,1,1,0,1 },
+	{ 0,1,1,0,1,1,0,1,1,0,1,1 },
+	{ 0,1,1,1,0,1,1,1,0,1,1,1 },
+	{ 0,1,1,1,1,1,0,1,1,1,1,1 },
+	{ 0,1,1,1,1,1,1,1,1,1,1,1 }
+};
+
 // originally in src/drivers/common/vidblit.cpp
 bool   paldeemphswap   = 0;
 
@@ -295,33 +313,60 @@ void DoFun(int frameskip, int periodic_saves)
 	int32 *sound;
 	int32 ssize;
 	static int fskipc = 0;
-	static int opause = 0;
+	static int frameskip_counter = 0;
 
-	// loop playing the game
-	while(GameInfo)
-	{
-	    //TODO peroidic saves, working on it right now
-	    if (periodic_saves && FCEUD_GetTime() % PERIODIC_SAVE_INTERVAL < 30){
+	//TODO peroidic saves, working on it right now
+	if (periodic_saves && FCEUD_GetTime() % PERIODIC_SAVE_INTERVAL < 30){
 		FCEUI_SaveState(NULL, false);
-	    }
-    #ifdef FRAMESKIP
-	    fskipc = (fskipc + 1) % (frameskip + 1);
-    #endif
-
-	    if(NoWaiting) {
-		    gfx = 0;
-	    }
-	    FCEUI_Emulate(&gfx, &sound, &ssize, fskipc);
-	    FCEUD_Update(gfx, sound, ssize);
-
-	    //if(opause!=FCEUI_EmulationPaused()) {
-	    //      opause=FCEUI_EmulationPaused();
-	    //      SilenceSound(opause);
-	    //}
-	    
-	    if (fpsthrottle)
-		while ( SpeedThrottle() ) { }
 	}
+#ifdef FRAMESKIP
+	/* Frameskip decision based on the audio buffer */
+	if (frameskip == -1) {
+	    // Fill up the audio buffer with up to 6 frames dropped.
+	    int FramesSkipped = 0;
+	    while (GameInfo
+		&& GetBufferedSound() < GetBufferSize() * 3 / 2
+		&& ++FramesSkipped < 6) {
+		    FCEUI_Emulate(&gfx, &sound, &ssize, 1);
+		    FCEUD_Update(NULL, sound, ssize);
+	    }
+
+	    // Force at least one frame to be displayed.
+	    if (GameInfo) {
+		    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
+		    FCEUD_Update(gfx, sound, ssize);
+	    }
+
+	    // Then render all frames while audio is sufficient.
+	    while (GameInfo
+		&& GetBufferedSound() > GetBufferSize() * 3 / 2) {
+		    FCEUI_Emulate(&gfx, &sound, &ssize, 0);
+		    FCEUD_Update(gfx, sound, ssize);
+	    }
+	}
+	else
+	{
+	//fskipc = (fskipc + 1) % (frameskip + 1);
+	frameskip_counter = (frameskip_counter + 1) % 12;
+	fskipc = frameskip_table[frameskip][frameskip_counter];
+#endif
+
+	if(NoWaiting) {
+	    gfx = 0;
+	}
+	FCEUI_Emulate(&gfx, &sound, &ssize, fskipc);
+	FCEUD_Update(gfx, sound, ssize);
+
+	//if(opause!=FCEUI_EmulationPaused()) {
+	//      opause=FCEUI_EmulationPaused();
+	//      SilenceSound(opause);
+	//}
+
+	if (fpsthrottle)
+		while ( SpeedThrottle() ) { }
+#ifdef FRAMESKIP
+	}
+#endif
 }
 
 /**
@@ -879,7 +924,11 @@ int main(int argc, char *argv[]) {
 
 	g_config->getOption("SDL.Frameskip", &frameskip);
 
-	DoFun(frameskip,periodic_saves);
+	// loop playing the game
+	while(GameInfo)
+	{
+		DoFun(frameskip,periodic_saves);
+	}
 
 	printf("Closing Game...\n");
 	CloseGame();
@@ -905,6 +954,7 @@ uint64 FCEUD_GetTime() {
  */
 uint64 FCEUD_GetTimeFreq(void)
 {
+	// SDL_GetTicks() is in milliseconds
 	return 1000;
 }
 

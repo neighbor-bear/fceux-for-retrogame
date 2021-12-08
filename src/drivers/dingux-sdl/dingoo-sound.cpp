@@ -58,6 +58,8 @@ extern int EmulationPaused;
 extern double frmRateAdjRatio;
 extern double g_fpsScale;
 
+static Uint16 s_samples = 0;	
+
 /**
  * Callback from the SDL to get and play audio data.
  */
@@ -159,7 +161,7 @@ fillaudio(void *udata,
 				sample = s_Buffer[s_BufferRead];
 				s_BufferRead = (s_BufferRead + 1) % s_BufferSize;
 				s_BufferIn--;
-			//} else {
+			} else {
         	 		// Retain last known sample value, helps avoid clicking
         	 		// noise when sound system is starved of audio data.
 				//sample = 0; 
@@ -228,6 +230,7 @@ int InitSound()
     spec.samples = (int)( ( (double)s_SampleRate / getBaseFrameRate() ) );
 #ifdef RETROFW
     spec.samples = pow( 2.0, ceil( log2( spec.samples ) ) );
+    s_samples = spec.samples;
 #endif
     spec.callback = fillaudio;
     spec.userdata = 0;
@@ -303,6 +306,20 @@ uint32
 GetWriteSound(void)
 {
 	return(s_BufferSize - s_BufferIn);
+}
+
+/**
+ * Returns the size of the audio buffer used by one SDL callback.
+ */
+uint32 GetBufferSize(void) {
+    return s_samples;
+}
+
+/**
+ * Returns the amount of used space in the audio buffer.
+ */
+uint32 GetBufferedSound(void) {
+    return s_BufferIn;
 }
 
 /**
