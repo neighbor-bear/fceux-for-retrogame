@@ -176,7 +176,7 @@ int InitVideo(FCEUGI *gi) {
 				break;
 			// 8:7
 			case 1:
-				w = PAL ? 352 : 280;
+				w = 280;
 				h = 240;
 				break;
 			// 4:3
