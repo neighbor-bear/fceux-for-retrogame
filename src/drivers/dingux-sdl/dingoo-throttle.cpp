@@ -281,6 +281,7 @@ int SpeedThrottle()
 	double frame_time = desired_frametime;
 	double halfFrame = 0.500 * frame_time;
 	double quarterFrame = 0.250 * frame_time;
+	static double const max_wait = 0.05; //20Hz
     
 	idleStart = cur_time = getHighPrecTimeStamp();
 
@@ -306,9 +307,9 @@ int SpeedThrottle()
 		time_left = Nexttime - cur_time;
 	}
     
-	if (time_left > 50)
+	if (time_left > max_wait)
 	{
-		time_left = 50;
+		time_left = max_wait;
 		/* In order to keep input responsive, don't wait too long at once */
 		/* 50 ms wait gives us a 20 Hz responsetime which is nice. */
 	}
