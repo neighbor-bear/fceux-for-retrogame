@@ -66,6 +66,18 @@ static void newppu_update(unsigned long key)
 	g_config->setOption("SDL.NewPPU", val);
 }
 
+// Triple buffer
+static void triplebuffering_update(unsigned long key)
+{
+	int val, tmp;
+	g_config->getOption("SDL.TripleBuffering", &tmp);
+
+	if (key == DINGOO_RIGHT) val = 1;
+	if (key == DINGOO_LEFT) val = 0;
+
+	g_config->setOption("SDL.TripleBuffering", val);
+}
+
 // NTSC TV's colors
 static void ntsc_update(unsigned long key)
 {
@@ -167,6 +179,7 @@ static SettingEntry vd_menu[] =
 	{"Video scaling", "Select video scale mode", "SDL.Fullscreen", fullscreen_update},
 	{"HW PAR", "Hardware scaling Pixel AR", "SDL.AspectSelect", aspectselect_update},
 	{"Clip sides", "Clips left and right columns", "SDL.ClipSides", clip_update},
+	{"Triple buffer", "Triple buffer", "SDL.TripleBuffering", triplebuffering_update},
 	{"New PPU", "New PPU emulation engine", "SDL.NewPPU", newppu_update},
 	{"NTSC Palette", "Emulate NTSC TV's colors", "SDL.NTSCpalette", ntsc_update},
 	{"Tint", "Sets tint for NTSC color", "SDL.Tint", tint_update},
@@ -272,6 +285,7 @@ int RunVideoSettings()
 				}
 				else if (!strncmp(vd_menu[i].name, "Clip sides", 10) \
 					|| !strncmp(vd_menu[i].name, "New PPU", 7)   \
+					|| !strncmp(vd_menu[i].name, "Triple buffer", 13)   \
 					|| !strncmp(vd_menu[i].name, "NTSC Palette", 12)
 					|| !strncmp(vd_menu[i].name, "Integer Frame", 13)) {
 					sprintf(tmp, "%s", itmp ? "on" : "off");

@@ -162,6 +162,7 @@ Config * InitConfig() {
 	config->addOption('f', "fullscreen", "SDL.Fullscreen", 0);
 	config->addOption('b', "bpp", "SDL.BitsPerPixel", 8);
 	config->addOption("doublebuf", "SDL.DoubleBuffering", 0);
+	config->addOption("triplebuf", "SDL.TripleBuffering", 1);
 	config->addOption("autoscale", "SDL.AutoScale", 1);
 	config->addOption("forceAspect", "SDL.ForceAspect", 0);
 	config->addOption("aspectSelect", "SDL.AspectSelect", 2); // Standard (4:3)

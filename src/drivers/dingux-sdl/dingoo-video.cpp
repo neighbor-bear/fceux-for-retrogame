@@ -135,11 +135,14 @@ void FCEUD_VideoChanged() {
  * success, -1 on failure.
  */
 int InitVideo(FCEUGI *gi) {
+	int triplebuf;	
+
 	FCEUI_printf("Initializing video...\n");
 
 	// load the relevant configuration variables
 	g_config->getOption("SDL.Fullscreen", &s_fullscreen);
 	g_config->getOption("SDL.ClipSides", &s_clipSides);
+	g_config->getOption("SDL.TripleBuffering", &triplebuf);
 
 	// check the starting, ending, and total scan lines
 	FCEUI_GetCurrentVidSystem(&s_srendline, &s_erendline);
@@ -203,7 +206,7 @@ int InitVideo(FCEUGI *gi) {
 			w = 320; h = 240;
 		}
 		// OpenDingux - SDL_VideoModeOK seems not to work in the new beta
-		if (NoWaiting || g_fpsScale > 1.0)
+		if (NoWaiting || g_fpsScale > 1.0  || !triplebuf)
 			screen = SDL_SetVideoMode(w, h, 16, SDL_HWSURFACE);
 		else
 			screen = SDL_SetVideoMode(w, h, 16, SDL_HWSURFACE | DINGOO_MULTIBUF);
@@ -232,7 +235,7 @@ int InitVideo(FCEUGI *gi) {
 }
 
 void InitGuiVideo() {
-	if (screen->w == 320 && screen->h == 240) return;
+	if (screen->w == 320 && screen->h == 240 && screen->flags & DINGOO_MULTIBUF) return;
 	// OpenDingux - SDL_VideoModeOK seems not to work in the new beta
 	screen = SDL_SetVideoMode(320, 240, 16, SDL_HWSURFACE | DINGOO_MULTIBUF);
 }
