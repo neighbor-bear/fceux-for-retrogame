@@ -114,6 +114,7 @@ L1 + A				|Toggle throttling
 L1 + B 				|Clip top/bottom (8 pixels each)
 L1 + X				|Change Pixel Aspect Ratio
 L1 + Y				|Clip sides (8 pixels each side)
+L1 + UP				|Toggle de-emphasis bit swap
 
 #### Controls in menus
 
@@ -195,7 +196,7 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
-#### 8 December 2021
+#### 12 February 2022
   - Updated to upstream 2.5.0
   - Change video mode to 320x240 when access cheats with hotkey
   - Added Pixel Aspect Ratio for hardware scaling (1:1, 8:7, 4:3).
@@ -214,6 +215,11 @@ Build files are created in the `bin`directory.
     - FPS throttle 'On' now uses nanosleep to sync the game to the intended framerate.
     - The Frameskip levels (0-11) are done via a framekip table, the upstream FCEUX frameskipping is very aggresive. The frameskip table is borrowed from mame084 source so the thanks goes to MAME dev team.
     - Sound Buffer size is defaulted to 128 ms. Previous builds have 30 ms as default value.
+  - Rearrange config menu:
+    - Add Palette settings submenu.
+    - Move custom palette and NTSC Palette control to Palette settings menu.
+    - Add Force Grayscale and De-emphasis Bit Swap options to Palette menu.
+    - Add hotkey L1 + UP to toggle de-emphasis bit swap.
 
 #### 25 September 2021
   - Merged [asoderq/sydarn2 overclocking work](https://github.com/asoderq/fceux-for-retrogame/releases/tag/2021-09-11). As upstream it only works with Old PPU.
