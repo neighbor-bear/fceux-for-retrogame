@@ -1,14 +1,22 @@
+#include "../utilities.h"
+
 // Externals
 extern Config *g_config;
 
 // Custom palette
 static void custom_update(unsigned long key) {
+	char exePath[512];
 	const char *types[] = { ".pal", NULL };
 	char palname[128] = "";
+	
+	if (key != DINGOO_LEFT) {;
+		fceuExecutablePath(exePath, sizeof(exePath));
+		strncat(exePath, "/palettes", 9);
 
-	if (!RunFileBrowser(NULL, palname, types, "Choose nes palette (.pal)") || palname[0] == '\0')
-	{
-	    return;
+		if (!RunFileBrowser(exePath, palname, types, "Choose nes palette (.pal)") || palname[0] == '\0')
+		{
+			return;
+		}
 	}
 
 	std::string cpalette = std::string(palname);
