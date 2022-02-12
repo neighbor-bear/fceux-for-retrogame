@@ -28,40 +28,30 @@ Selection - Manager of selections
 #include "Qt/TasEditor/taseditor_project.h"
 #include "Qt/TasEditor/TasEditorWindow.h"
 
-//extern TASEDITOR_CONFIG taseditorConfig;
-//extern TASEDITOR_WINDOW taseditorWindow;
-//extern MARKERS_MANAGER markersManager;
-//extern PIANO_ROLL pianoRoll;
-//extern SPLICER splicer;
-//extern EDITOR editor;
-//extern GREENZONE greenzone;
-
 extern int joysticksPerFrame[INPUT_TYPES_TOTAL];
 
-//LRESULT APIENTRY LowerMarkerEditWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-//WNDPROC selectionMarkerEdit_oldWndproc;
-
 // resources
-char selection_save_id[SELECTION_ID_LEN] = "SELECTION";
-char selection_skipsave_id[SELECTION_ID_LEN] = "SELECTIOX";
-char lowerMarkerText[] = "Marker ";
+static char selection_save_id[SELECTION_ID_LEN] = "SELECTION";
+static char selection_skipsave_id[SELECTION_ID_LEN] = "SELECTIOX";
+static char lowerMarkerText[] = "Marker ";
 
 SELECTION::SELECTION()
 {
+	trackSelectionChanges = true;
+	lastSelectionBeginning = -1;
+
+	previousMarkerButtonState = previousMarkerButtonOldState = false;
+	nextMarkerButtonState = nextMarkerButtonOldState = false;
+	buttonHoldTimer = 0;
+
+	historyCursorPos = -1;
+	historyStartPos = 0;
+	historySize = 1;
+	historyTotalItems = 0;
 }
 
 void SELECTION::init()
 {
-	//hwndPreviousMarkerButton = GetDlgItem(taseditorWindow.hwndTASEditor, TASEDITOR_PREV_MARKER);
-	//hwndNextMarkerButton = GetDlgItem(taseditorWindow.hwndTASEditor, TASEDITOR_NEXT_MARKER);
-	//hwndSelectionMarkerNumber = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_SELECTION_MARKER);
-	//SendMessage(hwndSelectionMarkerNumber, WM_SETFONT, (WPARAM)pianoRoll.hMarkersFont, 0);
-	//hwndSelectionMarkerEditField = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_SELECTION_MARKER_EDIT);
-	//SendMessage(hwndSelectionMarkerEditField, EM_SETLIMITTEXT, MAX_NOTE_LEN - 1, 0);
-	//SendMessage(hwndSelectionMarkerEditField, WM_SETFONT, (WPARAM)pianoRoll.hMarkersEditFont, 0);
-	// subclass the edit control
-	//selectionMarkerEdit_oldWndproc = (WNDPROC)SetWindowLongPtr(hwndSelectionMarkerEditField, GWLP_WNDPROC, (LONG_PTR)LowerMarkerEditWndProc);
-
 	reset();
 }
 void SELECTION::free()
@@ -103,9 +93,9 @@ void SELECTION::update()
 	{
 		if (!previousMarkerButtonOldState)
 		{
-			buttonHoldTimer = clock();
+			buttonHoldTimer = getTasEditorTime();
 			jumpToPreviousMarker();
-		} else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < clock())
+		} else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < getTasEditorTime())
 		{
 			jumpToPreviousMarker();
 		}
@@ -116,10 +106,10 @@ void SELECTION::update()
 	{
 		if (!nextMarkerButtonOldState)
 		{
-			buttonHoldTimer = clock();
+			buttonHoldTimer = getTasEditorTime();
 			jumpToNextMarker();
 		}
-		else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < clock())
+		else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < getTasEditorTime())
 		{
 			jumpToNextMarker();
 		}
@@ -273,6 +263,11 @@ void SELECTION::save(EMUFILE *os, bool really_save)
 {
 	if (really_save)
 	{
+		int last_tick = -1;
+
+		setTasProjectProgressBarText("Saving Selection...");
+		setTasProjectProgressBar( 0, historyTotalItems );
+
 		// write "SELECTION" string
 		os->fwrite(selection_save_id, SELECTION_ID_LEN);
 		// write vars
@@ -282,10 +277,20 @@ void SELECTION::save(EMUFILE *os, bool really_save)
 		for (int i = 0; i < historyTotalItems; ++i)
 		{
 			saveSelection(rowsSelectionHistory[(historyStartPos + i) % historySize], os);
+
+			if (i / SAVING_HISTORY_PROGRESSBAR_UPDATE_RATE > last_tick)
+			{
+				setTasProjectProgressBar( i, historyTotalItems );
+				playback->setProgressbar(i, historyTotalItems);
+				last_tick = i / PROGRESSBAR_UPDATE_RATE;
+			}
 		}
 		// write clipboard_selection
 		saveSelection(splicer->getClipboardSelection(), os);
-	} else
+
+		setTasProjectProgressBar( historyTotalItems, historyTotalItems );
+	}
+	else
 	{
 		// write "SELECTIOX" string
 		os->fwrite(selection_skipsave_id, SELECTION_ID_LEN);
@@ -396,7 +401,7 @@ bool SELECTION::skipLoadSelection(EMUFILE *is)
 void SELECTION::noteThatItemRangeChanged(int startItem, int endItem, int newValue )
 {
 	bool ON =   newValue;
-	bool OFF = !newValue;
+	//bool OFF = !newValue;
 
 	if (ON)
 	{
@@ -856,83 +861,6 @@ RowsSelection& SELECTION::getCurrentRowsSelection()
 {
 	return rowsSelectionHistory[(historyStartPos + historyCursorPos) % historySize];
 }
-// -------------------------------------------------------------------------
-//LRESULT APIENTRY LowerMarkerEditWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-//{
-//	extern PLAYBACK playback;
-//	extern SELECTION selection;
-//	switch(msg)
-//	{
-//		case WM_SETFOCUS:
-//		{
-//			markersManager.markerNoteEditMode = MARKER_NOTE_EDIT_LOWER;
-//			// enable editing
-//			SendMessage(selection.hwndSelectionMarkerEditField, EM_SETREADONLY, false, 0); 
-//			// disable FCEUX keyboard
-//			disableGeneralKeyboardInput();
-//			break;
-//		}
-//		case WM_KILLFOCUS:
-//		{
-//			if (markersManager.markerNoteEditMode == MARKER_NOTE_EDIT_LOWER)
-//			{
-//				markersManager.updateEditedMarkerNote();
-//				markersManager.markerNoteEditMode = MARKER_NOTE_EDIT_NONE;
-//			}
-//			// disable editing (make the bg grayed)
-//			SendMessage(selection.hwndSelectionMarkerEditField, EM_SETREADONLY, true, 0); 
-//			// enable FCEUX keyboard
-//			if (taseditorWindow.TASEditorIsInFocus)
-//				enableGeneralKeyboardInput();
-//			break;
-//		}
-//		case WM_CHAR:
-//		case WM_KEYDOWN:
-//		{
-//			if (markersManager.markerNoteEditMode == MARKER_NOTE_EDIT_LOWER)
-//			{
-//				switch(wParam)
-//				{
-//					case VK_ESCAPE:
-//						// revert text to original note text
-//						//SetWindowText(selection.hwndSelectionMarkerEditField, markersManager.getNoteCopy(selection.displayedMarkerNumber).c_str());
-//						//SetFocus(pianoRoll.hwndList);
-//						return 0;
-//					case VK_RETURN:
-//						// exit and save text changes
-//						//SetFocus(pianoRoll.hwndList);
-//						return 0;
-//					case VK_TAB:
-//					{
-//						// switch to upper edit control (also exit and save text changes)
-//						//SetFocus(playback.hwndPlaybackMarkerEditField);
-//						// scroll to the Marker
-//						//if (taseditorConfig.followMarkerNoteContext)
-//						//	pianoRoll.followMarker(playback.displayedMarkerNumber);
-//						return 0;
-//					}
-//				}
-//			}
-//			break;
-//		}
-//		case WM_MBUTTONDOWN:
-//		case WM_MBUTTONDBLCLK:
-//		{
-//			playback.handleMiddleButtonClick();
-//			return 0;
-//		}
-//		case WM_LBUTTONDOWN:
-//		case WM_RBUTTONDOWN:
-//		{
-//			// scroll to the Marker
-//			if (taseditorConfig.followMarkerNoteContext)
-//				pianoRoll.followMarker(selection.displayedMarkerNumber);
-//			break;
-//		}
-//	}
-//	return CallWindowProc(selectionMarkerEdit_oldWndproc, hWnd, msg, wParam, lParam);
-//}
-
 // -------------------------------------------------------------------------
 LowerMarkerNoteEdit::LowerMarkerNoteEdit( QWidget *parent )
 	: QLineEdit(parent)

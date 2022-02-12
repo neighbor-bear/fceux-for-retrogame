@@ -466,7 +466,7 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 
 	FCEU_CloseGame();
 	GameInfo = new FCEUGI();
-	memset(GameInfo, 0, sizeof(FCEUGI));
+	memset( (void*)GameInfo, 0, sizeof(FCEUGI));
 
 	GameInfo->filename = strdup(fp->filename.c_str());
 	if (fp->archiveFilename != "")
@@ -537,16 +537,16 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 
 		if (!lastpal && PAL) {
 			FCEU_DispMessage("PAL mode set", 0);
-			FCEUI_printf("PAL mode set");
+			FCEUI_printf("PAL mode set\n");
 		}
 		else if (!lastdendy && dendy) {
 			// this won't happen, since we don't autodetect dendy, but maybe someday we will?
 			FCEU_DispMessage("Dendy mode set", 0);
-			FCEUI_printf("Dendy mode set");
+			FCEUI_printf("Dendy mode set\n");
 		}
 		else if ((lastpal || lastdendy) && !(PAL || dendy)) {
 			FCEU_DispMessage("NTSC mode set", 0);
-			FCEUI_printf("NTSC mode set");
+			FCEUI_printf("NTSC mode set\n");
 		}
 
 		if (GameInfo->type != GIT_NSF && !disableAutoLSCheats)
@@ -1157,7 +1157,7 @@ void FCEUI_SetRegion(int region, int notify)
 			if (notify)
 			{
 				FCEU_DispMessage("NTSC mode set", 0);
-				FCEUI_printf("NTSC mode set");
+				FCEUI_printf("NTSC mode set\n");
 			}
 			break;
 		case 1: // PAL
@@ -1168,7 +1168,7 @@ void FCEUI_SetRegion(int region, int notify)
 			if (notify)
 			{
 				FCEU_DispMessage("PAL mode set", 0);
-				FCEUI_printf("PAL mode set");
+				FCEUI_printf("PAL mode set\n");
 			}
 			break;
 		case 2: // Dendy
@@ -1179,7 +1179,7 @@ void FCEUI_SetRegion(int region, int notify)
 			if (notify)
 			{
 				FCEU_DispMessage("Dendy mode set", 0);
-				FCEUI_printf("Dendy mode set");
+				FCEUI_printf("Dendy mode set\n");
 			}
 			break;
 	}
@@ -1347,6 +1347,10 @@ bool FCEU_IsValidUI(EFCEUI ui) {
 	case FCEUI_INPUT_BARCODE:
 		if (!GameInfo) return false;
 		if (!FCEUMOV_Mode(MOVIEMODE_INACTIVE)) return false;
+		break;
+	default:
+		// Unhandled falls out to end of function
+		break;
 	}
 
 	return true;
@@ -1408,10 +1412,16 @@ virtual void Power() {
 }
 };
 
-void FCEUXGameInterface(GI command) {
-	switch (command) {
-	case GI_POWER:
-		cart->Power();
+void FCEUXGameInterface(GI command)
+{
+	switch (command)
+	{
+		case GI_POWER:
+			cart->Power();
+		break;
+		default:
+			// Unhandled cases
+		break;
 	}
 }
 

@@ -27,6 +27,7 @@
 #include <zlib.h>
 
 #include <QDir>
+#include <QDrag>
 #include <QString>
 #include <QPainter>
 #include <QSettings>
@@ -35,8 +36,10 @@
 #include <QMessageBox>
 #include <QFontMetrics>
 #include <QFileDialog>
+#include <QFontDialog>
 #include <QInputDialog>
 #include <QStandardPaths>
+#include <QActionGroup>
 #include <QApplication>
 #include <QGuiApplication>
 #include <QDesktopServices>
@@ -50,6 +53,7 @@
 #include "Qt/keyscan.h"
 #include "Qt/throttle.h"
 #include "Qt/fceuWrapper.h"
+#include "Qt/ColorMenu.h"
 #include "Qt/ConsoleWindow.h"
 #include "Qt/ConsoleUtilities.h"
 #include "Qt/TasEditor/TasColors.h"
@@ -81,10 +85,11 @@ enum DRAG_MODES
 	DRAG_MODE_SELECTION,
 	DRAG_MODE_DESELECTION,
 };
-#define BOOKMARKS_WITH_BLUE_ARROW    0x00010000
-#define BOOKMARKS_WITH_GREEN_ARROW   0x00020000
-#define BLUE_ARROW_IMAGE_ID          0x00040000
-#define GREEN_ARROW_IMAGE_ID         0x00080000
+#define BOOKMARKS_WITH_NO_ARROW      0x00010000
+#define BOOKMARKS_WITH_BLUE_ARROW    0x00020000
+#define BOOKMARKS_WITH_GREEN_ARROW   0x00040000
+#define BLUE_ARROW_IMAGE_ID          0x00080000
+#define GREEN_ARROW_IMAGE_ID         0x00100000
 #define GREEN_BLUE_ARROW_IMAGE_ID   (BLUE_ARROW_IMAGE_ID | GREEN_ARROW_IMAGE_ID)
 
 #define MARKER_DRAG_COUNTDOWN_MAX 14
@@ -95,6 +100,7 @@ enum DRAG_MODES
 static char pianoRollSaveID[PIANO_ROLL_ID_LEN] = "PIANO_ROLL";
 static char pianoRollSkipSaveID[PIANO_ROLL_ID_LEN] = "PIANO_ROLX";
 static TasFindNoteWindow *findWin = NULL;
+static uint64_t tasEditorTimeStamp = 0;
 
 //----------------------------------------------------------------------------
 //----  Main TAS Editor Window
@@ -125,6 +131,11 @@ bool isTaseditorRecording(void)
 		return false;		// replay
 	}
 	return true;			// record
+}
+
+uint64_t getTasEditorTime(void)
+{
+	return tasEditorTimeStamp;
 }
 
 void recordInputByTaseditor(void)
@@ -179,6 +190,8 @@ TasEditorWindow::TasEditorWindow(QWidget *parent)
 	::branches        = &this->branches;
 	::splicer         = &this->splicer;
 
+	this->taseditorConfig.load();
+
 	clipboard = QGuiApplication::clipboard();
 
 	setWindowTitle("TAS Editor");
@@ -187,7 +200,7 @@ TasEditorWindow::TasEditorWindow(QWidget *parent)
 	resize(512, 512);
 
 	mainLayout = new QVBoxLayout();
-	mainHBox   = new QSplitter( Qt::Horizontal );
+	mainHBox   = new TasEditorSplitter();
 
 	initPatterns();
 	buildPianoRollDisplay();
@@ -196,6 +209,9 @@ TasEditorWindow::TasEditorWindow(QWidget *parent)
 	mainHBox->addWidget( pianoRollContainerWidget );
 	mainHBox->addWidget( controlPanelContainerWidget );
 	mainLayout->addWidget(mainHBox);
+
+	mainHBox->setStretchFactor( 0, 5 );
+	mainHBox->setStretchFactor( 1, 1 );
 
 	menuBar = buildMenuBar();
 
@@ -226,10 +242,11 @@ TasEditorWindow::~TasEditorWindow(void)
 
 	printf("Destroy Tas Editor Window\n");
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 	//if (!askToSaveProject()) return false;
 
 	// destroy window
+	taseditorConfig.save();
 	//taseditorWindow.exit();
 	//disableGeneralKeyboardInput();
 	// release memory
@@ -267,7 +284,9 @@ TasEditorWindow::~TasEditorWindow(void)
 	::branches        = NULL;
 	::splicer         = NULL;
 
-	fceuWrapperUnLock();
+	clearProjectList();
+
+	FCEU_WRAPPER_UNLOCK();
 
 	// Save Horizontal Panel State
 	settings.setValue("tasEditor/hPanelState", mainHBox->saveState());
@@ -282,8 +301,10 @@ void TasEditorWindow::closeEvent(QCloseEvent *event)
 
 	if (!askToSaveProject())
 	{
+	        event->ignore();
 		return;
 	}
+	project.reset();
 
 	done(0);
 	deleteLater();
@@ -296,9 +317,24 @@ void TasEditorWindow::closeWindow(void)
 	{
 		return;
 	}
-	//printf("Close Window\n");
+	project.reset();
+
+	printf("Tas Editor Close Window\n");
 	done(0);
 	deleteLater();
+}
+//----------------------------------------------------------------------------
+int TasEditorWindow::requestWindowClose(void)
+{
+	askToSaveProject();
+
+	project.reset();
+
+	printf("Tas Editor Close Window\n");
+	done(0);
+	deleteLater();
+
+	return 0;
 }
 //----------------------------------------------------------------------------
 QMenuBar *TasEditorWindow::buildMenuBar(void)
@@ -308,6 +344,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 		    *patternMenu;
 	QActionGroup *actGroup;
 	QAction     *act;
+	ColorMenuItem  *colorAct;
 	int useNativeMenuBar=0;
 
 	QMenuBar *menuBar = new QMenuBar(this);
@@ -644,6 +681,45 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 
 	viewMenu->addAction(act);
 
+	viewMenu->addSeparator();
+
+	// View -> Piano Roll Font
+	act = new QAction(tr("Piano Roll Font..."), this);
+	//act->setShortcut(QKeySequence(tr("Ctrl+F")));
+	act->setStatusTip(tr("Select Piano Roll Font"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
+	connect(act, SIGNAL(triggered(void)), this, SLOT(changePianoRollFontCB(void)) );
+
+	viewMenu->addAction(act);
+
+	// View -> Bookmarks Font
+	act = new QAction(tr("Bookmarks View Font..."), this);
+	//act->setShortcut(QKeySequence(tr("Ctrl+F")));
+	act->setStatusTip(tr("Select Bookmarks View Font"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
+	connect(act, SIGNAL(triggered(void)), this, SLOT(changeBookmarksFontCB(void)) );
+
+	viewMenu->addAction(act);
+
+	// View -> Branches Font
+	act = new QAction(tr("Branches View Font..."), this);
+	//act->setShortcut(QKeySequence(tr("Ctrl+F")));
+	act->setStatusTip(tr("Select Branches View Font"));
+	//act->setIcon( style()->standardIcon( QStyle::SP_FileDialogStart ) );
+	connect(act, SIGNAL(triggered(void)), this, SLOT(changeBranchesFontCB(void)) );
+
+	viewMenu->addAction(act);
+
+	viewMenu->addSeparator();
+
+	// View -> Piano Roll Grid Color
+	colorAct = new ColorMenuItem(tr("Piano Roll Grid Color..."), "SDL.TasPianoRollGridColor", this);
+	colorAct->setStatusTip(tr("Select Piano Roll Grid Color"));
+
+	colorAct->connectColor( &pianoRoll->gridColor );
+
+	viewMenu->addAction(colorAct);
+
 	// Config
 	confMenu = menuBar->addMenu(tr("&Config"));
 
@@ -904,27 +980,27 @@ void TasEditorWindow::buildPianoRollDisplay(void)
 	pianoRollFrame   = new QFrame();
 	grid             = new QGridLayout();
 	pianoRoll        = new QPianoRoll(this);
-	pianoRollVBar    = new QScrollBar( Qt::Vertical, this );
+	pianoRollVBar    = new PianoRollScrollBar( this );
 	pianoRollHBar    = new QScrollBar( Qt::Horizontal, this );
 	upperMarkerLabel = new QPushButton( tr("Marker 0") );
 	lowerMarkerLabel = new QPushButton( tr("Marker 0") );
 	upperMarkerNote  = new UpperMarkerNoteEdit();
 	lowerMarkerNote  = new LowerMarkerNoteEdit();
 
-	upperMarkerLabel->setFlat(true);
-	lowerMarkerLabel->setFlat(true);
+	//upperMarkerLabel->setFlat(true);
+	//lowerMarkerLabel->setFlat(true);
 
 	pianoRollFrame->setLineWidth(2);
 	pianoRollFrame->setMidLineWidth(1);
 	//pianoRollFrame->setFrameShape( QFrame::StyledPanel );
 	pianoRollFrame->setFrameShape( QFrame::Box );
 
-	pianoRollVBar->setInvertedControls(true);
-	pianoRollVBar->setInvertedAppearance(true);
+	pianoRollVBar->setInvertedControls(false);
+	pianoRollVBar->setInvertedAppearance(false);
 	pianoRoll->setScrollBars( pianoRollHBar, pianoRollVBar );
 	connect( pianoRollHBar, SIGNAL(valueChanged(int)), pianoRoll, SLOT(hbarChanged(int)) );
 	connect( pianoRollVBar, SIGNAL(valueChanged(int)), pianoRoll, SLOT(vbarChanged(int)) );
-	connect( pianoRollVBar, SIGNAL(actionTriggered(int)), pianoRoll, SLOT(vbarActionTriggered(int)) );
+	//connect( pianoRollVBar, SIGNAL(actionTriggered(int)), pianoRoll, SLOT(vbarActionTriggered(int)) );
 
 	grid->addWidget( pianoRoll    , 0, 0 );
 	grid->addWidget( pianoRollVBar, 0, 1 );
@@ -1003,7 +1079,7 @@ void TasEditorWindow::buildSideControlPanel(void)
 	QVBoxLayout *vbox;
 	QHBoxLayout *hbox;
 	QGridLayout *grid;
-	QScrollArea *scrollArea;
+	QScrollArea *scrollArea1, *scrollArea2;
 	QTreeWidgetItem *item;
 
 	ctlPanelMainVbox = new QVBoxLayout();
@@ -1012,7 +1088,7 @@ void TasEditorWindow::buildSideControlPanel(void)
 	recorderGBox  = new QGroupBox( tr("Recorder") );
 	splicerGBox   = new QGroupBox( tr("Splicer") );
 	//luaGBox       = new QGroupBox( tr("Lua") );
-	historyGBox   = new QGroupBox( tr("History") );
+	//historyGBox   = new QGroupBox( tr("History") );
 	bbFrame       = new QFrame();
 
 	bbFrame->setFrameShape( QFrame::StyledPanel );
@@ -1028,6 +1104,9 @@ void TasEditorWindow::buildSideControlPanel(void)
 	playPauseBtn->setIcon( style()->standardIcon( QStyle::SP_MediaPause ) );
 	   advFrmBtn->setIcon( style()->standardIcon( QStyle::SP_MediaSeekForward ) );
 	   advMkrBtn->setIcon( style()->standardIcon( QStyle::SP_MediaSkipForward ) );
+
+	progBar = new QProgressBar();
+	progBar->setRange( 0, 1 );
 
 	followCursorCbox = new QCheckBox( tr("Follow Cursor") );
 	   turboSeekCbox = new QCheckBox( tr("Turbo Seek") );
@@ -1077,6 +1156,7 @@ void TasEditorWindow::buildSideControlPanel(void)
 	hbox->addWidget( playPauseBtn );
 	hbox->addWidget( advFrmBtn    );
 	hbox->addWidget( advMkrBtn    );
+	vbox->addWidget( progBar );
 
 	hbox = new QHBoxLayout();
 	vbox->addLayout( hbox );
@@ -1110,17 +1190,26 @@ void TasEditorWindow::buildSideControlPanel(void)
 	//hbox->addWidget( autoLuaCBox );
 	//luaGBox->setLayout( hbox );
 	
-	scrollArea = new QScrollArea();
-	scrollArea->setWidgetResizable(false);
-	scrollArea->setSizeAdjustPolicy( QAbstractScrollArea::AdjustToContents );
-	scrollArea->setHorizontalScrollBarPolicy( Qt::ScrollBarAsNeeded );
-	scrollArea->setVerticalScrollBarPolicy( Qt::ScrollBarAsNeeded );
-	scrollArea->setMinimumSize( QSize( 128, 128 ) );
-	scrollArea->setWidget( &bookmarks );
+	scrollArea1 = new QScrollArea();
+	scrollArea1->setWidgetResizable(false);
+	scrollArea1->setSizeAdjustPolicy( QAbstractScrollArea::AdjustToContents );
+	scrollArea1->setHorizontalScrollBarPolicy( Qt::ScrollBarAsNeeded );
+	scrollArea1->setVerticalScrollBarPolicy( Qt::ScrollBarAsNeeded );
+	scrollArea1->setMinimumSize( QSize( 128, 128 ) );
+	scrollArea1->setWidget( &bookmarks );
+
+	scrollArea2 = new QScrollArea();
+	scrollArea2->setWidgetResizable(true);
+	scrollArea2->setSizeAdjustPolicy( QAbstractScrollArea::AdjustToContents );
+	scrollArea2->setHorizontalScrollBarPolicy( Qt::ScrollBarAsNeeded );
+	scrollArea2->setVerticalScrollBarPolicy( Qt::ScrollBarAsNeeded );
+	scrollArea2->setMinimumSize( QSize( 128, 128 ) );
+	scrollArea2->setWidget( &branches );
 
 	bkmkBrnchStack = new QTabWidget();
-	bkmkBrnchStack->addTab( scrollArea, tr("Bookmarks") );
-	bkmkBrnchStack->addTab( &branches , tr("Branches")  );
+	bkmkBrnchStack->addTab( scrollArea1, tr("Bookmarks") );
+	bkmkBrnchStack->addTab( scrollArea2, tr("Branches")  );
+	bkmkBrnchStack->addTab( histTree   , tr("History")   );
 
 	taseditorConfig.displayBranchesTree = 0;
 
@@ -1128,16 +1217,16 @@ void TasEditorWindow::buildSideControlPanel(void)
 	vbox->addWidget( bkmkBrnchStack );
 	bbFrame->setLayout( vbox );
 
-	vbox = new QVBoxLayout();
-	vbox->addWidget( histTree );
-	historyGBox->setLayout( vbox );
+	//vbox = new QVBoxLayout();
+	//vbox->addWidget( histTree );
+	//historyGBox->setLayout( vbox );
 
 	ctlPanelMainVbox->addWidget( playbackGBox  );
 	ctlPanelMainVbox->addWidget( recorderGBox  );
 	ctlPanelMainVbox->addWidget( splicerGBox   );
 	//ctlPanelMainVbox->addWidget( luaGBox       );
 	ctlPanelMainVbox->addWidget( bbFrame       );
-	ctlPanelMainVbox->addWidget( historyGBox   );
+	//ctlPanelMainVbox->addWidget( historyGBox   );
 
 	hbox = new QHBoxLayout();
 	hbox->addWidget( prevMkrBtn );
@@ -1164,11 +1253,11 @@ void TasEditorWindow::buildSideControlPanel(void)
 	connect( rec3PBtn , &QRadioButton::clicked, [ this ] { recordInputChanged( MULTITRACK_RECORDING_3P  ); } );
 	connect( rec4PBtn , &QRadioButton::clicked, [ this ] { recordInputChanged( MULTITRACK_RECORDING_4P  ); } );
 
-	connect( rewindMkrBtn, SIGNAL(clicked(void)), this, SLOT(playbackFrameRewindFull(void)) );
-	connect( rewindFrmBtn, SIGNAL(clicked(void)), this, SLOT(playbackFrameRewind(void))     );
-	connect( playPauseBtn, SIGNAL(clicked(void)), this, SLOT(playbackPauseCB(void))         );
-	connect( advFrmBtn   , SIGNAL(clicked(void)), this, SLOT(playbackFrameForward(void))    );
-	connect( advMkrBtn   , SIGNAL(clicked(void)), this, SLOT(playbackFrameForwardFull(void)));
+	connect( rewindMkrBtn, SIGNAL(pressed(void)), this, SLOT(playbackFrameRewindFull(void)) );
+	connect( rewindFrmBtn, SIGNAL(pressed(void)), this, SLOT(playbackFrameRewind(void))     );
+	connect( playPauseBtn, SIGNAL(pressed(void)), this, SLOT(playbackPauseCB(void))         );
+	connect( advFrmBtn   , SIGNAL(pressed(void)), this, SLOT(playbackFrameForward(void))    );
+	connect( advMkrBtn   , SIGNAL(pressed(void)), this, SLOT(playbackFrameForwardFull(void)));
 
 	connect( followCursorCbox, SIGNAL(clicked(bool)), this, SLOT(playbackFollowCursorCb(bool)));
 	connect( turboSeekCbox   , SIGNAL(clicked(bool)), this, SLOT(playbackTurboSeekCb(bool)));
@@ -1241,6 +1330,7 @@ void TasEditorWindow::initHotKeys(void)
 	hotkeyShortcut[HK_FULLSCREEN    ]->setEnabled(false);
 	hotkeyShortcut[HK_MAIN_MENU_HIDE]->setEnabled(false);
 	hotkeyShortcut[HK_LOAD_LUA      ]->setEnabled(false);
+	hotkeyShortcut[HK_FA_LAG_SKIP   ]->setEnabled(false);
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::activateHotkey( int hkIdx, QShortcut *shortcut )
@@ -1297,11 +1387,19 @@ void TasEditorWindow::updateCheckedItems(void)
 	showToolTipsAct->setChecked( taseditorConfig.tooltipsEnabled );
 }
 //----------------------------------------------------------------------------
-void TasEditorWindow::updateHistoryItems(void)
+bool TasEditorWindow::updateHistoryItems(void)
 {
 	int i, cursorPos;
 	QTreeWidgetItem *item;
 	const char *txt;
+	bool isVisible;
+
+	isVisible = histTree->isVisible();
+
+	if ( !isVisible )
+	{
+		return false;
+	}
 
 	cursorPos = history.getCursorPos();
 
@@ -1345,10 +1443,22 @@ void TasEditorWindow::updateHistoryItems(void)
 		}
 	}
 	histTree->viewport()->update();
+
+	return true;
+}
+//----------------------------------------------------------------------------
+QPoint TasEditorWindow::getPreviewPopupCoordinates(void)
+{
+	return bkmkBrnchStack->mapToGlobal(QPoint(0,0));
 }
 //----------------------------------------------------------------------------
 int TasEditorWindow::initModules(void)
 {
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+	tasEditorTimeStamp = SDL_GetTicks64();
+#else
+	tasEditorTimeStamp = SDL_GetTicks();
+#endif
 	// init modules
 	//editor.init();
 	//pianoRoll.init();
@@ -1409,9 +1519,15 @@ int TasEditorWindow::initModules(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::frameUpdate(void)
 {
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
-	//printf("TAS Frame Update: %zi\n", currMovieData.records.size());
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+	tasEditorTimeStamp = SDL_GetTicks64();
+#else
+	tasEditorTimeStamp = SDL_GetTicks();
+#endif
+
+	//printf("TAS Frame Update: %zi   %u\n", currMovieData.records.size(), tasEditorTimeStamp);
 
 	//taseditorWindow.update();
 	greenzone.update();
@@ -1448,14 +1564,14 @@ void TasEditorWindow::frameUpdate(void)
 		recentProjectMenuReset = false;
 	}
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 }
 //----------------------------------------------------------------------------
 bool TasEditorWindow::loadProject(const char* fullname)
 {
 	bool success = false;
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	// try to load project
 	if (project.load(fullname))
@@ -1467,13 +1583,14 @@ bool TasEditorWindow::loadProject(const char* fullname)
 		updateCaption();
 		update();
 		success = true;
-	} else
+	}
+	else
 	{
 		// failed to load
 		updateCaption();
 		update();
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	return success;
 }
@@ -1481,7 +1598,7 @@ bool TasEditorWindow::saveProject(bool save_compact)
 {
 	bool ret = true;
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	if (project.getProjectFile().empty())
 	{
@@ -1500,7 +1617,7 @@ bool TasEditorWindow::saveProject(bool save_compact)
 		updateCaption();
 	}
 
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
 
 	return ret;
 }
@@ -1529,6 +1646,7 @@ bool TasEditorWindow::saveProjectAs(bool save_compact)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -1561,6 +1679,8 @@ bool TasEditorWindow::saveProjectAs(bool save_compact)
 
 		if ( baseName[0] != 0 )
 		{
+			strcat( baseName, ".fm3");
+
 			dialog.selectFile(baseName);
 		}
 	}
@@ -1588,6 +1708,24 @@ bool TasEditorWindow::saveProjectAs(bool save_compact)
 	{
 	   return false;
 	}
+	QFileInfo fi( filename );
+
+	if ( fi.exists() )
+	{
+		int ret;
+		std::string msg;
+
+		msg = "Pre-existing TAS project file will be overwritten:\n\n" +
+			fi.fileName().toStdString() + "\n\nReplace file?";
+
+		ret = QMessageBox::warning( this, QObject::tr("Overwrite Warning"),
+				QString::fromStdString(msg), QMessageBox::Yes | QMessageBox::No, QMessageBox::No );
+
+		if ( ret == QMessageBox::No )
+		{
+			return false;
+		}
+	}
 	//qDebug() << "selected file path : " << filename.toUtf8();
 
 	project.renameProject( filename.toStdString().c_str(), true);
@@ -1601,6 +1739,7 @@ bool TasEditorWindow::saveProjectAs(bool save_compact)
 	}
 	addRecentProject( filename.toStdString().c_str() );
 	// saved successfully - remove * mark from caption
+	project.reset();
 	updateCaption();
 	return true;
 }
@@ -1654,6 +1793,7 @@ void TasEditorWindow::openProject(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -1835,7 +1975,7 @@ void TasEditorWindow::createNewProject(void)
 	params.copyCurrentMarkers = copyMarkers->isChecked();
 	params.authorName = authorEdit->text().toStdWString();
 
-	fceuWrapperLock();
+	FCEU_WRAPPER_LOCK();
 
 	if ( QDialog::Accepted == ret )
 	{
@@ -1877,7 +2017,39 @@ void TasEditorWindow::createNewProject(void)
 		updateCaption();
 		update();
 	}
-	fceuWrapperUnLock();
+	FCEU_WRAPPER_UNLOCK();
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::importMovieFile( const char *path )
+{
+	EMUFILE_FILE ifs( path, "rb");
+
+	// Load Input to temporary moviedata
+	MovieData md;
+	if (LoadFM2(md, &ifs, ifs.size(), false))
+	{
+		QFileInfo fi( path );
+		// loaded successfully, now register Input changes
+		//char drv[512], dir[512], name[1024], ext[512];
+		//splitpath(filename.toStdString().c_str(), drv, dir, name, ext);
+		//strcat(name, ext);
+		int result = history.registerImport(md, fi.fileName().toStdString().c_str() );
+		if (result >= 0)
+		{
+			greenzone.invalidateAndUpdatePlayback(result);
+			greenzone.lagLog.invalidateFromFrame(result);
+			// keep current snapshot laglog in touch
+			history.getCurrentSnapshot().laglog.invalidateFromFrame(result);
+		}
+		else
+		{
+			//MessageBox(taseditorWindow.hwndTASEditor, "Imported movie has the same Input.\nNo changes were made.", "TAS Editor", MB_OK);
+		}
+	}
+	else
+	{
+		FCEUD_PrintError("Error loading movie data!");
+	}
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::importMovieFile(void)
@@ -1904,6 +2076,7 @@ void TasEditorWindow::importMovieFile(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -1919,7 +2092,7 @@ void TasEditorWindow::importMovieFile(void)
 
 		dialog.setDirectory( d.absolutePath() );
 	}
-	dialog.setDefaultSuffix( tr(".fm3") );
+	dialog.setDefaultSuffix( tr(".fm2") );
 
 	g_config->getOption ("SDL.TasProjectFilePath", &lastPath);
 	if ( lastPath.size() > 0 )
@@ -1965,34 +2138,36 @@ void TasEditorWindow::importMovieFile(void)
 	}
 	//qDebug() << "selected file path : " << filename.toUtf8();
 
-	EMUFILE_FILE ifs( filename.toStdString().c_str(), "rb");
+	importMovieFile( filename.toStdString().c_str() );
 
-	// Load Input to temporary moviedata
-	MovieData md;
-	if (LoadFM2(md, &ifs, ifs.size(), false))
-	{
-		QFileInfo fi( filename );
-		// loaded successfully, now register Input changes
-		//char drv[512], dir[512], name[1024], ext[512];
-		//splitpath(filename.toStdString().c_str(), drv, dir, name, ext);
-		//strcat(name, ext);
-		int result = history.registerImport(md, fi.fileName().toStdString().c_str() );
-		if (result >= 0)
-		{
-			greenzone.invalidateAndUpdatePlayback(result);
-			greenzone.lagLog.invalidateFromFrame(result);
-			// keep current snapshot laglog in touch
-			history.getCurrentSnapshot().laglog.invalidateFromFrame(result);
-		}
-		else
-		{
-			//MessageBox(taseditorWindow.hwndTASEditor, "Imported movie has the same Input.\nNo changes were made.", "TAS Editor", MB_OK);
-		}
-	}
-	else
-	{
-		FCEUD_PrintError("Error loading movie data!");
-	}
+	//EMUFILE_FILE ifs( filename.toStdString().c_str(), "rb");
+
+	//// Load Input to temporary moviedata
+	//MovieData md;
+	//if (LoadFM2(md, &ifs, ifs.size(), false))
+	//{
+	//	QFileInfo fi( filename );
+	//	// loaded successfully, now register Input changes
+	//	//char drv[512], dir[512], name[1024], ext[512];
+	//	//splitpath(filename.toStdString().c_str(), drv, dir, name, ext);
+	//	//strcat(name, ext);
+	//	int result = history.registerImport(md, fi.fileName().toStdString().c_str() );
+	//	if (result >= 0)
+	//	{
+	//		greenzone.invalidateAndUpdatePlayback(result);
+	//		greenzone.lagLog.invalidateFromFrame(result);
+	//		// keep current snapshot laglog in touch
+	//		history.getCurrentSnapshot().laglog.invalidateFromFrame(result);
+	//	}
+	//	else
+	//	{
+	//		//MessageBox(taseditorWindow.hwndTASEditor, "Imported movie has the same Input.\nNo changes were made.", "TAS Editor", MB_OK);
+	//	}
+	//}
+	//else
+	//{
+	//	FCEUD_PrintError("Error loading movie data!");
+	//}
 
 	return;
 }
@@ -2021,6 +2196,7 @@ void TasEditorWindow::exportMovieFile(void)
 
 	urls << QUrl::fromLocalFile( QDir::rootPath() );
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
 	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
 
 	if ( base )
@@ -2264,9 +2440,253 @@ void TasEditorWindow::saveProjectAsCb(void)
 	saveProjectAs();
 }
 //----------------------------------------------------------------------------
+bool TasEditorWindow::saveCompactGetFilename( QString &outputFilePath )
+{
+	std::string last;
+	int ret, useNativeFileDialogVal;
+	QString filename;
+	std::string lastPath;
+	//char dir[512];
+	const char *base, *rom;
+	QFileDialog  dialog(this, tr("Save Compact TAS Editor Project As") );
+	QList<QUrl> urls;
+	QDir d;
+
+	dialog.setFileMode(QFileDialog::AnyFile);
+
+	dialog.setNameFilter(tr("TAS Project Files (*.fm3) ;; All files (*)"));
+
+	dialog.setViewMode(QFileDialog::List);
+	dialog.setFilter( QDir::AllEntries | QDir::AllDirs | QDir::Hidden );
+	dialog.setLabelText( QFileDialog::Accept, tr("Save") );
+
+	base = FCEUI_GetBaseDirectory();
+
+	urls << QUrl::fromLocalFile( QDir::rootPath() );
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::HomeLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first());
+	urls << QUrl::fromLocalFile(QStandardPaths::standardLocations(QStandardPaths::DownloadLocation).first());
+
+	if ( base )
+	{
+		urls << QUrl::fromLocalFile( QDir( base ).absolutePath() );
+
+		d.setPath( QString(base) + "/movies");
+
+		if ( d.exists() )
+		{
+			urls << QUrl::fromLocalFile( d.absolutePath() );
+		}
+
+		dialog.setDirectory( d.absolutePath() );
+	}
+	dialog.setDefaultSuffix( tr(".fm3") );
+
+	g_config->getOption ("SDL.TasProjectFilePath", &lastPath);
+	if ( lastPath.size() > 0 )
+	{
+		dialog.setDirectory( QString::fromStdString(lastPath) );
+	}
+
+	rom = getRomFile();
+
+	if (!project.getProjectName().empty())
+	{
+		char baseName[512];
+
+		strcpy(baseName, project.getProjectName().c_str());
+
+		if (strstr(baseName, "-compact") == NULL)
+		{
+			strcat(baseName, "-compact");
+		}
+		strcat( baseName, ".fm3");
+
+		dialog.selectFile(baseName);
+	}
+	else if ( rom )
+	{
+		char baseName[512];
+		getFileBaseName( rom, baseName );
+
+		if ( baseName[0] != 0 )
+		{
+			if (strstr(baseName, "-compact") == NULL)
+			{
+				strcat(baseName, "-compact");
+			}
+			strcat( baseName, ".fm3");
+
+			dialog.selectFile(baseName);
+		}
+	}
+
+	// Check config option to use native file dialog or not
+	g_config->getOption ("SDL.UseNativeFileDialog", &useNativeFileDialogVal);
+
+	dialog.setOption(QFileDialog::DontUseNativeDialog, !useNativeFileDialogVal);
+	dialog.setSidebarUrls(urls);
+
+	ret = dialog.exec();
+
+	if ( ret )
+	{
+		QStringList fileList;
+		fileList = dialog.selectedFiles();
+
+		if ( fileList.size() > 0 )
+		{
+			filename = fileList[0];
+		}
+	}
+
+	if ( filename.isNull() )
+	{
+	   return false;
+	}
+	QFileInfo fi( filename );
+
+	if ( fi.exists() )
+	{
+		int ret;
+		std::string msg;
+
+		msg = "Pre-existing TAS project file will be overwritten:\n\n" +
+			fi.fileName().toStdString() + "\n\nReplace file?";
+
+		ret = QMessageBox::warning( this, QObject::tr("Overwrite Warning"),
+				QString::fromStdString(msg), QMessageBox::Yes | QMessageBox::No, QMessageBox::No );
+
+		if ( ret == QMessageBox::No )
+		{
+			return false;
+		}
+	}
+	outputFilePath = filename;
+
+	//qDebug() << "selected file path : " << filename.toUtf8();
+
+	return true;
+}
+//----------------------------------------------------------------------------
 void TasEditorWindow::saveProjectCompactCb(void)
 {
-	saveProject(true);
+	int ret;
+	QDialog dialog(this);
+	FCEU_CRITICAL_SECTION(emuLock);
+	QGroupBox *fileContentsBox, *greenZoneSaveBox;
+	QVBoxLayout *mainLayout, *vbox1, *vbox;
+	QHBoxLayout *hbox;
+	QCheckBox *binaryInput, *saveMarkers, *saveBookmarks;
+	QCheckBox *saveHistory, *savePianoRoll, *saveSelection;
+	QRadioButton *allFrames, *every16thFrame, *markedFrames, *dontSave;
+	QPushButton  *okButton, *cancelButton;
+
+	dialog.setWindowTitle( tr("Save Compact") );
+
+	mainLayout       = new QVBoxLayout();
+	fileContentsBox  = new QGroupBox( tr("File Contents") );
+	greenZoneSaveBox = new QGroupBox( tr("Greenzone Saving Options") );
+
+	binaryInput    = new QCheckBox( tr("Binary Input") );
+	saveMarkers    = new QCheckBox( tr("Markers") );
+	saveBookmarks  = new QCheckBox( tr("Bookmarks") );
+	saveHistory    = new QCheckBox( tr("History") );
+	savePianoRoll  = new QCheckBox( tr("Piano Roll") );
+	saveSelection  = new QCheckBox( tr("Selection") );
+
+	allFrames      = new QRadioButton( tr("All Frames") );
+	every16thFrame = new QRadioButton( tr("Every 16th Frame") );
+	markedFrames   = new QRadioButton( tr("Marked Frame") );
+	dontSave       = new QRadioButton( tr("Don't Save") );
+
+	okButton       = new QPushButton( tr("Ok") );
+	cancelButton   = new QPushButton( tr("Cancel") );
+
+	okButton->setIcon( style()->standardIcon( QStyle::SP_DialogApplyButton ) );
+	cancelButton->setIcon( style()->standardIcon( QStyle::SP_DialogCancelButton ) );
+
+	connect(     okButton, SIGNAL(clicked(void)), &dialog, SLOT(accept(void)) );
+	connect( cancelButton, SIGNAL(clicked(void)), &dialog, SLOT(reject(void)) );
+
+	vbox1 = new QVBoxLayout();
+
+	dialog.setLayout( mainLayout );
+	mainLayout->addWidget( fileContentsBox );
+
+	fileContentsBox->setLayout( vbox1 );
+
+	vbox1->addWidget( binaryInput    );
+	vbox1->addWidget( saveMarkers    );
+	vbox1->addWidget( saveBookmarks  );
+	vbox1->addWidget( saveHistory    );
+	vbox1->addWidget( savePianoRoll  );
+	vbox1->addWidget( saveSelection  );
+	vbox1->addWidget( greenZoneSaveBox );
+
+	vbox  = new QVBoxLayout();
+	greenZoneSaveBox->setLayout( vbox );
+
+	vbox->addWidget( allFrames      );
+	vbox->addWidget( every16thFrame );
+	vbox->addWidget( markedFrames   );
+	vbox->addWidget( dontSave       );
+
+	hbox = new QHBoxLayout();
+	mainLayout->addLayout( hbox );
+	hbox->addStretch(5);
+	hbox->addWidget( okButton );
+	hbox->addWidget( cancelButton );
+
+	binaryInput->setChecked( taseditorConfig.saveCompact_SaveInBinary );
+	saveMarkers->setChecked( taseditorConfig.saveCompact_SaveMarkers );
+	saveBookmarks->setChecked( taseditorConfig.saveCompact_SaveBookmarks );
+	saveHistory->setChecked( taseditorConfig.saveCompact_SaveHistory );
+	savePianoRoll->setChecked( taseditorConfig.saveCompact_SavePianoRoll );
+	saveSelection->setChecked( taseditorConfig.saveCompact_SaveSelection );
+
+	     allFrames->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_ALL );
+	every16thFrame->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_16TH );
+	  markedFrames->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_MARKED );
+	      dontSave->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_NO );
+
+	okButton->setDefault(true);
+
+	ret = dialog.exec();
+
+	if ( ret == QDialog::Accepted )
+	{
+		QString filename;
+
+		taseditorConfig.saveCompact_SaveInBinary  = binaryInput->isChecked();
+		taseditorConfig.saveCompact_SaveMarkers   = saveMarkers->isChecked();
+		taseditorConfig.saveCompact_SaveBookmarks = saveBookmarks->isChecked();
+		taseditorConfig.saveCompact_SaveHistory   = saveHistory->isChecked();
+		taseditorConfig.saveCompact_SavePianoRoll = savePianoRoll->isChecked();
+		taseditorConfig.saveCompact_SaveSelection = saveSelection->isChecked();
+
+		if ( allFrames->isChecked() )
+		{
+			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_ALL;
+		}
+		else if ( every16thFrame->isChecked() )
+		{
+			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_16TH;
+		}
+		else if ( markedFrames->isChecked() )
+		{
+			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_MARKED;
+		}
+		else
+		{
+			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_NO;
+		}
+
+		if ( saveCompactGetFilename( filename ) )
+		{
+			project.save(filename.toStdString().c_str(), taseditorConfig.saveCompact_SaveInBinary, taseditorConfig.saveCompact_SaveMarkers, taseditorConfig.saveCompact_SaveBookmarks, taseditorConfig.saveCompact_GreenzoneSavingMode, taseditorConfig.saveCompact_SaveHistory, taseditorConfig.saveCompact_SavePianoRoll, taseditorConfig.saveCompact_SaveSelection);
+		}
+	}
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::openOnlineDocs(void)
@@ -2295,7 +2715,7 @@ void TasEditorWindow::setCurrentPattern(int idx)
 //----------------------------------------------------------------------------
 void TasEditorWindow::recordingChanged(int newState)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 	int oldState = !movie_readonly ? Qt::Checked : Qt::Unchecked;
 
 	if ( newState != oldState )
@@ -2306,21 +2726,21 @@ void TasEditorWindow::recordingChanged(int newState)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editUndoCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	history.undo();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editRedoCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	history.redo();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editUndoSelCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	int dragMode = pianoRoll->getDragMode();
 
@@ -2333,7 +2753,7 @@ void TasEditorWindow::editUndoSelCB(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editRedoSelCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	int dragMode = pianoRoll->getDragMode();
 
@@ -2346,7 +2766,7 @@ void TasEditorWindow::editRedoSelCB(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editDeselectAll(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	int dragMode = pianoRoll->getDragMode();
 
@@ -2358,7 +2778,7 @@ void TasEditorWindow::editDeselectAll(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editSelectAll(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	int dragMode = pianoRoll->getDragMode();
 
@@ -2370,7 +2790,7 @@ void TasEditorWindow::editSelectAll(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editSelBtwMkrs(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	int dragMode = pianoRoll->getDragMode();
 
@@ -2382,7 +2802,7 @@ void TasEditorWindow::editSelBtwMkrs(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editReselectClipboard(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	int dragMode = pianoRoll->getDragMode();
 
@@ -2395,70 +2815,70 @@ void TasEditorWindow::editReselectClipboard(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::editCutCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.cutSelectedInputToClipboard();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editCopyCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.copySelectedInputToClipboard();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editPasteCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.pasteInputFromClipboard();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editPasteInsertCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.pasteInsertInputFromClipboard();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editClearCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.clearSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editDeleteCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.deleteSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editCloneCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.cloneSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editInsertCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.insertSelectedFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editInsertNumFramesCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.insertNumberOfFrames();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::editTruncateMovieCB(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	splicer.truncateMovie();
 }
@@ -2685,54 +3105,110 @@ void TasEditorWindow::updateToolTips(void)
 	}
 }
 //----------------------------------------------------------------------------
+void TasEditorWindow::changePianoRollFontCB(void)
+{
+	bool ok = false;
+
+	QFont selFont = QFontDialog::getFont( &ok, pianoRoll->QWidget::font(), this, tr("Select Font"), QFontDialog::MonospacedFonts );
+
+	if ( ok )
+	{
+		pianoRoll->setFont( selFont );
+
+		//printf("Font Changed to: '%s'\n", selFont.toString().toStdString().c_str() );
+
+		g_config->setOption("SDL.TasPianoRollFont", selFont.toString().toStdString().c_str() );
+	}
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::changeBookmarksFontCB(void)
+{
+	bool ok = false;
+
+	QFont selFont = QFontDialog::getFont( &ok, bookmarks.QWidget::font(), this, tr("Select Font"), QFontDialog::MonospacedFonts );
+
+	if ( ok )
+	{
+		bookmarks.setFont( selFont );
+
+		//printf("Font Changed to: '%s'\n", selFont.toString().toStdString().c_str() );
+
+		g_config->setOption("SDL.TasBookmarksFont", selFont.toString().toStdString().c_str() );
+	}
+}
+//----------------------------------------------------------------------------
+void TasEditorWindow::changeBranchesFontCB(void)
+{
+	bool ok = false;
+
+	QFont selFont = QFontDialog::getFont( &ok, branches.QWidget::font(), this, tr("Select Font"), QFontDialog::MonospacedFonts );
+
+	if ( ok )
+	{
+		branches.setFont( selFont );
+
+		//printf("Font Changed to: '%s'\n", selFont.toString().toStdString().c_str() );
+
+		g_config->setOption("SDL.TasBranchesFont", selFont.toString().toStdString().c_str() );
+	}
+}
+//----------------------------------------------------------------------------
 void TasEditorWindow::playbackPauseCB(void)
 {
-	fceuWrapperLock();
+	FCEU_CRITICAL_SECTION( emuLock );
 	playback.toggleEmulationPause();
 	pianoRoll->update();
-	fceuWrapperUnLock();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::playbackFrameRewind(void)
 {
-	fceuWrapperLock();
+	FCEU_CRITICAL_SECTION( emuLock );
 	playback.handleRewindFrame();
 	pianoRoll->update();
-	fceuWrapperUnLock();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::playbackFrameForward(void)
 {
-	fceuWrapperLock();
+	FCEU_CRITICAL_SECTION( emuLock );
 	playback.handleForwardFrame();
 	pianoRoll->update();
-	fceuWrapperUnLock();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::playbackFrameRewindFull(void)
 {
-	fceuWrapperLock();
+	FCEU_CRITICAL_SECTION( emuLock );
 	playback.handleRewindFull();
 	pianoRoll->update();
-	fceuWrapperUnLock();
 }
 //----------------------------------------------------------------------------
 void TasEditorWindow::playbackFrameForwardFull(void)
 {
-	fceuWrapperLock();
+	FCEU_CRITICAL_SECTION( emuLock );
 	playback.handleForwardFull();
 	pianoRoll->update();
-	fceuWrapperUnLock();
 }
 // ----------------------------------------------------------------------------------------------
 void TasEditorWindow::playbackFollowCursorCb(bool val)
 {
 	taseditorConfig.followPlaybackCursor = val;
+
+	if ( val )
+	{
+		pianoRoll->ensureTheLineIsVisible( currFrameCounter );
+	}
 }
 // ----------------------------------------------------------------------------------------------
 void TasEditorWindow::playbackTurboSeekCb(bool val)
 {
+	FCEU_CRITICAL_SECTION( emuLock );
+
 	taseditorConfig.turboSeek = val;
+
+	// if currently seeking, apply this option immediately
+	if (playback.getPauseFrame() >= 0)
+	{
+		turbo = taseditorConfig.turboSeek;
+	}
 }
 // ----------------------------------------------------------------------------------------------
 void TasEditorWindow::playbackAutoRestoreCb(bool val)
@@ -2742,9 +3218,8 @@ void TasEditorWindow::playbackAutoRestoreCb(bool val)
 // ----------------------------------------------------------------------------------------------
 void TasEditorWindow::scrollSelectionUpOne(void)
 {
+	FCEU_CRITICAL_SECTION( emuLock );
 	int dragMode = pianoRoll->getDragMode();
-
-	fceuWrapperLock();
 
 	//printf("DragMode: %i\n", dragMode);
 
@@ -2758,14 +3233,12 @@ void TasEditorWindow::scrollSelectionUpOne(void)
 		}
 		pianoRoll->update();
 	}
-	fceuWrapperUnLock();
 }
 // ----------------------------------------------------------------------------------------------
 void TasEditorWindow::scrollSelectionDnOne(void)
 {
+	FCEU_CRITICAL_SECTION( emuLock );
 	int dragMode = pianoRoll->getDragMode();
-
-	fceuWrapperLock();
 
 	//printf("DragMode: %i\n", dragMode);
 
@@ -2779,7 +3252,6 @@ void TasEditorWindow::scrollSelectionDnOne(void)
 		}
 		pianoRoll->update();
 	}
-	fceuWrapperUnLock();
 }
 // ----------------------------------------------------------------------------------------------
 void TasEditorWindow::histTreeItemActivated(QTreeWidgetItem *item, int col)
@@ -2790,11 +3262,13 @@ void TasEditorWindow::histTreeItemActivated(QTreeWidgetItem *item, int col)
 	{
 		return;
 	}
+	FCEU_CRITICAL_SECTION( emuLock );
 	history.handleSingleClick(row);
 }
 // ----------------------------------------------------------------------------------------------
 void TasEditorWindow::tabViewChanged(int idx)
 {
+	FCEU_CRITICAL_SECTION( emuLock );
 	taseditorConfig.displayBranchesTree = (idx == 1);
 	bookmarks.redrawBookmarksSectionCaption();
 }
@@ -2803,7 +3277,7 @@ void TasEditorWindow::openProjectSaveOptions(void)
 {
 	int ret;
 	QDialog dialog(this);
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 	QGroupBox *settingsBox, *fileContentsBox, *greenZoneSaveBox;
 	QVBoxLayout *mainLayout, *vbox1, *vbox;
 	QHBoxLayout *hbox1, *hbox;
@@ -2907,10 +3381,10 @@ void TasEditorWindow::openProjectSaveOptions(void)
 	savePianoRoll->setChecked( taseditorConfig.projectSavingOptions_SavePianoRoll );
 	saveSelection->setChecked( taseditorConfig.projectSavingOptions_SaveSelection );
 
-	     allFrames->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_ALL );
-	every16thFrame->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_16TH );
-	  markedFrames->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_MARKED );
-	      dontSave->setChecked( taseditorConfig.saveCompact_GreenzoneSavingMode == GREENZONE_SAVING_MODE_NO );
+	     allFrames->setChecked( taseditorConfig.projectSavingOptions_GreenzoneSavingMode == GREENZONE_SAVING_MODE_ALL );
+	every16thFrame->setChecked( taseditorConfig.projectSavingOptions_GreenzoneSavingMode == GREENZONE_SAVING_MODE_16TH );
+	  markedFrames->setChecked( taseditorConfig.projectSavingOptions_GreenzoneSavingMode == GREENZONE_SAVING_MODE_MARKED );
+	      dontSave->setChecked( taseditorConfig.projectSavingOptions_GreenzoneSavingMode == GREENZONE_SAVING_MODE_NO );
 
 	connect( autoSaveOpt, SIGNAL(clicked(bool)), autoSavePeriod, SLOT(setEnabled(bool)) );
 	connect( autoSaveOpt, SIGNAL(clicked(bool)), saveSilentOpt , SLOT(setEnabled(bool)) );
@@ -2934,19 +3408,19 @@ void TasEditorWindow::openProjectSaveOptions(void)
 
 		if ( allFrames->isChecked() )
 		{
-			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_ALL;
+			taseditorConfig.projectSavingOptions_GreenzoneSavingMode = GREENZONE_SAVING_MODE_ALL;
 		}
 		else if ( every16thFrame->isChecked() )
 		{
-			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_16TH;
+			taseditorConfig.projectSavingOptions_GreenzoneSavingMode = GREENZONE_SAVING_MODE_16TH;
 		}
 		else if ( markedFrames->isChecked() )
 		{
-			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_MARKED;
+			taseditorConfig.projectSavingOptions_GreenzoneSavingMode = GREENZONE_SAVING_MODE_MARKED;
 		}
 		else
 		{
-			taseditorConfig.saveCompact_GreenzoneSavingMode = GREENZONE_SAVING_MODE_NO;
+			taseditorConfig.projectSavingOptions_GreenzoneSavingMode = GREENZONE_SAVING_MODE_NO;
 		}
 	}
 }
@@ -2956,7 +3430,7 @@ void TasEditorWindow::setGreenzoneCapacity(void)
 	int ret;
 	int newValue = taseditorConfig.greenzoneCapacity;
 	QInputDialog dialog(this);
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	dialog.setWindowTitle( tr("Greenzone Capacity") );
 	dialog.setInputMode( QInputDialog::IntInput );
@@ -2995,7 +3469,7 @@ void TasEditorWindow::setMaxUndoCapacity(void)
 	int ret;
 	int newValue = taseditorConfig.maxUndoLevels;
 	QInputDialog dialog(this);
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	dialog.setWindowTitle( tr("Max undo levels") );
 	dialog.setInputMode( QInputDialog::IntInput );
@@ -3293,7 +3767,7 @@ bool TasEditorWindow::handleInputColumnSet(int joy, int button)
 
 void TasEditorWindow::setMarkers(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	RowsSelection* current_selection = selection.getCopyOfCurrentRowsSelection();
 	if (current_selection->size())
@@ -3321,7 +3795,7 @@ void TasEditorWindow::setMarkers(void)
 }
 void TasEditorWindow::removeMarkers(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	RowsSelection* current_selection = selection.getCopyOfCurrentRowsSelection();
 	if (current_selection->size())
@@ -3348,7 +3822,7 @@ void TasEditorWindow::removeMarkers(void)
 //----------------------------------------------------------------------------
 void TasEditorWindow::ungreenzoneSelectedFrames(void)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	greenzone.ungreenzoneSelectedFrames();
 }
@@ -3441,6 +3915,87 @@ Ported to Qt by mjbudd77\n\
 	about.exec();
 }
 //----------------------------------------------------------------------------
+//------ Custom Vertical Scroll For Piano Roll
+//----------------------------------------------------------------------------
+PianoRollScrollBar::PianoRollScrollBar( QWidget *parent )
+	: QScrollBar( Qt::Vertical, parent )
+{
+	pxLineSpacing = 12;
+	wheelPixelCounter = 0;
+	wheelAngleCounter = 0;
+}
+//----------------------------------------------------------------------------
+PianoRollScrollBar::~PianoRollScrollBar(void)
+{
+}
+//----------------------------------------------------------------------------
+void PianoRollScrollBar::wheelEvent(QWheelEvent *event)
+{
+	int ofs, zDelta = 0;
+
+	//QScrollBar::wheelEvent(event);
+	QPoint numPixels = event->pixelDelta();
+	QPoint numDegrees = event->angleDelta();
+
+	ofs = value();
+
+	if (!numPixels.isNull())
+	{
+		wheelPixelCounter -= numPixels.y();
+		//printf("numPixels: (%i,%i) \n", numPixels.x(), numPixels.y() );
+
+		if ( wheelPixelCounter >= pxLineSpacing )
+		{
+			zDelta = wheelPixelCounter / pxLineSpacing;
+
+			wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
+		}
+		else if ( wheelPixelCounter <= -pxLineSpacing )
+		{
+			zDelta = wheelPixelCounter / pxLineSpacing;
+
+			wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
+		}
+	}
+	else if (!numDegrees.isNull())
+	{
+		int stepDeg = 120;
+		//QPoint numSteps = numDegrees / 15;
+		//printf("numSteps: (%i,%i) \n", numSteps.x(), numSteps.y() );
+		//printf("numDegrees: (%i,%i)  %i\n", numDegrees.x(), numDegrees.y(), pxLineSpacing );
+		wheelAngleCounter -= numDegrees.y();
+
+		if ( wheelAngleCounter <= stepDeg )
+		{
+			zDelta = wheelAngleCounter / stepDeg;
+
+			wheelAngleCounter = wheelAngleCounter % stepDeg;
+		}
+		else if ( wheelAngleCounter >= stepDeg )
+		{
+			zDelta = wheelAngleCounter / stepDeg;
+
+			wheelAngleCounter = wheelAngleCounter % stepDeg;
+		}
+	}
+
+	if ( zDelta != 0 )
+	{
+		ofs = ofs + (6 * zDelta);
+
+		if ( ofs < 0 )
+		{
+			ofs = 0;
+		}
+		else if ( ofs > maximum() )
+		{
+			ofs = maximum();
+		}
+		setValue( ofs );
+	}
+	event->accept();
+}
+//----------------------------------------------------------------------------
 //----  TAS Piano Roll Widget
 //----------------------------------------------------------------------------
 QPianoRoll::QPianoRoll(QWidget *parent)
@@ -3452,13 +4007,17 @@ QPianoRoll::QPianoRoll(QWidget *parent)
 
 	useDarkTheme = false;
 
-	viewWidth  = 512;
+	viewWidth  = 256;
 	viewHeight = 512;
+	setMinimumWidth( viewWidth );
+	setMinimumHeight( viewHeight );
+	setAcceptDrops(true);
 
 	g_config->getOption("SDL.TasPianoRollFont", &fontString);
 
 	if ( fontString.size() > 0 )
 	{
+		//printf("Font String: '%s'\n", fontString.c_str() );
 		font.fromString( QString::fromStdString( fontString ) );
 	}
 	else
@@ -3467,6 +4026,8 @@ QPianoRoll::QPianoRoll(QWidget *parent)
 		font.setStyle( QFont::StyleNormal );
 		font.setStyleHint( QFont::Monospace );
 	}
+	font.setBold(true);
+
 	pal = this->palette();
 
 	windowColor = pal.color(QPalette::Window);
@@ -3501,24 +4062,32 @@ QPianoRoll::QPianoRoll(QWidget *parent)
 
 	numCtlr = 2;
 	numColumns = 2 + (NUM_JOYPAD_BUTTONS * numCtlr);
-	calcFontData();
 
 	vbar = NULL;
 	hbar = NULL;
 
+	mkrDrag = NULL;
 	lineOffset = 0;
 	maxLineOffset = 0;
+	playbackCursorPos = 0;
 	dragMode = DRAG_MODE_NONE;
 	dragSelectionStartingFrame = 0;
 	dragSelectionEndingFrame = 0;
 	realRowUnderMouse = -1;
+	rowUnderMouse = -1;
+	columnUnderMouse = 0;
+	rowUnderMouseAtPress = -1;
+	columnUnderMouseAtPress = 0;
 	markerDragFrameNumber = 0;
 	markerDragCountdown = 0;
 	drawingStartTimestamp = 0;
 	wheelPixelCounter = 0;
+	wheelAngleCounter = 0;
 	headerItemUnderMouse = 0;
 	nextHeaderUpdateTime = 0;
+	rightButtonDragMode = false;
 	mouse_x = mouse_y = -1;
+	scroll_x = scroll_y = 0;
 	memset( headerColors, 0, sizeof(headerColors) );
 
 	headerLightsColors[ 0] = QColor( 0x00, 0x00, 0x00 );
@@ -3532,6 +4101,30 @@ QPianoRoll::QPianoRoll(QWidget *parent)
 	headerLightsColors[ 8] = QColor( 0x00, 0xF7, 0xDA );
 	headerLightsColors[ 9] = QColor( 0x7C, 0xFC, 0xF0 );
 	headerLightsColors[10] = QColor( 0xBA, 0xFF, 0xFC );
+
+	hotChangesColors[ 0] = QColor( 0x00, 0x00, 0x00 );
+	hotChangesColors[ 1] = QColor( 0x35, 0x40, 0x00 );
+	hotChangesColors[ 2] = QColor( 0x18, 0x52, 0x18 );
+	hotChangesColors[ 3] = QColor( 0x34, 0x5C, 0x5E );
+	hotChangesColors[ 4] = QColor( 0x00, 0x4C, 0x80 );
+	hotChangesColors[ 5] = QColor( 0x00, 0x03, 0xBA );
+	hotChangesColors[ 6] = QColor( 0x38, 0x00, 0xD1 );
+	hotChangesColors[ 7] = QColor( 0x72, 0x12, 0xB2 );
+	hotChangesColors[ 8] = QColor( 0xAB, 0x00, 0xBA );
+	hotChangesColors[ 9] = QColor( 0xB0, 0x00, 0x6F );
+	hotChangesColors[10] = QColor( 0xC2, 0x00, 0x37 );
+	hotChangesColors[11] = QColor( 0xBA, 0x0C, 0x00 );
+	hotChangesColors[12] = QColor( 0xC9, 0x2C, 0x00 );
+	hotChangesColors[13] = QColor( 0xBF, 0x53, 0x00 );
+	hotChangesColors[14] = QColor( 0xCF, 0x72, 0x00 );
+	hotChangesColors[15] = QColor( 0xC7, 0x8B, 0x3C );
+
+	gridPixelWidth = 1;
+	gridColor = QColor( 0x00, 0x00, 0x00 );
+
+	fceuLoadConfigColor("SDL.TasPianoRollGridColor"   , &gridColor );
+
+	calcFontData();
 }
 //----------------------------------------------------------------------------
 QPianoRoll::~QPianoRoll(void)
@@ -3547,6 +4140,7 @@ void QPianoRoll::reset(void)
 
 	numColumns = 2 + (NUM_JOYPAD_BUTTONS * num_joysticks);
 
+	calcFontData();
 }
 //----------------------------------------------------------------------------
 void QPianoRoll::save(EMUFILE *os, bool really_save)
@@ -3630,36 +4224,56 @@ void QPianoRoll::hbarChanged(int val)
 	update();
 }
 //----------------------------------------------------------------------------
-void QPianoRoll::vbarActionTriggered(int act)
-{
-	int val = vbar->value();
-
-	if ( act == QAbstractSlider::SliderSingleStepAdd )
-	{
-		val = val - 1;
-
-		if ( val < 0 )
-		{
-			val = 0;
-		}
-		vbar->setSliderPosition(val);
-	}
-	else if ( act == QAbstractSlider::SliderSingleStepSub )
-	{
-		val = val + 1;
-
-		if ( val >= maxLineOffset )
-		{
-			val = maxLineOffset;
-		}
-		vbar->setSliderPosition(val);
-	}
-	//printf("ACT:%i\n", act);
-}
+//void QPianoRoll::vbarActionTriggered(int act)
+//{
+//	int val = vbar->value();
+//
+//	if ( act == QAbstractSlider::SliderSingleStepAdd )
+//	{
+//		val = val - vbar->singleStep();
+//
+//		if ( val < 0 )
+//		{
+//			val = 0;
+//		}
+//		vbar->setSliderPosition(val);
+//	}
+//	else if ( act == QAbstractSlider::SliderSingleStepSub )
+//	{
+//		val = val + vbar->singleStep();
+//
+//		if ( val >= maxLineOffset )
+//		{
+//			val = maxLineOffset;
+//		}
+//		vbar->setSliderPosition(val);
+//	}
+//        else if ( act == QAbstractSlider::SliderPageStepAdd )
+//        {
+//               	val = val - vbar->pageStep();
+//
+//		if ( val < 0 )
+//		{
+//			val = 0;
+//		}
+//		vbar->setSliderPosition(val);
+//        }
+//        else if ( act == QAbstractSlider::SliderPageStepSub )
+//        {
+//                val = val + vbar->pageStep();
+//
+//		if ( val >= maxLineOffset )
+//		{
+//			val = maxLineOffset;
+//		}
+//		vbar->setSliderPosition(val);
+//        }
+//	//printf("ACT:%i\n", act);
+//}
 //----------------------------------------------------------------------------
 void QPianoRoll::vbarChanged(int val)
 {
-	lineOffset = maxLineOffset - val;
+	lineOffset = val;
 
 	if ( lineOffset < 0 )
 	{
@@ -3672,8 +4286,17 @@ void QPianoRoll::vbarChanged(int val)
 	update();
 }
 //----------------------------------------------------------------------------
+void QPianoRoll::setFont( QFont &newFont )
+{
+	font = newFont;
+	font.setBold(true);
+	QWidget::setFont( font );
+	calcFontData();
+}
+//----------------------------------------------------------------------------
 void QPianoRoll::calcFontData(void)
 {
+	QRect rect;
 	QWidget::setFont(font);
 	QFontMetrics metrics(font);
 #if QT_VERSION > QT_VERSION_CHECK(5, 11, 0)
@@ -3685,16 +4308,24 @@ void QPianoRoll::calcFontData(void)
 	pxLineSpacing  = metrics.lineSpacing() * 1.25;
 	pxLineLead     = pxLineSpacing - metrics.height();
 	pxCursorHeight = metrics.height();
-	pxLineTextOfs  = pxCharHeight + (pxLineSpacing - pxCharHeight) / 2;
+	pxLineTextOfs  = pxLineSpacing - ((pxLineSpacing - pxCharHeight) / 2) + (pxLineSpacing - pxCharHeight + 1) % 2;
 
 	//printf("W:%i  H:%i  LS:%i  \n", pxCharWidth, pxCharHeight, pxLineSpacing );
 
 	viewLines   = (viewHeight / pxLineSpacing) + 1;
 
 	pxWidthCol1     =  3 * pxCharWidth;
-	pxWidthFrameCol = 12 * pxCharWidth;
+	pxWidthFrameCol =  9 * pxCharWidth;
 	pxWidthBtnCol   =  3 * pxCharWidth;
 	pxWidthCtlCol   =  8 * pxWidthBtnCol;
+
+	rect = metrics.boundingRect( tr("000000000") );
+
+	//printf("FrameWidth:  %i   %i\n", pxWidthFrameCol, rect.width() );
+	if ( pxWidthFrameCol < rect.width() )
+	{
+		pxWidthFrameCol = rect.width();
+	}
 
 	pxFrameColX     = pxWidthCol1;
 
@@ -3703,6 +4334,38 @@ void QPianoRoll::calcFontData(void)
 		pxFrameCtlX[i] = pxFrameColX + pxWidthFrameCol + (i*pxWidthCtlCol);
 	}
 	pxLineWidth = pxFrameCtlX[ numCtlr-1 ] + pxWidthCtlCol;
+
+	if ( vbar )
+	{
+		if ( maxLineOffset < 0 )
+		{
+			vbar->hide();
+			maxLineOffset = 0;
+		}
+		else
+		{
+			vbar->show();
+		}
+		vbar->setMinimum(0);
+		vbar->setMaximum(maxLineOffset);
+		vbar->setPageStep( (7*viewLines)/8 );
+	}
+
+	if ( hbar )
+	{
+		if ( viewWidth >= pxLineWidth )
+		{
+			pxLineXScroll = 0;
+			hbar->hide();
+		}
+		else
+		{
+			hbar->setPageStep( viewWidth );
+			hbar->setMaximum( pxLineWidth - viewWidth );
+			hbar->show();
+			pxLineXScroll = hbar->value();
+		}
+	}
 }
 //----------------------------------------------------------------------------
 QPoint QPianoRoll::convPixToCursor( QPoint p )
@@ -3766,7 +4429,7 @@ int  QPianoRoll::calcColumn( int px )
 //----------------------------------------------------------------------------
 void QPianoRoll::drawArrow( QPainter *painter, int xl, int yl, int value )
 {
-	int x, y, w, h, b, b2;
+	int x, y, w, h;
 	QPoint p[3];
 	bool hasBookmark = false;
 	bool draw2ndArrow = false;
@@ -3780,7 +4443,7 @@ void QPianoRoll::drawArrow( QPainter *painter, int xl, int yl, int value )
 	w = pxCharWidth;
 	h = pxLineSpacing-2;
 
-	if ( (value & BOOKMARKS_WITH_GREEN_ARROW) || (value & BOOKMARKS_WITH_BLUE_ARROW) )
+	if ( (value & BOOKMARKS_WITH_GREEN_ARROW) || (value & BOOKMARKS_WITH_BLUE_ARROW) || (value & BOOKMARKS_WITH_NO_ARROW) )
 	{
 		char txt[4];
 		int bookmarkNum;
@@ -3792,10 +4455,12 @@ void QPianoRoll::drawArrow( QPainter *painter, int xl, int yl, int value )
 		
 		painter->drawText( x, y+pxLineTextOfs, tr(txt) );
 
-		draw2ndArrow = hasBookmark = true;
+		hasBookmark  = true;
 		draw1stArrow = false;
+		draw2ndArrow = (value & BOOKMARKS_WITH_NO_ARROW) ? false : true;
 
 		x += pxCharWidth;
+
 	}
 
 	p[0] = QPoint( x, y );
@@ -3834,6 +4499,7 @@ void QPianoRoll::drawArrow( QPainter *painter, int xl, int yl, int value )
 	{
 		painter->setBrush( arrowColor1 );
 		painter->drawPolygon( p, 3 );
+		x += pxCharWidth;
 	}
 
 	if ( draw2ndArrow )
@@ -3855,7 +4521,7 @@ void QPianoRoll::updateLinesCount(void)
 	// update the number of items in the list
 	int movie_size = currMovieData.getNumRecords();
 
-	maxLineOffset = movie_size - viewLines + 5;
+	maxLineOffset = movie_size - viewLines + 2;
 
 	if ( maxLineOffset < 0 )
 	{
@@ -3865,7 +4531,7 @@ void QPianoRoll::updateLinesCount(void)
 //----------------------------------------------------------------------------
 bool QPianoRoll::lineIsVisible( int lineNum )
 {
-	int lineEnd = lineOffset + viewLines - 1;
+	int lineEnd = lineOffset + viewLines - 2;
 
 	return ( (lineNum >= lineOffset) && (lineNum < lineEnd) );
 }
@@ -3874,23 +4540,28 @@ void QPianoRoll::ensureTheLineIsVisible( int lineNum )
 {
 	if ( !lineIsVisible( lineNum ) )
 	{
-		int scrollOfs;
-
+		//int lineEnd = lineOffset + viewLines - 2;
 		//printf("Seeking Frame %i\n", lineNum );
 
-		lineOffset = lineNum;
+		if ( lineNum < lineOffset )
+		{
+			lineOffset = lineNum;
+		}
+		else
+		{
+			//printf("Seeking View Frame %i\n", lineNum );
+			lineOffset = lineOffset - viewLines + 2;
+		}
 
 		if ( lineOffset < 0 )
 		{
 			lineOffset = 0;
 		}
-		scrollOfs = maxLineOffset - lineOffset;
-
-		if ( scrollOfs < 0 )
+		else if ( lineOffset > maxLineOffset )
 		{
-			scrollOfs = 0;
+			lineOffset = maxLineOffset;
 		}
-		vbar->setValue( scrollOfs );
+		vbar->setValue( lineOffset );
 
 		update();
 	}
@@ -3905,7 +4576,7 @@ void QPianoRoll::resizeEvent(QResizeEvent *event)
 
 	viewLines = (viewHeight / pxLineSpacing) + 1;
 
-	maxLineOffset = currMovieData.records.size() - viewLines + 5;
+	maxLineOffset = currMovieData.records.size() - viewLines + 2;
 
 	if ( maxLineOffset < 0 )
 	{
@@ -3918,7 +4589,7 @@ void QPianoRoll::resizeEvent(QResizeEvent *event)
 	}
 	vbar->setMinimum(0);
 	vbar->setMaximum(maxLineOffset);
-	vbar->setPageStep( (3*viewLines)/4 );
+	vbar->setPageStep( (7*viewLines)/8 );
 
 	if ( viewWidth >= pxLineWidth )
 	{
@@ -3937,30 +4608,131 @@ void QPianoRoll::resizeEvent(QResizeEvent *event)
 //----------------------------------------------------------------------------
 void QPianoRoll::mouseDoubleClickEvent(QMouseEvent * event)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 	int col, line, row_index, column_index, kbModifiers, alt_pressed;
+	bool headerClicked, row_valid;
 	QPoint c = convPixToCursor( event->pos() );
+
+	//printf("Mouse Double Click Pressed: 0x%x (%i,%i)\n", event->button(), c.x(), c.y() );
 
 	mouse_x = event->pos().x();
 	mouse_y = event->pos().y();
 
-	line = lineOffset + c.y();
+	if ( c.y() >= 0 )
+	{
+		line = lineOffset + c.y();
+		headerClicked = false;
+	}
+	else
+	{
+		line = -1;
+		headerClicked = true;
+	}
 	col  = calcColumn( event->pos().x() );
 
-	row_index = line;
-	rowUnderMouse = realRowUnderMouse = line;
-	columnUnderMouse = column_index = col;
+	rowUnderMouseAtPress = rowUnderMouse = realRowUnderMouse = row_index = line;
+	columnUnderMouseAtPress = columnUnderMouse = column_index = col;
+
+	row_valid = (row_index >= 0) && ( (size_t)row_index < currMovieData.records.size() );
 
 	kbModifiers = QApplication::keyboardModifiers();
 	alt_pressed = (kbModifiers & Qt::AltModifier) ? 1 : 0;
 
 	if ( event->button() == Qt::LeftButton )
 	{
-		if ( (col == COLUMN_FRAMENUM) || (col == COLUMN_FRAMENUM2) )
+		if (col == COLUMN_ICONS)
 		{
-			handleColumnSet( col, alt_pressed );
+			// clicked on the "icons" column
+			startDraggingPlaybackCursor();
+		}
+		else if ( (col == COLUMN_FRAMENUM) || (col == COLUMN_FRAMENUM2) )
+		{
+			//handleColumnSet( col, alt_pressed );
+
+			// doubleclick - set Marker and start dragging it
+			if (!markersManager->getMarkerAtFrame(row_index))
+			{
+				if (markersManager->setMarkerAtFrame(row_index))
+				{
+					selection->mustFindCurrentMarker = playback->mustFindCurrentMarker = true;
+					history->registerMarkersChange(MODTYPE_MARKER_SET, row_index);
+					update();
+				}
+			}
+			// Delay drag event by 100ms incase the button is quickly released
+			QTimer::singleShot( 100, this, SLOT(setupMarkerDrag(void)) );
+
+			//startDraggingMarker( mouse_x, mouse_y, row_index, column_index);
+		}
+		else if (column_index >= COLUMN_JOYPAD1_A && column_index <= COLUMN_JOYPAD4_R)
+		{
+			// clicked on Input
+			if (headerClicked)
+			{
+				drawingStartTimestamp = getTasEditorTime();
+				int joy = (column_index - COLUMN_JOYPAD1_A) / NUM_JOYPAD_BUTTONS;
+				int button = (column_index - COLUMN_JOYPAD1_A) % NUM_JOYPAD_BUTTONS;
+				int selection_beginning = selection->getCurrentRowsSelectionBeginning();
+				int selection_end       = selection->getCurrentRowsSelectionEnd();
+
+				if ( (selection_beginning >= 0) && (selection_end >= 0) )
+				{
+					tasWin->toggleInput(selection_beginning, selection_end, joy, button, drawingStartTimestamp);
+				}
+			}
+			else if (row_index >= 0)
+			{
+				if (!alt_pressed && !(kbModifiers & Qt::ShiftModifier))
+				{
+					// clicked without Shift/Alt - bring Selection cursor to this row
+					selection->clearAllRowsSelection();
+					selection->setRowSelection(row_index);
+				}
+				// toggle Input
+				drawingStartTimestamp = getTasEditorTime();
+				int joy = (column_index - COLUMN_JOYPAD1_A) / NUM_JOYPAD_BUTTONS;
+				int button = (column_index - COLUMN_JOYPAD1_A) % NUM_JOYPAD_BUTTONS;
+				int selection_beginning = selection->getCurrentRowsSelectionBeginning();
+				if (alt_pressed && selection_beginning >= 0)
+				{
+					tasWin->setInputUsingPattern(selection_beginning, row_index, joy, button, drawingStartTimestamp);
+				}
+				else if ((kbModifiers & Qt::ShiftModifier) && selection_beginning >= 0)
+				{
+					tasWin->toggleInput(selection_beginning, row_index, joy, button, drawingStartTimestamp);
+				}
+				else
+				{
+					tasWin->toggleInput(row_index, row_index, joy, button, drawingStartTimestamp);
+				}
+				// and start dragging/drawing
+				if (dragMode == DRAG_MODE_NONE)
+				{
+					if (taseditorConfig->drawInputByDragging)
+					{
+						// if clicked this click created buttonpress, then start painting, else start erasing
+						if ( row_valid && currMovieData.records[row_index].checkBit(joy, button))
+						{
+							dragMode = DRAG_MODE_SET;
+						}
+						else
+						{
+							dragMode = DRAG_MODE_UNSET;
+						}
+					}
+					else
+					{
+						dragMode = DRAG_MODE_OBSERVE;
+					}
+				}
+			}
 		}
 	}
+	else if ( event->button() == Qt::MiddleButton )
+	{
+		playback->handleMiddleButtonClick();
+	}
+	event->accept();
 }
 //----------------------------------------------------------------------------
 void QPianoRoll::contextMenuEvent(QContextMenuEvent *event)
@@ -3979,7 +4751,7 @@ void QPianoRoll::contextMenuEvent(QContextMenuEvent *event)
 	int mkr;
 	QAction *act;
 	QMenu menu(this);
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 
 	mkr = markersManager->getMarkerAtFrame( rowUnderMouse );
 
@@ -4055,20 +4827,29 @@ void QPianoRoll::contextMenuEvent(QContextMenuEvent *event)
 //----------------------------------------------------------------------------
 void QPianoRoll::mousePressEvent(QMouseEvent * event)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 	int col, line, row_index, column_index, kbModifiers, alt_pressed;
-	bool row_valid;
+	bool row_valid, headerClicked;
 	QPoint c = convPixToCursor( event->pos() );
 
 	mouse_x = event->pos().x();
 	mouse_y = event->pos().y();
 
-	line = lineOffset + c.y();
+	if ( c.y() >= 0 )
+	{
+		line = lineOffset + c.y();
+		headerClicked = false;
+	}
+	else
+	{
+		line = -1;
+		headerClicked = true;
+	}
 	col  = calcColumn( event->pos().x() );
 
 	row_index = line;
-	rowUnderMouse = realRowUnderMouse = line;
-	columnUnderMouse = column_index = col;
+	rowUnderMouseAtPress = rowUnderMouse = realRowUnderMouse = line;
+	columnUnderMouseAtPress = columnUnderMouse = column_index = col;
 
 	row_valid = (row_index >= 0) && ( (size_t)row_index < currMovieData.records.size() );
 
@@ -4160,7 +4941,20 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 		else if (column_index >= COLUMN_JOYPAD1_A && column_index <= COLUMN_JOYPAD4_R)
 		{
 			// clicked on Input
-			if (row_index >= 0)
+			if (headerClicked)
+			{
+				drawingStartTimestamp = getTasEditorTime();
+				int joy = (column_index - COLUMN_JOYPAD1_A) / NUM_JOYPAD_BUTTONS;
+				int button = (column_index - COLUMN_JOYPAD1_A) % NUM_JOYPAD_BUTTONS;
+				int selection_beginning = selection->getCurrentRowsSelectionBeginning();
+				int selection_end       = selection->getCurrentRowsSelectionEnd();
+
+				if ( (selection_beginning >= 0) && (selection_end >= 0) )
+				{
+					tasWin->toggleInput(selection_beginning, selection_end, joy, button, drawingStartTimestamp);
+				}
+			}
+			else if (row_index >= 0)
 			{
 				if (!alt_pressed && !(kbModifiers & Qt::ShiftModifier))
 				{
@@ -4169,7 +4963,7 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 					selection->setRowSelection(row_index);
 				}
 				// toggle Input
-				drawingStartTimestamp = clock();
+				drawingStartTimestamp = getTasEditorTime();
 				int joy = (column_index - COLUMN_JOYPAD1_A) / NUM_JOYPAD_BUTTONS;
 				int button = (column_index - COLUMN_JOYPAD1_A) % NUM_JOYPAD_BUTTONS;
 				int selection_beginning = selection->getCurrentRowsSelectionBeginning();
@@ -4199,8 +4993,6 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 						{
 							dragMode = DRAG_MODE_UNSET;
 						}
-						//pianoRoll.drawingLastX = GET_X_LPARAM(lParam) + GetScrollPos(pianoRoll.hwndList, SB_HORZ);
-						//pianoRoll.drawingLastY = GET_Y_LPARAM(lParam) + GetScrollPos(pianoRoll.hwndList, SB_VERT) * pianoRoll.listRowHeight;
 					}
 					else
 					{
@@ -4209,7 +5001,6 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 				}
 			}
 		}
-		//updateDrag();
 	}
 	else if ( event->button() == Qt::MiddleButton )
 	{
@@ -4223,14 +5014,21 @@ void QPianoRoll::mousePressEvent(QMouseEvent * event)
 //----------------------------------------------------------------------------
 void QPianoRoll::mouseReleaseEvent(QMouseEvent * event)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 	int col, line;
 	QPoint c = convPixToCursor( event->pos() );
 
 	mouse_x = event->pos().x();
 	mouse_y = event->pos().y();
 
-	line = lineOffset + c.y();
+	if ( c.y() >= 0 )
+	{
+		line = lineOffset + c.y();
+	}
+	else
+	{
+		line = lineOffset;
+	}
 	col  = calcColumn( event->pos().x() );
 
 	rowUnderMouse = realRowUnderMouse = line;
@@ -4254,14 +5052,21 @@ void QPianoRoll::mouseReleaseEvent(QMouseEvent * event)
 //----------------------------------------------------------------------------
 void QPianoRoll::mouseMoveEvent(QMouseEvent * event)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 	int col, line;
 	QPoint c = convPixToCursor( event->pos() );
 
 	mouse_x = event->pos().x();
 	mouse_y = event->pos().y();
 
-	line = lineOffset + c.y();
+	if ( c.y() >= 0 )
+	{
+		line = lineOffset + c.y();
+	}
+	else
+	{
+		line = lineOffset;
+	}
 	col =  calcColumn( event->pos().x() );
 
 	rowUnderMouse = realRowUnderMouse = line;
@@ -4278,8 +5083,8 @@ void QPianoRoll::mouseMoveEvent(QMouseEvent * event)
 //----------------------------------------------------------------------------
 void QPianoRoll::wheelEvent(QWheelEvent *event)
 {
-	fceuCriticalSection emuLock;
-	int ofs, kbModifiers, msButtons, zDelta;
+	FCEU_CRITICAL_SECTION( emuLock );
+	int ofs, kbModifiers, msButtons, zDelta = 0;
 
 	QPoint numPixels = event->pixelDelta();
 	QPoint numDegrees = event->angleDelta();
@@ -4291,32 +5096,44 @@ void QPianoRoll::wheelEvent(QWheelEvent *event)
 
 	if (!numPixels.isNull())
 	{
-		wheelPixelCounter -= numPixels.y();
+		wheelPixelCounter += numPixels.y();
 		//printf("numPixels: (%i,%i) \n", numPixels.x(), numPixels.y() );
+
+		if (wheelPixelCounter <= -pxLineSpacing)
+		{
+			zDelta = (wheelPixelCounter / pxLineSpacing);
+
+			wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
+		}
+		else if (wheelPixelCounter >= pxLineSpacing)
+		{
+			zDelta = (wheelPixelCounter / pxLineSpacing);
+
+			wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
+		}
 	}
 	else if (!numDegrees.isNull())
 	{
+		int stepDeg = 120;
 		//QPoint numSteps = numDegrees / 15;
 		//printf("numSteps: (%i,%i) \n", numSteps.x(), numSteps.y() );
 		//printf("numDegrees: (%i,%i)  %i\n", numDegrees.x(), numDegrees.y(), pxLineSpacing );
-		wheelPixelCounter -= (pxLineSpacing * numDegrees.y()) / (15 * 8);
+		wheelAngleCounter += numDegrees.y();
+
+		if ( wheelAngleCounter <= stepDeg )
+		{
+			zDelta = wheelAngleCounter / stepDeg;
+
+			wheelAngleCounter = wheelAngleCounter % stepDeg;
+		}
+		else if ( wheelAngleCounter >= stepDeg )
+		{
+			zDelta = wheelAngleCounter / stepDeg;
+
+			wheelAngleCounter = wheelAngleCounter % stepDeg;
+		}
 	}
 	//printf("Wheel Event: %i\n", wheelPixelCounter);
-
-	zDelta = 0;
-	if (wheelPixelCounter <= -pxLineSpacing)
-	{
-		zDelta = (wheelPixelCounter / pxLineSpacing);
-
-		wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
-	}
-	else if (wheelPixelCounter >= pxLineSpacing)
-	{
-		zDelta = (wheelPixelCounter / pxLineSpacing);
-
-		wheelPixelCounter = wheelPixelCounter % pxLineSpacing;
-	}
-	//printf("zDelta:%i\n", zDelta );
 
 	if ( kbModifiers & Qt::ShiftModifier )
 	{
@@ -4377,7 +5194,7 @@ void QPianoRoll::wheelEvent(QWheelEvent *event)
 	{
 		if (zDelta > 0)
 		{
-			ofs += zDelta;
+			ofs -= (zDelta*6);
 
 			if (ofs > maxLineOffset)
 			{
@@ -4387,7 +5204,7 @@ void QPianoRoll::wheelEvent(QWheelEvent *event)
 		}
 		else if (zDelta < 0)
 		{
-			ofs += zDelta;
+			ofs -= (zDelta*6);
 
 			if (ofs < 0)
 			{
@@ -4432,6 +5249,58 @@ void QPianoRoll::focusOutEvent(QFocusEvent *event)
 	//printf("PianoRoll Focus Out\n");
 
 	parent->pianoRollFrame->setStyleSheet(NULL);
+}
+//----------------------------------------------------------------------------
+void QPianoRoll::dragEnterEvent(QDragEnterEvent *event)
+{
+	if (event->mimeData()->hasUrls() )
+	{
+		QList<QUrl> urls = event->mimeData()->urls();
+		QFileInfo fi( urls[0].toString( QUrl::PreferLocalFile ) );
+
+		//printf("Suffix: '%s'\n", fi.suffix().toStdString().c_str() );
+
+		if ( fi.suffix().compare("fm3") == 0)
+		{
+			event->acceptProposedAction();
+		}
+		else if ( fi.suffix().compare("fm2") == 0 )
+		{
+			event->acceptProposedAction();
+		}
+	}
+	else
+	{
+		if ( event->source() == this )
+		{
+			event->acceptProposedAction();
+		}
+	}
+}
+
+//----------------------------------------------------------------------------
+void QPianoRoll::dropEvent(QDropEvent *event)
+{
+	if (event->mimeData()->hasUrls() )
+	{
+		QList<QUrl> urls = event->mimeData()->urls();
+		QFileInfo fi( urls[0].toString( QUrl::PreferLocalFile ) );
+
+		if ( fi.suffix().compare("fm3") == 0 )
+		{
+			FCEU_WRAPPER_LOCK();
+			tasWin->loadProject( fi.filePath().toStdString().c_str() );
+			FCEU_WRAPPER_UNLOCK();
+			event->accept();
+		}
+		else if ( fi.suffix().compare("fm2") == 0 )
+		{
+			FCEU_WRAPPER_LOCK();
+			tasWin->importMovieFile( fi.filePath().toStdString().c_str() );
+			FCEU_WRAPPER_UNLOCK();
+			event->accept();
+		}
+	}
 }
 //----------------------------------------------------------------------------
 bool QPianoRoll::checkIfTheresAnIconAtFrame(int frame)
@@ -4621,6 +5490,7 @@ void QPianoRoll::updateDrag(void)
 				//	DestroyWindow(hwndMarkerDragBox);
 				//	hwndMarkerDragBox = 0;
 				//}
+				setCursor( Qt::ArrowCursor );
 				dragMode = DRAG_MODE_NONE;
 				break;
 			}
@@ -4667,20 +5537,13 @@ void QPianoRoll::updateDrag(void)
 				if (selection_beginning >= 0)
 				{
 					// perform hit test
-					//info.pt.x = p.x;
-					//info.pt.y = p.y;
-					//ListView_SubItemHitTest(hwndList, &info);
 					row_index = rowUnderMouse;
-					//if (row_index < 0)
-					//{
-					//	row_index = ListView_GetTopIndex(hwndList) + (info.pt.y - listTopMargin) / listRowHeight;
-					//}
 					// pad movie size if user tries to draw pattern below Piano Roll limit
 					if (row_index >= currMovieData.getNumRecords())
 					{
 						currMovieData.insertEmpty(-1, row_index + 1 - currMovieData.getNumRecords());
 					}
-					column_index = columnUnderMouse;
+					column_index = columnUnderMouseAtPress;
 
 					if (row_index >= 0 && column_index >= COLUMN_JOYPAD1_A && column_index <= COLUMN_JOYPAD4_R)
 					{
@@ -4692,24 +5555,22 @@ void QPianoRoll::updateDrag(void)
 			}
 			else
 			{
-				//double total_len = sqrt((double)(total_dx * total_dx + total_dy * total_dy));
-				//int drawing_min_line_len = listRowHeight;		// = min(list_row_width, list_row_height) in pixels
-				//for (double len = 0; len < total_len; len += drawing_min_line_len)
-				//{
+				row_index = rowUnderMouseAtPress;
+
+				while (row_index != rowUnderMouse)
+				{
 					// perform hit test
-					//info.pt.x = p.x + (len / total_len) * total_dx;
-					//info.pt.y = p.y + (len / total_len) * total_dy;
-					//ListView_SubItemHitTest(hwndList, &info);
-					//row_index = info.iItem;
-					row_index = rowUnderMouse;
-					//if (row_index < 0)
-					//	row_index = ListView_GetTopIndex(hwndList) + (info.pt.y - listTopMargin) / listRowHeight;
+					//row_index = rowUnderMouse;
+					if ( row_index < 0 )
+					{
+						break;
+					}
 					// pad movie size if user tries to draw below Piano Roll limit
 					if (row_index >= currMovieData.getNumRecords())
 					{
 						currMovieData.insertEmpty(-1, row_index + 1 - currMovieData.getNumRecords());
 					}
-					column_index = columnUnderMouse;
+					column_index = columnUnderMouseAtPress;
 
 					if (row_index >= 0 && column_index >= COLUMN_JOYPAD1_A && column_index <= COLUMN_JOYPAD4_R)
 					{
@@ -4730,7 +5591,41 @@ void QPianoRoll::updateDrag(void)
 							if (max_row_index < row_index) max_row_index = row_index;
 						}
 					}
-				//}
+					if ( row_index < rowUnderMouse )
+					{
+						row_index++;
+					}
+					else if ( row_index > rowUnderMouse )
+					{
+						row_index--;
+					}
+				}
+				// pad movie size if user tries to draw below Piano Roll limit
+				if (row_index >= currMovieData.getNumRecords())
+				{
+					currMovieData.insertEmpty(-1, row_index + 1 - currMovieData.getNumRecords());
+				}
+				column_index = columnUnderMouseAtPress;
+
+				if (row_index >= 0 && column_index >= COLUMN_JOYPAD1_A && column_index <= COLUMN_JOYPAD4_R)
+				{
+					joy = (column_index - COLUMN_JOYPAD1_A) / NUM_JOYPAD_BUTTONS;
+					bit = (column_index - COLUMN_JOYPAD1_A) % NUM_JOYPAD_BUTTONS;
+					if (dragMode == DRAG_MODE_SET && !currMovieData.records[row_index].checkBit(joy, bit))
+					{
+						currMovieData.records[row_index].setBit(joy, bit);
+						changes_made = true;
+						if (min_row_index > row_index) min_row_index = row_index;
+						if (max_row_index < row_index) max_row_index = row_index;
+					}
+					else if (dragMode == DRAG_MODE_UNSET && currMovieData.records[row_index].checkBit(joy, bit))
+					{
+						currMovieData.records[row_index].clearBit(joy, bit);
+						changes_made = true;
+						if (min_row_index > row_index) min_row_index = row_index;
+						if (max_row_index < row_index) max_row_index = row_index;
+					}
+				}
 				if (changes_made)
 				{
 					if (dragMode == DRAG_MODE_SET)
@@ -4743,8 +5638,6 @@ void QPianoRoll::updateDrag(void)
 					}
 				}
 			}
-			//drawingLastX = drawing_current_x;
-			//drawingLastY = drawing_current_y;
 			break;
 		}
 		case DRAG_MODE_SELECTION:
@@ -4803,11 +5696,15 @@ void QPianoRoll::updateDrag(void)
 			{
 				// change Deselection shape
 				if (new_drag_selection_ending_frame >= dragSelectionStartingFrame)
+				{
 					// deselecting from upper to lower
 					selection->clearRegionOfRowsSelection(dragSelectionStartingFrame, new_drag_selection_ending_frame + 1);
+				}
 				else
+				{
 					// deselecting from lower to upper
 					selection->clearRegionOfRowsSelection(new_drag_selection_ending_frame, dragSelectionStartingFrame + 1);
+				}
 				dragSelectionEndingFrame = new_drag_selection_ending_frame;
 			}
 			break;
@@ -4859,10 +5756,101 @@ void QPianoRoll::handleColumnSet(int column, bool altPressed)
 //----------------------------------------------------------------------------
 void QPianoRoll::periodicUpdate(void)
 {
-	// once per 40 milliseconds update colors alpha in the Header
-	if (clock() > nextHeaderUpdateTime)
+	// scroll Piano Roll if user is dragging cursor outside
+	if ( (dragMode != DRAG_MODE_NONE) || rightButtonDragMode)
 	{
-		nextHeaderUpdateTime = clock() + HEADER_LIGHT_UPDATE_TICK;
+		int x, y, line, col, scroll_up_threshold, scroll_down_threshold;
+		QPoint p, c;
+
+		x = mouse_x;
+		y = mouse_y;
+
+		p.setX(x);
+		p.setY(y);
+
+		c = convPixToCursor(p);
+
+		if ( c.y() >= 0 )
+		{
+			line = lineOffset + c.y();
+		}
+		else
+		{
+			line = lineOffset;
+		}
+		col =  calcColumn( c.x() );
+
+		rowUnderMouse = realRowUnderMouse = line;
+		columnUnderMouse = col;
+
+		scroll_up_threshold = pxLineSpacing;
+		scroll_down_threshold = (viewHeight - pxLineSpacing/2);
+
+		//if (dragMode != DRAG_MODE_MARKER)		// in DRAG_MODE_MARKER user can't scroll Piano Roll horizontally
+		//{
+		//	if (p.x < DRAG_SCROLLING_BORDER_SIZE)
+		//		scroll_dx = p.x - DRAG_SCROLLING_BORDER_SIZE;
+		//	else if (p.x > (wrect.right - wrect.left - DRAG_SCROLLING_BORDER_SIZE))
+		//		scroll_dx = p.x - (wrect.right - wrect.left - DRAG_SCROLLING_BORDER_SIZE);
+		//}
+		if (y < scroll_up_threshold )
+		{
+			scroll_y += (scroll_up_threshold - y);
+			
+			if ( scroll_y > pxLineSpacing )
+			{
+				int d, v = vbar->value();
+				
+				d = scroll_y / pxLineSpacing;
+
+				v -= d; scroll_y = 0;
+
+				if ( v < 0 )
+				{
+					v = 0;
+				}
+				else if ( v > maxLineOffset )
+				{
+					v = maxLineOffset;
+				}
+				vbar->setValue(v);
+			}
+		}
+		else if (y > scroll_down_threshold)
+		{
+			scroll_y += (scroll_down_threshold - y);
+
+			if ( scroll_y < -pxLineSpacing )
+			{
+				int d, v = vbar->value();
+				
+				d = scroll_y / pxLineSpacing;
+
+				v -= d; scroll_y = 0;
+
+				if ( v < 0 )
+				{
+					v = 0;
+				}
+				else if ( v > maxLineOffset )
+				{
+					v = maxLineOffset;
+				}
+				vbar->setValue(v);
+			}
+		}
+	}
+	else
+	{
+		scroll_x = scroll_y = 0;
+	}
+
+	updateDrag();
+
+	// once per 40 milliseconds update colors alpha in the Header
+	if (getTasEditorTime() > nextHeaderUpdateTime)
+	{
+		nextHeaderUpdateTime = getTasEditorTime() + HEADER_LIGHT_UPDATE_TICK;
 		bool changes_made = false;
 		int light_value = 0;
 		// 1 - update Frame# columns' heads
@@ -4914,6 +5902,7 @@ void QPianoRoll::periodicUpdate(void)
 			update();
 		}
 	}
+
 }
 //----------------------------------------------------------------------------
 void QPianoRoll::setLightInHeaderColumn(int column, int level)
@@ -4927,7 +5916,7 @@ void QPianoRoll::setLightInHeaderColumn(int column, int level)
 	{
 		headerColors[column] = level;
 		//redrawHeader();
-		nextHeaderUpdateTime = clock() + HEADER_LIGHT_UPDATE_TICK;
+		nextHeaderUpdateTime = getTasEditorTime() + HEADER_LIGHT_UPDATE_TICK;
 	}
 }
 //----------------------------------------------------------------------------
@@ -4991,6 +5980,22 @@ void QPianoRoll::followPlaybackCursor(void)
 	centerListAroundLine(currFrameCounter);
 }
 //----------------------------------------------------------------------------
+void QPianoRoll::followPlaybackCursorIfNeeded(bool followPauseframe)
+{
+	if (taseditorConfig->followPlaybackCursor)
+	{
+		if (playback->getPauseFrame() < 0)
+		{
+			ensureTheLineIsVisible( currFrameCounter );
+		}
+		else if (followPauseframe)
+		{
+			ensureTheLineIsVisible( playback->getPauseFrame() );
+		}
+	}
+}
+
+//----------------------------------------------------------------------------
 void QPianoRoll::followPauseframe(void)
 {
 	if (playback->getPauseFrame() >= 0)
@@ -5041,26 +6046,56 @@ void QPianoRoll::startDraggingPlaybackCursor(void)
 		handlePlaybackCursorDragging();
 	}
 }
+void QPianoRoll::setupMarkerDrag(void)
+{
+	if ( QApplication::mouseButtons() & Qt::LeftButton )
+	{
+		startDraggingMarker( mouse_x, mouse_y, rowUnderMouseAtPress, columnUnderMouseAtPress);
+	}
+	else
+	{
+		tasWin->lowerMarkerNote->setFocus();
+	}
+}
+
 void QPianoRoll::startDraggingMarker(int mouseX, int mouseY, int rowIndex, int columnIndex)
 {
 	if (dragMode == DRAG_MODE_NONE)
 	{
+		QColor bgColor = (taseditorConfig->bindMarkersToInput) ? QColor( BINDMARKED_FRAMENUM_COLOR ) : QColor( MARKED_FRAMENUM_COLOR );
+
+		QSize iconSize(pxWidthFrameCol, pxLineSpacing);
+
+		mkrDrag = new markerDragPopup(this);
+		mkrDrag->resize( iconSize );
+		mkrDrag->setInitialPosition( QCursor::pos() );
+
+		mkrDrag->setBgColor( bgColor );
+		mkrDrag->setRowIndex( rowIndex );
+
+		font.setItalic(true);
+		font.setBold(false);
+		mkrDrag->setFont(font);
+		font.setItalic(false);
+		font.setBold(true);
+
 		// start dragging the Marker
 		dragMode = DRAG_MODE_MARKER;
 		markerDragFrameNumber = rowIndex;
 		markerDragCountdown = MARKER_DRAG_COUNTDOWN_MAX;
-		//RECT temp_rect;
-		//if (ListView_GetSubItemRect(hwndList, rowIndex, columnIndex, LVIR_BOUNDS, &temp_rect))
-		//{
-		//	markerDragBoxDX = mouseX - temp_rect.left;
-		//	markerDragBoxDY = mouseY - temp_rect.top;
-		//} else
-		//{
-		//	markerDragBoxDX = 0;
-		//	markerDragBoxDY = 0;
-		//}
-		//// redraw the row to show that Marker was lifted
-		//redrawRow(rowIndex);
+		setCursor( Qt::ClosedHandCursor );
+
+		connect(mkrDrag, &QDialog::destroyed, this,[=]
+		{
+			if ( mkrDrag == sender() )
+			{
+				//printf("Drag Destroyed\n");
+				mkrDrag = NULL;
+			}
+		});
+		
+		mkrDrag->show();
+
 		update();
 	}
 }
@@ -5119,21 +6154,10 @@ void QPianoRoll::finishDrag(void)
 					history->registerMarkersChange(MODTYPE_MARKER_REMOVE, markerDragFrameNumber);
 					selection->mustFindCurrentMarker = playback->mustFindCurrentMarker = true;
 					// calculate vector of movement
-					//POINT p = {0, 0};
-					//GetCursorPos(&p);
-					//markerDragBoxDX = (mouse_x - markerDragBoxDX) - markerDragBoxX;
-					//markerDragBoxDY = (mouse_y - markerDragBoxDY) - markerDragBoxY;
-					//if (markerDragBoxDX || markerDragBoxDY)
-					//{
-					//	// limit max speed
-					//	double marker_drag_box_speed = sqrt((double)(markerDragBoxDX * markerDragBoxDX + markerDragBoxDY * markerDragBoxDY));
-					//	if (marker_drag_box_speed > MARKER_DRAG_MAX_SPEED)
-					//	{
-					//		markerDragBoxDX *= MARKER_DRAG_MAX_SPEED / marker_drag_box_speed;
-					//		markerDragBoxDY *= MARKER_DRAG_MAX_SPEED / marker_drag_box_speed;
-					//	}
-					//}
-					//markerDragCountdown = MARKER_DRAG_COUNTDOWN_MAX;
+					if ( mkrDrag )
+					{
+						mkrDrag->throwAway();
+					}
 				}
 				else
 				{
@@ -5150,6 +6174,7 @@ void QPianoRoll::finishDrag(void)
 								//SetFocus(selection.hwndSelectionMarkerEditField);
 								// select all text in case user wants to overwrite it
 								//SendMessage(selection.hwndSelectionMarkerEditField, EM_SETSEL, 0, -1); 
+								tasWin->lowerMarkerNote->setFocus();
 							}
 						}
 						else if (markersManager->getMarkerAtFrame(rowUnderMouse))
@@ -5184,7 +6209,19 @@ void QPianoRoll::finishDrag(void)
 								//redrawRow(rowUnderMouse);
 							}
 						}
+						if ( mkrDrag )
+						{
+							mkrDrag->dropAccept();
+						}
 					}
+					else
+					{
+						if ( mkrDrag )
+						{
+							mkrDrag->dropAbort();
+						}
+					}
+
 					//redrawRow(markerDragFrameNumber);
 					//if (hwndMarkerDragBox)
 					//{
@@ -5192,17 +6229,28 @@ void QPianoRoll::finishDrag(void)
 					//	hwndMarkerDragBox = 0;
 					//}
 				}
-			} else
+			}
+			else
 			{
 				// abort drag
+				if ( mkrDrag )
+				{
+					mkrDrag->dropAbort();
+				}
 				//if (hwndMarkerDragBox)
 				//{
 				//	DestroyWindow(hwndMarkerDragBox);
 				//	hwndMarkerDragBox = 0;
 				//}
 			}
-			break;
+			//if ( mkrDrag )
+			//{
+			//	mkrDrag->done(0);
+			//	mkrDrag->deleteLater();
+			//}
+			setCursor( Qt::ArrowCursor );
 		}
+		break;
 	}
 	dragMode = DRAG_MODE_NONE;
 	//mustCheckItemUnderMouse = true;
@@ -5210,14 +6258,18 @@ void QPianoRoll::finishDrag(void)
 //----------------------------------------------------------------------------
 void QPianoRoll::paintEvent(QPaintEvent *event)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 	int x, y, row, nrow, lineNum;
 	QPainter painter(this);
-	QColor white(255,255,255), black(0,0,0), blkColor;
+	QColor white(255,255,255), black(0,0,0), blkColor, rowTextColor, hdrGridColor;
 	static const char *buttonNames[] = { "A", "B", "S", "T", "U", "D", "L", "R", NULL };
 	char stmp[32];
 	char rowIsSel=0;
+	char rowSelArray[256];
+	int numSelRows=0;
+	QRect rect;
 
+	font.setBold(true);
 	painter.setFont(font);
 	viewWidth  = event->rect().width();
 	viewHeight = event->rect().height();
@@ -5226,9 +6278,14 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 
 	if ( nrow < 1 ) nrow = 1;
 
+	memset( rowSelArray, 0, nrow+1 );
+
 	viewLines = nrow;
 
-	maxLineOffset = currMovieData.records.size() - nrow + 5;
+	maxLineOffset = currMovieData.records.size() - nrow + 2;
+
+	vbar->setMinimum(0);
+	vbar->setMaximum(maxLineOffset);
 
 	if ( maxLineOffset < 0 )
 	{
@@ -5240,7 +6297,39 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 		vbar->show();
 	}
 
-	lineOffset = maxLineOffset - vbar->value();
+	if ( taseditorConfig->followPlaybackCursor )
+	{
+		lineOffset = vbar->value();
+
+		if ( playbackCursorPos != currFrameCounter )
+		{
+			int lineOffsetLowerLim, lineOffsetUpperLim;
+
+			playbackCursorPos = currFrameCounter;
+
+			lineOffsetLowerLim = lineOffset;
+			lineOffsetUpperLim = lineOffset + nrow - 2;
+
+			if ( playbackCursorPos < lineOffsetLowerLim )
+			{
+				lineOffset = playbackCursorPos;
+				vbar->setValue( lineOffset );
+			}
+			else if ( playbackCursorPos >= lineOffsetUpperLim )
+			{
+				lineOffset = playbackCursorPos - nrow + 3;
+				if ( lineOffset < 0 )
+				{
+					lineOffset = 0;
+				}
+				vbar->setValue( lineOffset );
+			}
+		}
+	}
+	else
+	{
+		vbar->setValue( lineOffset );
+	}
 
 	if ( lineOffset < 0 )
 	{
@@ -5250,8 +6339,6 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 	{
 		lineOffset = maxLineOffset;
 	}
-	vbar->setMinimum(0);
-	vbar->setMaximum(maxLineOffset);
 
 	painter.fillRect( 0, 0, viewWidth, viewHeight, this->palette().color(QPalette::Window) );
 
@@ -5260,14 +6347,22 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 	painter.fillRect( 0, 0, viewWidth, pxLineSpacing, windowColor );
 	painter.setPen( black );
 
-	font.setBold(true);
-	painter.setFont(font);
+	//font.setBold(true);
+	//painter.setFont(font);
 
-	x = -pxLineXScroll + pxFrameColX + (pxWidthFrameCol - 6*pxCharWidth) / 2;
+	rect = painter.fontMetrics().boundingRect( tr("Frame#") );
+
+	//x = -pxLineXScroll + pxFrameColX + (pxWidthFrameCol - 6*pxCharWidth) / 2;
+	x = -pxLineXScroll + pxFrameColX + (pxWidthFrameCol - rect.width()) / 2;
+
 	painter.drawText( x, pxLineTextOfs, tr("Frame#") );
+	
+	//rect = QRect( -pxLineXScroll + pxFrameColX, 0, pxWidthFrameCol, pxLineSpacing );
+	//painter.drawText( rect, Qt::AlignCenter, tr("Frame#") );
+	//painter.drawText( rect, Qt::AlignHCenter | Qt::AlignBottom, tr("Frame#") );
 
-	font.setBold(false);
-	painter.setFont(font);
+	//font.setBold(false);
+	//painter.setFont(font);
 
 	// Draw Grid
 	painter.drawLine( -pxLineXScroll, 0, -pxLineXScroll, viewHeight );
@@ -5299,7 +6394,7 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 		}
 		int frame_lag = greenzone->lagLog.getLagInfoAtFrame(lineNum);
 
-		rowIsSel = selection->isRowSelected( lineNum );
+		rowSelArray[row] = rowIsSel = selection->isRowSelected( lineNum );
 
 		for (int i=0; i<numCtlr; i++)
 		{
@@ -5488,24 +6583,59 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 		{
 			painter.fillRect( 0, y, viewWidth, pxLineSpacing, QColor( 10, 36, 106 ) );
 
-			painter.setPen( QColor( 255, 255, 255 ) );
+			rowTextColor = QColor( 255, 255, 255 );
+
+			numSelRows++;
 		}
 		else
 		{
-			painter.setPen( QColor(   0,   0,   0 ) );
+			rowTextColor = QColor( 0, 0, 0 );
 		}
+		painter.setPen( rowTextColor );
 
 		for (int i=0; i<numCtlr; i++)
 		{
+			int ctlrOfs, btnOfs, hotChangeVal;
 			data = currMovieData.records[ lineNum ].joysticks[i];
 
 			x = pxFrameCtlX[i] - pxLineXScroll;
 
+			ctlrOfs = i*8;
+
 			for (int j=0; j<8; j++)
 			{
+				btnOfs = ctlrOfs+j;
+
+				if (taseditorConfig->enableHotChanges)
+				{
+					hotChangeVal = history->getCurrentSnapshot().inputlog.getHotChangesInfo( lineNum, btnOfs );
+
+					if ( !rowIsSel && (hotChangeVal >= 0) && (hotChangeVal < 16) )
+					{
+						painter.setPen( hotChangesColors[hotChangeVal] );
+					}
+					else
+					{
+						painter.setPen( rowTextColor );
+					}
+				}
+				else
+				{
+					hotChangeVal = -1;
+				}
+				rect = QRect( x, y, pxWidthBtnCol, pxLineSpacing );
+
 				if ( data & (0x01 << j) )
 				{
 					painter.drawText( x + pxCharWidth, y+pxLineTextOfs, tr(buttonNames[j]) );
+					//painter.drawText( rect, Qt::AlignCenter, tr(buttonNames[j]) );
+					//painter.drawText( rect, Qt::AlignHCenter | Qt::AlignBottom, tr(buttonNames[j]) );
+				}
+				else if ( hotChangeVal > 0 )
+				{
+					painter.drawText( x + pxCharWidth, y+pxLineTextOfs, tr("-") );
+					//painter.drawText( rect, Qt::AlignCenter, tr("-") );
+					//painter.drawText( rect, Qt::AlignHCenter | Qt::AlignBottom, tr("-") );
 				}
 				x += pxWidthBtnCol;
 			}
@@ -5519,20 +6649,37 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 		//else
 		//	SelectObject(msg->nmcd.hdc, hMainListFont);
 		// bg
-		x = -pxLineXScroll + pxFrameColX + (pxWidthFrameCol - 10*pxCharWidth) / 2;
+		painter.setPen( rowTextColor );
 
-		sprintf( stmp, "%010i", lineNum );
+		//rect = QRect( -pxLineXScroll + pxFrameColX, y, pxWidthFrameCol, pxLineSpacing );
+
+		sprintf( stmp, "%07i", lineNum );
+
+		rect = painter.fontMetrics().boundingRect( tr(stmp) );
+
+		x = -pxLineXScroll + pxFrameColX + (pxWidthFrameCol - rect.width()) / 2;
 
 		if (markersManager->getMarkerAtFrame(lineNum))
 		{
-			font.setBold(true);
+			font.setItalic(true);
+			font.setBold(false);
 		}
 		else
 		{
-			font.setBold(false);
+			font.setBold(true);
+			font.setItalic(false);
 		}
 		painter.setFont(font);
 		painter.drawText( x, y+pxLineTextOfs, tr(stmp) );
+		//painter.drawText( rect, Qt::AlignCenter, tr(stmp) );
+		//painter.drawText( rect, Qt::AlignHCenter | Qt::AlignBottom, tr(stmp) );
+
+		if ( font.italic() )
+		{
+			font.setBold(true);
+			font.setItalic(false);
+			painter.setFont(font);
+		}
 
 		x = -pxLineXScroll;
 
@@ -5567,6 +6714,10 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 			{
 				iImage |= BOOKMARKS_WITH_BLUE_ARROW;
 			}
+			else
+			{
+				iImage |= BOOKMARKS_WITH_NO_ARROW;
+			}
 		}
 
 		if ( iImage >= 0 )
@@ -5577,11 +6728,26 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 		y += pxLineSpacing;
 	}
 
+	int gridBlack = gridColor.black();
+	hdrGridColor = gridColor;
+
+	if ( gridBlack < 128 )
+	{
+		hdrGridColor = QColor(128,128,128);
+	}
+
+	// Draw Grid lines
+	painter.setPen( QPen(gridColor,gridPixelWidth) );
 	x = pxFrameColX - pxLineXScroll;
 	painter.drawLine( x, 0, x, viewHeight );
 	
+	painter.setPen( QPen(hdrGridColor,gridPixelWidth) );
+	painter.drawLine( x, 0, x, pxLineSpacing );
+
 	font.setBold(true);
+	font.setItalic(false);
 	painter.setFont(font);
+
 
 	for (int i=0; i<numCtlr; i++)
 	{
@@ -5589,21 +6755,33 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 
 		for (int j=0; j<8; j++)
 		{
-			painter.setPen( QColor( 128, 128, 128 ) );
-			painter.drawLine( x, 0, x, viewHeight ); x++;
-			painter.setPen( QColor(   0,   0,   0 ) );
-			painter.drawLine( x, 0, x, viewHeight ); x--;
+			//painter.setPen( QColor( 128, 128, 128 ) );
+			//painter.drawLine( x, 0, x, viewHeight ); x++;
+			painter.setPen( QPen(gridColor,gridPixelWidth) );
+			painter.drawLine( x, 0, x, viewHeight ); //x--;
 
-			painter.setPen( headerLightsColors[ headerColors[COLUMN_JOYPAD1_A + (i*8) + j] ] );
+			painter.setPen( QPen(hdrGridColor,gridPixelWidth) );
+			painter.drawLine( x, 0, x, pxLineSpacing );
+
+			rect = QRect( x, 0, pxWidthBtnCol, pxLineSpacing );
+			painter.setPen( QPen(headerLightsColors[ headerColors[COLUMN_JOYPAD1_A + (i*8) + j] ],1) );
 			painter.drawText( x + pxCharWidth, pxLineTextOfs, tr(buttonNames[j]) );
+			//painter.drawText( rect, Qt::AlignCenter, tr(buttonNames[j]) );
+			//painter.drawText( rect, Qt::AlignHCenter | Qt::AlignBottom, tr(buttonNames[j]) );
 
 			x += pxWidthBtnCol;
 		}
-		painter.setPen( QColor( 128, 128, 128 ) );
-		painter.drawLine( x, 0, x, viewHeight ); x++;
-		painter.setPen( QColor(   0,   0,   0 ) );
+		//painter.setPen( QColor( 128, 128, 128 ) );
+		//painter.drawLine( x, 0, x, viewHeight ); x++;
+		painter.setPen( QPen(gridColor,gridPixelWidth) );
 		painter.drawLine( x, 0, x, viewHeight );
+
+		painter.setPen( QPen(hdrGridColor,gridPixelWidth) );
+		painter.drawLine( x, 0, x, pxLineSpacing );
+
 	}
+	painter.setPen( QPen(gridColor,gridPixelWidth) );
+
 	y = 0;
 	for (int i=0; i<nrow; i++)
 	{
@@ -5611,29 +6789,95 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 		
 		y += pxLineSpacing;
 	}
+
+	painter.setPen( QPen(hdrGridColor,gridPixelWidth) );
+	painter.drawLine( 0, 0, viewWidth, 0 );
+	painter.drawLine( 0, pxLineSpacing, viewWidth, pxLineSpacing );
+
+	// Draw grid lines for selections
+	if ( numSelRows > 0 )
+	{
+		int inv;
+		QColor invGrid;
+
+		inv = gridColor.black();
+
+		if ( inv < 128 )
+		{
+			inv = 255 - inv;
+		}
+
+		invGrid.setRed( inv );
+		invGrid.setGreen( inv );
+		invGrid.setBlue( inv );
+
+		painter.setPen( QPen(invGrid,gridPixelWidth) );
+
+		y = pxLineSpacing;
+
+		for (row=0; row<nrow; row++)
+		{
+			if ( rowSelArray[row] )
+			{
+				int yl = y + pxLineSpacing;
+
+				x = pxFrameColX - pxLineXScroll;
+				painter.drawLine( x, y, x, yl );
+
+				for (int i=0; i<numCtlr; i++)
+				{
+					x = pxFrameCtlX[i] - pxLineXScroll;
+
+					for (int j=0; j<8; j++)
+					{
+						painter.drawLine( x, y, x, yl );
+
+						x += pxWidthBtnCol;
+					}
+				}
+				painter.drawLine( x, y, x, yl );
+				painter.drawLine( 0, y , viewWidth, y  );
+				painter.drawLine( 0, yl, viewWidth, yl );
+			}
+			y += pxLineSpacing;
+		}
+		painter.setPen( QPen(gridColor,gridPixelWidth) );
+	}
+
 	font.setBold(false);
 	painter.setFont(font);
-
-
 }
 //----------------------------------------------------------------------------
 //----------------------------------------------------------------------------
 //---- Bookmark Preview Popup
 //----------------------------------------------------------------------------
 //----------------------------------------------------------------------------
+bookmarkPreviewPopup *bookmarkPreviewPopup::instance = 0;
+//----------------------------------------------------------------------------
 bookmarkPreviewPopup::bookmarkPreviewPopup( int index, QWidget *parent )
-	: fceuCustomToolTip( parent )
+	: QDialog( parent, Qt::ToolTip )
 {
 	int p;
+	QPoint pos;
 	QVBoxLayout *vbox;
-	QLabel *imgLbl, *descLbl;
 	uint32_t *pixBuf;
 	uint32_t  pixel;
 	QPixmap pixmap;
 
-	setHideOnMouseMove(true);
+	if ( instance )
+	{
+		//instance->done(0);
+		//instance->deleteLater();
+		instance->actv = false;
+		instance = 0;
+	}
+	instance = this;
 
-	fceuWrapperLock();
+	imageIndex = index;
+
+	//qApp->installEventFilter(this);
+
+	//FCEU_WRAPPER_LOCK();
 
 	// retrieve info from the pointed bookmark's Markers
 	int frame = bookmarks->bookmarksArray[index].snapshot.keyFrame;
@@ -5687,16 +6931,115 @@ bookmarkPreviewPopup::bookmarkPreviewPopup( int index, QWidget *parent )
 	{
 		free( pixBuf ); pixBuf = NULL;
 	}
-	fceuWrapperUnLock();
+
+	pos = tasWin->getPreviewPopupCoordinates();
+
+	pos.setX( pos.x() - 300 );
+
+	move(pos);
+
+	//FCEU_WRAPPER_UNLOCK();
+
+	alpha = 0;
+	actv  = true;
+
+	setWindowOpacity(0.0f);
+
+	timer = new QTimer(this);
+
+	connect( timer, &QTimer::timeout, this, &bookmarkPreviewPopup::periodicUpdate );
+
+	timer->start(33);
+
 }
 //----------------------------------------------------------------------------
 bookmarkPreviewPopup::~bookmarkPreviewPopup( void )
 {
+	timer->stop();
+
 	if ( screenShotRaster != NULL )
 	{
 		free( screenShotRaster ); screenShotRaster = NULL;
 	}
 	//printf("Popup Deleted\n");
+}
+//----------------------------------------------------------------------------
+void bookmarkPreviewPopup::periodicUpdate(void)
+{
+	if ( actv )
+	{
+		if ( alpha < 255 )
+		{
+			alpha += 25;
+
+			if ( alpha > 255 )
+			{
+				alpha = 255;
+			}
+			setWindowOpacity( alpha / 255.0f );
+
+			update();
+		}
+	}
+	else
+	{
+		if ( alpha > 0 )
+		{
+			alpha -= 25;
+
+			if ( alpha < 0 )
+			{
+				alpha = 0;
+			}
+			setWindowOpacity( alpha / 255.0f );
+
+			update();
+		}
+		else
+		{
+			if ( instance == this )
+			{
+				instance = NULL;
+			}
+			done(0);
+			deleteLater();
+		}
+	}
+}
+//----------------------------------------------------------------------------
+bookmarkPreviewPopup *bookmarkPreviewPopup::currentInstance(void)
+{
+	return instance;
+}
+//----------------------------------------------------------------------------
+int bookmarkPreviewPopup::currentIndex(void)
+{
+	if ( instance )
+	{
+		return instance->imageIndex;
+	}
+	return -1;
+}
+//----------------------------------------------------------------------------
+void bookmarkPreviewPopup::imageIndexChanged(int newIndex)
+{
+	FCEU_CRITICAL_SECTION(emuLock);
+	//printf("newIndex:%i\n", newIndex );
+
+	if ( newIndex >= 0 )
+	{
+		reloadImage(newIndex);
+		actv = true;
+	}
+	else
+	{
+		actv = false;
+	}
+
+	//if ( instance == this )
+	//{
+	//	instance = NULL;
+	//}
 }
 //----------------------------------------------------------------------------
 int bookmarkPreviewPopup::loadImage(int index)
@@ -5713,6 +7056,58 @@ int bookmarkPreviewPopup::loadImage(int index)
 		memset(screenShotRaster, 0, SCREENSHOT_SIZE);
 		ret = -1;
 	}
+	return ret;
+}
+//----------------------------------------------------------------------------
+int bookmarkPreviewPopup::reloadImage(int index)
+{
+	int p, ret = 0;
+	uint32_t *pixBuf;
+	uint32_t  pixel;
+	QPixmap pixmap;
+
+	if ( index == imageIndex )
+	{	// no change
+		return 0;
+	}
+	actv = true;
+	imageIndex = index;
+
+	// retrieve info from the pointed bookmark's Markers
+	int frame = bookmarks->bookmarksArray[index].snapshot.keyFrame;
+	int markerID = markersManager->getMarkerAboveFrame(bookmarks->bookmarksArray[index].snapshot.markers, frame);
+
+	pixBuf = (uint32_t *)malloc( SCREENSHOT_SIZE * sizeof(uint32_t) );
+
+	loadImage(index);
+
+	p=0;
+	for (int h=0; h<SCREENSHOT_HEIGHT; h++)
+	{
+		for (int w=0; w<SCREENSHOT_WIDTH; w++)
+		{
+			pixel = ModernDeemphColorMap( &screenShotRaster[p], screenShotRaster, 1 );
+			pixBuf[p]  = 0xFF000000;
+			pixBuf[p] |= (pixel & 0x000000FF) << 16;
+			pixBuf[p] |= (pixel & 0x00FF0000) >> 16;
+			pixBuf[p] |= (pixel & 0x0000FF00);
+			p++;
+		}
+	}
+	QImage img( (unsigned char*)pixBuf, SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH*4, QImage::Format_RGBA8888 );
+	pixmap.convertFromImage( img );
+
+	if ( pixBuf )
+	{
+		free( pixBuf ); pixBuf = NULL;
+	}
+
+	imgLbl->setPixmap( pixmap );
+
+	descLbl->setText( tr(markersManager->getNoteCopy(bookmarks->bookmarksArray[index].snapshot.markers, markerID).c_str()) );
+
+	update();
+
 	return ret;
 }
 //----------------------------------------------------------------------------
@@ -5835,7 +7230,8 @@ void TasFindNoteWindow::findNextClicked(void)
 	{
 		return;
 	}
-	strncpy( markersManager->findNoteString, searchPattern->text().toStdString().c_str(), MAX_NOTE_LEN );
+	strncpy( markersManager->findNoteString, searchPattern->text().toStdString().c_str(), MAX_NOTE_LEN-1 );
+	markersManager->findNoteString[MAX_NOTE_LEN-1] = 0;
 
 	// scan frames from current Selection to the border
 	int cur_marker = 0;
@@ -5925,5 +7321,252 @@ void TasRecentProjectAction::activateCB(void)
 	{
 		tasWin->loadProject( path.c_str() );
 	}
+}
+//----------------------------------------------------------------------------
+//---- Marker Drag
+//----------------------------------------------------------------------------
+markerDragPopup::markerDragPopup(QWidget *parent)
+	: QDialog( parent, Qt::ToolTip )
+{
+	rowIndex = 0;
+	alpha = 255;
+	bgColor = QColor( 255,255,255 );
+	liveCount = 30;
+
+	qApp->installEventFilter(this);
+
+	timer = new QTimer(this);
+
+	connect( timer, &QTimer::timeout, this, &markerDragPopup::fadeAway );
+
+	timer->start(33);
+
+	released = false;
+	thrownAway = false;
+	dropAborted = false;
+	dropAccepted = false;
+}
+//----------------------------------------------------------------------------
+markerDragPopup::~markerDragPopup(void)
+{
+
+}
+//----------------------------------------------------------------------------
+void markerDragPopup::setRowIndex( int row )
+{
+	rowIndex = row;
+}
+//----------------------------------------------------------------------------
+void markerDragPopup::setBgColor( QColor c )
+{
+	bgColor = c;
+}
+//----------------------------------------------------------------------------
+void markerDragPopup::setInitialPosition( QPoint p )
+{
+	initialPos = p;
+
+	move( initialPos );
+}
+//----------------------------------------------------------------------------
+void markerDragPopup::throwAway(void)
+{
+	thrownAway = true;
+}
+//----------------------------------------------------------------------------
+void markerDragPopup::dropAccept(void)
+{
+	dropAccepted = true;
+}
+//----------------------------------------------------------------------------
+void markerDragPopup::dropAbort(void)
+{
+	dropAborted = true;
+}
+//----------------------------------------------------------------------------
+void markerDragPopup::fadeAway(void)
+{
+
+	if ( released )
+	{
+		if ( thrownAway )
+		{
+			QPoint p = pos();
+			//printf("Fade:%i\n", alpha);
+
+			p.setY( p.y() + 2 );
+
+			move(p);
+
+			if ( alpha > 0 )
+			{
+				alpha -= 10;
+
+				if ( alpha < 0 )
+				{
+					alpha = 0;
+				}
+			}
+			else
+			{
+				done(0);
+				deleteLater();
+			}
+			setWindowOpacity( alpha / 255.0f );
+
+			update();
+		}
+		else if ( dropAborted )
+		{
+			QPoint p = pos();
+			int vx, vy, vm = 10;
+
+			vx = initialPos.x() - p.x();
+
+			if ( vx < -vm )
+			{
+				vx = -vm;
+			}
+			else if ( vx > vm )
+			{
+				vx = vm;
+			}
+
+			vy = initialPos.y() - p.y();
+
+			if ( vy < -vm )
+			{
+				vy = -vm;
+			}
+			else if ( vy > vm )
+			{
+				vy = vm;
+			}
+
+			p.setX( p.x() + vx );
+			p.setY( p.y() + vy );
+
+			if ( (vx == 0) && (vy == 0) )
+			{
+				done(0);
+				deleteLater();
+			}
+			else
+			{
+				move(p);
+			}
+		}
+		else if ( dropAccepted )
+		{
+			done(0);
+			deleteLater();
+		}
+		else
+		{
+			if ( liveCount > 0 )
+			{
+				liveCount--;
+			}
+			if ( liveCount == 0 )
+			{
+				done(0);
+				deleteLater();
+			}
+		}
+	}
+}
+//----------------------------------------------------------------------------
+void markerDragPopup::paintEvent(QPaintEvent *event)
+{
+	int w,h;
+	QPainter painter(this);
+	char txt[32];
+
+	w = event->rect().width();
+	h = event->rect().height();
+
+	sprintf( txt, "%07i", rowIndex );
+
+	//painter.setFont(font);
+	//I want to make the title bar pasted on the content
+	//But you can't get the image of the default title bar, just draw a rectangular box
+	//If the external theme color is set, you need to change it
+	QRect title_rect{0,0,w,h};
+	painter.fillRect(title_rect,bgColor);
+	painter.drawText(title_rect,Qt::AlignCenter, txt);
+	//painter.drawText(title_rect,Qt::AlignHCenter | Qt::AlignBottom, txt);
+	//painter.drawRect(pixmap.rect().adjusted(0,0,-1,-1));
+}
+//----------------------------------------------------------------------------
+bool markerDragPopup::eventFilter( QObject *obj, QEvent *event)
+{
+	//printf("Event:%i   %p\n", event->type(), obj);
+	switch (event->type() )
+	{
+		case QEvent::MouseMove:
+		{
+			if ( !released )
+			{
+				move( QCursor::pos() );
+			}
+			break;
+		}
+		case QEvent::MouseButtonRelease:
+		{
+			released = true;
+			break;
+		}
+		default:
+			// Ignore
+		break;
+	}
+	return false;
+}
+//----------------------------------------------------------------------------
+//---- TAS Window Main Horizontal Splitter
+//----------------------------------------------------------------------------
+TasEditorSplitter::TasEditorSplitter( QWidget *parent )
+	: QSplitter( Qt::Horizontal, parent )
+{
+	panelInitDone = false;
+}
+//----------------------------------------------------------------------------
+TasEditorSplitter::~TasEditorSplitter(void)
+{
+
+}
+//----------------------------------------------------------------------------
+void TasEditorSplitter::resizeEvent(QResizeEvent *event)
+{
+       	int minWidth;
+	//int widthDelta;
+	QList<int> panelWidth;
+
+	//printf("Panel Resize\n");
+	if ( !panelInitDone )
+	{
+		QSplitter::resizeEvent(event);
+		panelInitDone = true;
+		return;
+	}
+	//widthDelta = event->size().width() - event->oldSize().width();
+
+	panelWidth = sizes();
+
+
+	//for (int i=0; i<panelWidth.count(); i++)
+	//{
+	//	printf("Panel %i: %i\n", i, panelWidth[i] );
+	//}
+	panelWidth[0] = event->size().width() - panelWidth[1] - handleWidth();
+	//panelWidth[0] += widthDelta;
+
+	minWidth = widget(0)->minimumWidth();
+
+	if ( panelWidth[0] < minWidth )
+	{
+		panelWidth[0] = minWidth;
+	}
+	setSizes( panelWidth );
 }
 //----------------------------------------------------------------------------

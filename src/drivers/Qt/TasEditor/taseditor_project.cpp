@@ -16,6 +16,10 @@ Project - Manager of working project
 * stores resources: autosave period scale, default filename, fm3 format offsets
 ------------------------------------------------------------------------------------ */
 
+#include <QMessageBox>
+#include <QProgressDialog>
+#include <QGuiApplication>
+
 #include "fceu.h"
 #include "movie.h"
 #include "driver.h"
@@ -24,24 +28,13 @@ Project - Manager of working project
 #include "Qt/TasEditor/taseditor_project.h"
 #include "Qt/TasEditor/TasEditorWindow.h"
 
-//extern TASEDITOR_CONFIG taseditorConfig;
-//extern TASEDITOR_WINDOW taseditorWindow;
-//extern MARKERS_MANAGER markersManager;
-//extern BOOKMARKS bookmarks;
-//extern POPUP_DISPLAY popupDisplay;
-//extern GREENZONE greenzone;
-//extern PLAYBACK playback;
-//extern RECORDER recorder;
-//extern HISTORY history;
-//extern PIANO_ROLL pianoRoll;
-//extern SELECTION selection;
-//extern SPLICER splicer;
-
 extern FCEUGI *GameInfo;
 
 extern void FCEU_PrintError(const char *format, ...);
 extern bool saveProject(bool save_compact = false);
 extern bool saveProjectAs(bool save_compact = false);
+
+static QProgressDialog *progressDialog = NULL;
 
 TASEDITOR_PROJECT::TASEDITOR_PROJECT()
 {
@@ -63,7 +56,7 @@ void TASEDITOR_PROJECT::reset()
 void TASEDITOR_PROJECT::update()
 {
 	// if it's time to autosave - pop Save As dialog
-	if (changed && /*taseditorWindow.TASEditorIsInFocus &&*/ taseditorConfig->autosaveEnabled && !projectFile.empty() && clock() >= nextSaveShedule /*&& pianoRoll.dragMode == DRAG_MODE_NONE*/)
+	if (changed && /*taseditorWindow.TASEditorIsInFocus &&*/ taseditorConfig->autosaveEnabled && !projectFile.empty() && getTasEditorTime() >= nextSaveShedule /*&& pianoRoll.dragMode == DRAG_MODE_NONE*/)
 	{
 		if (taseditorConfig->autosaveSilent)
 		{
@@ -106,38 +99,54 @@ bool TASEDITOR_PROJECT::save(const char* differentName, bool inputInBinary, bool
 		if (count1 && count2)
 		{
 			// ask user if he wants to fix the checksum before saving
-			char message[2048] = {0};
-			strcpy(message, "Movie ROM:\n");
-			strncat(message, currMovieData.romFilename.c_str(), 2047 - strlen(message));
-			strncat(message, "\nMD5: ", 2047 - strlen(message));
-			strncat(message, md5OfMovie, 2047 - strlen(message));
-			strncat(message, "\n\nCurrent ROM:\n", 2047 - strlen(message));
-			strncat(message, GameInfo->filename, 2047 - strlen(message));
-			strncat(message, "\nMD5: ", 2047 - strlen(message));
-			strncat(message, md5OfRom, 2047 - strlen(message));
-			strncat(message, "\n\nFix the movie header before saving? ", 2047 - strlen(message));
-			//int answer = MessageBox(taseditorWindow.hwndTASEditor, message, "ROM Checksum Mismatch", MB_YESNOCANCEL);
-			//if (answer == IDCANCEL)
-			//{
-			//	// cancel saving
-			//	return false;
-			//} else if (answer == IDYES)
-			//{
+			std::string message;
+			message.assign("Movie ROM:\n");
+			message.append(currMovieData.romFilename.c_str());
+			message.append("\nMD5: ");
+			message.append(md5OfMovie);
+			message.append("\n\nCurrent ROM:\n");
+			message.append(GameInfo->filename);
+			message.append("\nMD5: ");
+			message.append(md5OfRom);
+			message.append("\n\nFix the movie header before saving? ");
+
+			int ans = QMessageBox::warning( tasWin, QObject::tr("ROM Checksum Mismatch"), QObject::tr(message.c_str()), QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Cancel );
+
+			if ( QMessageBox::Cancel == ans )
+			{	// cancel saving
+				return false;
+			}
+			else if ( QMessageBox::Yes == ans )
+			{
 				// change ROM data in the movie to current ROM
 				currMovieData.romFilename = GameInfo->filename;
 				currMovieData.romChecksum = GameInfo->MD5;
-			//}
+			}
 		}
 	}
 	// open file for write
 	EMUFILE_FILE* ofs = 0;
 	if (differentName)
+	{
 		ofs = FCEUD_UTF8_fstream(differentName, "wb");
+	}
 	else
+	{
 		ofs = FCEUD_UTF8_fstream(getProjectFile().c_str(), "wb");
+	}
 	if (ofs)
 	{
+		progressDialog = new QProgressDialog( QObject::tr("Saving TAS Project"), QObject::tr("Cancel"), 0, 100, tasWin );
+		progressDialog->setWindowModality(Qt::WindowModal);
+		progressDialog->setWindowTitle( QObject::tr("Saving TAS Project") );
+		progressDialog->setAutoReset(false);
+		progressDialog->setAutoClose(false);
+		progressDialog->setMinimumDuration(500);
+		progressDialog->setValue(0);
+
 		// change cursor to hourglass
+		QGuiApplication::setOverrideCursor( QCursor(Qt::BusyCursor) );
+
 		//SetCursor(LoadCursor(0, IDC_WAIT));
 		// save fm2 data to the project file
 		currMovieData.loadFrameCount = currMovieData.records.size();
@@ -185,11 +194,21 @@ bool TASEDITOR_PROJECT::save(const char* differentName, bool inputInBinary, bool
 		playback->updateProgressbar();
 		// also set project.changed to false, unless it was SaveCompact
 		if (!differentName)
+		{
 			reset();
+		}
 		// restore cursor
+
+		if ( progressDialog )
+		{
+			delete progressDialog; progressDialog = NULL;
+		}
+		QGuiApplication::restoreOverrideCursor();
+
 		//taseditorWindow.mustUpdateMouseCursor = true;
 		return true;
-	} else
+	}
+	else
 	{
 		return false;
 	}
@@ -226,21 +245,26 @@ bool TASEDITOR_PROJECT::load(const char* fullName)
 			for(k = 0; k < strlen(md5OfCurrent); k++) count2 += md5OfCurrent[k] - '0';
 			if (count1 && count2)
 			{
+				int ret;
 				// ask user if he really wants to load the project
-				char message[2048] = {0};
-				strcpy(message, "This project was made using different ROM!\n\n");
-				strcat(message, "Original ROM:\n");
-				strncat(message, tempMovieData.romFilename.c_str(), 2047 - strlen(message));
-				strncat(message, "\nMD5: ", 2047 - strlen(message));
-				strncat(message, md5OfOriginal, 2047 - strlen(message));
-				strncat(message, "\n\nCurrent ROM:\n", 2047 - strlen(message));
-				strncat(message, GameInfo->filename, 2047 - strlen(message));
-				strncat(message, "\nMD5: ", 2047 - strlen(message));
-				strncat(message, md5OfCurrent, 2047 - strlen(message));
-				strncat(message, "\n\nLoad the project anyway?", 2047 - strlen(message));
-				//int answer = MessageBox(taseditorWindow.hwndTASEditor, message, "ROM Checksum Mismatch", MB_YESNO);
-				//if (answer == IDNO)
-				//	return false;
+				std::string message;
+				message.assign("This project was made using different ROM!\n\n");
+				message.append("Original ROM:\n");
+				message.append(tempMovieData.romFilename.c_str());
+				message.append("\nMD5: ");
+				message.append(md5OfOriginal);
+				message.append("\n\nCurrent ROM:\n");
+				message.append(GameInfo->filename);
+				message.append("\nMD5: ");
+				message.append(md5OfCurrent);
+				message.append("\n\nLoad the project anyway?");
+				
+				ret = QMessageBox::warning( tasWin, QObject::tr("ROM Checksum Mismatch"), QObject::tr(message.c_str()), QMessageBox::Yes | QMessageBox::No, QMessageBox::No );
+
+				if ( QMessageBox::No == ret )
+				{
+					return false;
+				}
 			}
 		}
 		taseditorDataOffset = ifs.ftell();
@@ -250,33 +274,46 @@ bool TASEDITOR_PROJECT::load(const char* fullName)
 		{
 			if (projectFileVersion != PROJECT_FILE_CURRENT_VERSION)
 			{
-				char message[2048] = {0};
-				strcpy(message, "This project was saved using different version of TAS Editor!\n\n");
-				strcat(message, "Original version: ");
+				int ret;
+				std::string message;
+				message.assign("This project was saved using different version of TAS Editor!\n\n");
+				message.append("Original version: ");
 				char versionNum[16];
 				sprintf( versionNum, "%u", projectFileVersion);
-				strncat(message, versionNum, 2047 - strlen(message));
-				strncat(message, "\nCurrent version: ", 2047 - strlen(message));
+				message.append(versionNum);
+				message.append("\nCurrent version: ");
 				sprintf( versionNum, "%i", PROJECT_FILE_CURRENT_VERSION);
-				strncat(message, versionNum, 2047 - strlen(message));
-				strncat(message, "\n\nClick Yes to try loading all data from the file (may crash).\n", 2047 - strlen(message));
-				strncat(message, "Click No to only load movie data.\n", 2047 - strlen(message));
-				strncat(message, "Click Cancel to abort loading.", 2047 - strlen(message));
-				//int answer = MessageBox(taseditorWindow.hwndTASEditor, message, "FM3 Version Mismatch", MB_YESNOCANCEL);
-				//if (answer == IDCANCEL)
-				//	return false;
-				//else if (answer == IDNO)
-				//	loadAll = false;
+				message.append(versionNum);
+				message.append("\n\nClick Yes to try loading all data from the file (may crash).\n");
+				message.append("Click No to only load movie data.\n");
+				message.append("Click Cancel to abort loading.");
+				
+				ret = QMessageBox::warning( tasWin, QObject::tr("FM3 Version Mismatch"), QObject::tr(message.c_str()), QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::No );
+
+				if ( QMessageBox::Cancel == ret )
+				{
+					return false;
+				}
+				else if ( QMessageBox::No == ret )
+				{
+					loadAll = false;
+				}
 			}
-		} else
+		}
+		else
 		{
+			int ret;
 			// couldn't even load header, this seems like an FM2
 			loadAll = false;
-			char message[2048];
-			strcpy(message, "This file doesn't seem to be an FM3 project.\nIt only contains FM2 movie data. Load it anyway?");
-			//int answer = MessageBox(taseditorWindow.hwndTASEditor, message, "Opening FM2 file", MB_YESNO);
-			//if (answer == IDNO)
-			//	return false;
+			std::string message;
+			message.assign("This file doesn't seem to be an FM3 project.\nIt only contains FM2 movie data. Load it anyway?");
+
+			ret = QMessageBox::warning( tasWin, QObject::tr("Opening FM2 file"), QObject::tr(message.c_str()), QMessageBox::Yes | QMessageBox::No, QMessageBox::No );
+
+			if ( QMessageBox::No == ret )
+			{
+				return false;
+			}
 		}
 		// save data to currMovieData and continue loading
 		FCEU_printf("\nLoading TAS Editor project %s...\n", fullName);
@@ -284,12 +321,24 @@ bool TASEDITOR_PROJECT::load(const char* fullName)
 		LoadSubtitles(currMovieData);
 		// ensure that movie has correct set of ports/fourscore
 		setInputType(currMovieData, getInputType(currMovieData));
-	} else
+	}
+	else
 	{
 		FCEU_PrintError("Error loading movie data from %s!", fullName);
 		// do not alter the project
 		return false;
 	}
+
+	progressDialog = new QProgressDialog( QObject::tr("Loading TAS Project"), QObject::tr("Cancel"), 0, 100, tasWin );
+	progressDialog->setWindowModality(Qt::WindowModal);
+	progressDialog->setWindowTitle( QObject::tr("Loading TAS Project") );
+	progressDialog->setAutoReset(false);
+	progressDialog->setAutoClose(false);
+	progressDialog->setMinimumDuration(500);
+	progressDialog->setValue(0);
+
+	// change cursor to hourglass
+	QGuiApplication::setOverrideCursor( QCursor(Qt::BusyCursor) );
 
 	unsigned int savedStuff = 0;
 	unsigned int numberOfPointers = 0;
@@ -335,24 +384,30 @@ bool TASEDITOR_PROJECT::load(const char* fullName)
 		else
 			dataOffset = 0;
 		selection->load(&ifs, dataOffset);
-	} else
+	}
+	else
 	{
 		// reset modules
 		markersManager->load(&ifs, 0);
 		bookmarks->load(&ifs, 0);
 		greenzone->load(&ifs, 0);
 		history->load(&ifs, 0);
-		//pianoRoll.load(&ifs, 0);
+		tasWin->pianoRoll->load(&ifs, 0);
 		selection->load(&ifs, 0);
 	}
 	// reset other modules
 	playback->reset();
 	recorder->reset();
 	splicer->reset();
-	//popupDisplay.reset();
 	reset();
 	renameProject(fullName, loadAll);
+
+	if ( progressDialog )
+	{
+		delete progressDialog; progressDialog = NULL;
+	}
 	// restore mouse cursor shape
+	QGuiApplication::restoreOverrideCursor();
 	//taseditorWindow.mustUpdateMouseCursor = true;
 	return true;
 }
@@ -403,7 +458,7 @@ bool TASEDITOR_PROJECT::getProjectChanged()
 
 void TASEDITOR_PROJECT::sheduleNextAutosave()
 {
-	nextSaveShedule = clock() + taseditorConfig->autosavePeriod * AUTOSAVE_PERIOD_SCALE;
+	nextSaveShedule = getTasEditorTime() + taseditorConfig->autosavePeriod * AUTOSAVE_PERIOD_SCALE;
 }
 
 
@@ -446,4 +501,27 @@ void setInputType(MovieData& md, int newInputType)
 	{
 		taseditorConfig->lastExportedInputType = newInputType;
 	}
+}
+
+void setTasProjectProgressBarText( const char *txt )
+{
+	if ( progressDialog )
+	{
+		progressDialog->setLabelText( QObject::tr(txt) );
+	}
+}
+
+void setTasProjectProgressBar( int cur, int max )
+{
+	if ( progressDialog )
+	{
+		//printf("Set Progress %i / %i \n", cur, max );
+
+		if ( max != progressDialog->maximum() )
+		{
+			progressDialog->setMaximum(max);
+		}
+		progressDialog->setValue(cur);
+	}
+	//usleep(100000); // Uncomment to slow down save/load progress for debug purposes
 }

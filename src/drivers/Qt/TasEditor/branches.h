@@ -5,9 +5,11 @@
 #include <vector>
 
 #include <QFont>
+#include <QRect>
+#include <QTimer>
 #include <QWidget>
 
-#define BRANCHES_ANIMATION_TICK (40 * CLOCKS_PER_SEC / 1000)	// animate at 25FPS
+#define BRANCHES_ANIMATION_TICK (40)	// animate at 25FPS
 #define BRANCHES_TRANSITION_MAX 12
 #define CURSOR_MIN_DISTANCE 1.0
 #define CURSOR_MAX_DISTANCE 256.0
@@ -32,16 +34,18 @@
 #define BRANCHES_CLOUD_X 14
 #define BRANCHES_CLOUD_Y 72
 #define BRANCHES_GRID_MIN_WIDTH 14
-#define BRANCHES_GRID_MAX_WIDTH 30
+//#define BRANCHES_GRID_MAX_WIDTH 30
+#define BRANCHES_GRID_MAX_WIDTH 40
 #define MIN_CLOUD_LINE_LENGTH 19
 #define MIN_CLOUD_X 12
 #define BASE_HORIZONTAL_SHIFT 10
 #define BRANCHES_GRID_MIN_HALFHEIGHT 8
-#define BRANCHES_GRID_MAX_HALFHEIGHT 12
+#define BRANCHES_GRID_MAX_HALFHEIGHT 32
+//#define BRANCHES_GRID_MAX_HALFHEIGHT 12
 #define EMPTY_BRANCHES_X_BASE 4
 #define EMPTY_BRANCHES_Y_BASE 9
 #define EMPTY_BRANCHES_Y_FACTOR 14
-#define MAX_NUM_CHILDREN_ON_CANVAS_HEIGHT 9
+#define MAX_NUM_CHILDREN_ON_CANVAS_HEIGHT 12 // 9
 #define MAX_CHAIN_LEN 10
 #define MAX_GRID_Y_POS 8
 // spritesheet
@@ -113,6 +117,7 @@ public:
 	void resetVars();
 	void update();
 
+	void setFont( QFont &font );
 	void save(EMUFILE *os);
 	bool load(EMUFILE *is);
 
@@ -142,9 +147,13 @@ public:
 
 protected:
 	void paintEvent(QPaintEvent *event);
+	void resizeEvent(QResizeEvent *event);
 	void mousePressEvent(QMouseEvent * event);
 	void mouseReleaseEvent(QMouseEvent * event);
 	void mouseMoveEvent(QMouseEvent * event);
+	void mouseDoubleClickEvent(QMouseEvent * event);
+	void focusOutEvent(QFocusEvent *event);
+	void leaveEvent(QEvent *event);
 	bool event(QEvent *event);
 
 private:
@@ -170,7 +179,7 @@ private:
 	// not saved vars
 	int transitionPhase;
 	int currentAnimationFrame;
-	int nextAnimationTime;
+	uint64_t nextAnimationTime;
 	int playbackCursorX, playbackCursorY;
 	double cornersCursorX, cornersCursorY;
 	std::vector<int> branchX;				// in pixels
@@ -180,21 +189,16 @@ private:
 	std::vector<int> branchCurrentX;
 	std::vector<int> branchCurrentY;
 	int cloudX, cloudPreviousX, cloudCurrentX;
+	int cloudY, cloudPreviousY, cloudCurrentY;
 	int fireballSize;
 	int lastItemUnderMouse;
 
-	// GDI stuff
-	//HBRUSH normalBrush, borderBrush, selectedSlotBrush;
-	//RECT tempRect;
-	//HPEN normalPen, timelinePen, selectPen;
-	//HBITMAP hBranchesBitmap, hOldBitmap, hBufferBitmap, hOldBitmap1, hBranchesSpritesheet, hOldBitmap2;
-	//HDC hBitmapDC, hBufferDC, hSpritesheetDC;
-	//TRIVERTEX vertex[2];
-	//GRADIENT_RECT gRect;
-	//RECT branchesBitmapRect;
-	
 	QFont font;
+	QTimer *imageTimer;
+	QRect   viewRect;
+	QRect   box[TOTAL_BOOKMARKS];
 
+	int  imageItem;
 	int  viewWidth;
 	int  viewHeight;
 	int  pxCharWidth;
@@ -204,10 +208,24 @@ private:
 	int  pxBoxHeight;
 	int  pxSelWidth;
 	int  pxSelHeight;
+	int  pxMinGridWidth;
+	int  pxMaxGridWidth;
+	int  pxGridWidth;
+	int  pxMinGridHalfHeight;
+	int  pxMaxGridHalfHeight;
+	int  pxGridHalfHeight;
+	int  pxTextOffsetX;
+	int  pxTextOffsetY;
 
 	// temps
 	std::vector<int> gridX;				// measured in grid units, not in pixels
 	std::vector<int> gridY;
 	std::vector<int> gridHeight;
 	std::vector<std::vector<uint8_t>> children;
+
+	private slots:
+		void showImage(void);
+
+	signals:
+		void imageIndexChanged(int);
 };

@@ -20,16 +20,13 @@ Bookmark - Single Bookmark data
 #include "Qt/TasEditor/taseditor_project.h"
 #include "Qt/TasEditor/TasEditorWindow.h"
 
-//extern TASEDITOR_CONFIG taseditorConfig;
-//extern GREENZONE greenzone;
-//extern HISTORY history;
-
 extern uint8 *XBuf;
 extern uint8 *XBackBuf;
 
 BOOKMARK::BOOKMARK()
 {
 	notEmpty = false;
+	flashType = flashPhase = floatingPhase = 0;
 }
 
 void BOOKMARK::init()
