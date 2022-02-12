@@ -327,12 +327,13 @@ ifeq ($(PERF),no)
 	@$(BINDIR)/mipsel-linux-strip bin/$(TARGET)
 endif
 endif
-	@mksquashfs bin/$(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png $(MANUAL) $(SYSTEM_DESKTOP) bin/$(OPK_TARGET).opk -all-root -no-xattrs -noappend -no-exports
+	@mksquashfs bin/$(TARGET) src/drivers/dingux-sdl/gui/*.bmp opk/fceux.png output/palettes $(MANUAL) $(SYSTEM_DESKTOP) bin/$(OPK_TARGET).opk -all-root -no-xattrs -noappend -no-exports
 
 $(OPK_TARGET).ipk: $(TARGET) $(SYSTEM_DESKTOP)
 	@echo Creating bin/$(OPK_TARGET).ipk...
-	@rm -rf /tmp/.fceux-ipk/ && mkdir -p /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE) /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators.systems
+	@rm -rf /tmp/.fceux-ipk/ && mkdir -p /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE)/palettes /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators.systems
 	@cp src/drivers/dingux-sdl/gui/*.bmp $(MANUAL) /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE)
+	@cp output/palettes/*.pal /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE)/palettes
 	@cp bin/$(TARGET) /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE)/$(TARGET).dge
 	@cp opk/fceux.png /tmp/.fceux-ipk/root/home/retrofw/emus/fceux_$(RELEASE)/$(TARGET).png
 	@cp opk/fceux.lnk /tmp/.fceux-ipk/root/home/retrofw/apps/gmenu2x/sections/emulators/fceux_$(RELEASE).lnk
