@@ -215,11 +215,14 @@ Build files are created in the `bin`directory.
     - FPS throttle 'On' now uses nanosleep to sync the game to the intended framerate.
     - The Frameskip levels (0-11) are done via a framekip table, the upstream FCEUX frameskipping is very aggresive. The frameskip table is borrowed from mame084 source so the thanks goes to MAME dev team.
     - Sound Buffer size is defaulted to 128 ms. Previous builds have 30 ms as default value.
+  - Included upstream palette files in the opk file.
   - Rearrange config menu:
     - Add Palette settings submenu.
     - Move custom palette and NTSC Palette control to Palette settings menu.
     - Add Force Grayscale and De-emphasis Bit Swap options to Palette menu.
     - Add hotkey L1 + UP to toggle de-emphasis bit swap.
+    - In Palette settings Custom palette search first for palette files in the `palettes` directory distributed with the opk. You can navigate to other directories, use the B button to go up in directory structure and A button to enter in a directory.
+    - In Palette settings use the Left cursor to clean custom palette.
 
 #### 25 September 2021
   - Merged [asoderq/sydarn2 overclocking work](https://github.com/asoderq/fceux-for-retrogame/releases/tag/2021-09-11). As upstream it only works with Old PPU.
