@@ -195,6 +195,7 @@ int InitSound()
     SDL_AudioSpec spec;
     char driverName[8];
     int frmRateSampleAdj = 0;
+    int samplesPerFrame;
 
     FCEUI_printf("Initializing audio...\n");
     
@@ -227,13 +228,17 @@ int InitSound()
     spec.freq = s_SampleRate = soundrate;
     spec.format = AUDIO_S16SYS;
     spec.channels = 1;
-    spec.samples = (int)( ( (double)s_SampleRate / getBaseFrameRate() ) );
-#ifdef RETROFW
-    spec.samples = pow( 2.0, ceil( log2( spec.samples ) ) );
+    spec.samples = 512; // This must stay a power of two per SDL documentation
     s_samples = spec.samples;
-#endif
     spec.callback = fillaudio;
     spec.userdata = 0;
+    
+    samplesPerFrame = (int)( ( (double)s_SampleRate / getBaseFrameRate() ) );
+    
+    if ( samplesPerFrame >= 1024 )
+    {
+	    spec.samples = 1024;
+    }
 
     s_BufferSize = soundbufsize * soundrate / 1000;    
     
