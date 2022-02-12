@@ -143,7 +143,7 @@ int RunPaletteSettings()
 			}
 		}
 
-		if (parsekey(DINGOO_RIGHT, 1) || parsekey(DINGOO_LEFT, 1))
+		if (parsekey(DINGOO_RIGHT, 1) || parsekey(DINGOO_LEFT, 1) || parsekey(DINGOO_A))
 			palette_menu[index].update(g_key);
   
 		// Draw stuff
