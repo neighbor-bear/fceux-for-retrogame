@@ -78,41 +78,6 @@ static void triplebuffering_update(unsigned long key)
 	g_config->setOption("SDL.TripleBuffering", val);
 }
 
-// NTSC TV's colors
-static void ntsc_update(unsigned long key)
-{
-	int val;
-
-	if (key == DINGOO_RIGHT) val = 1;
-	if (key == DINGOO_LEFT) val = 0;
-
-	g_config->setOption("SDL.NTSCpalette", val);
-}
-
-// NTSC Tint
-static void tint_update(unsigned long key)
-{
-	int val;
-	g_config->getOption("SDL.Tint", &val);
-
-	if (key == DINGOO_RIGHT) val = val < 255 ? val+1 : 255;
-	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
-
-	g_config->setOption("SDL.Tint", val);
-}
-
-// NTSC Hue
-static void hue_update(unsigned long key)
-{
-	int val;
-	g_config->getOption("SDL.Hue", &val);
-
-	if (key == DINGOO_RIGHT) val = val < 255 ? val+1 : 255;
-	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
-
-	g_config->setOption("SDL.Hue", val);
-}
-
 // Scanline start
 static void slstart_update(unsigned long key)
 {
@@ -181,9 +146,6 @@ static SettingEntry vd_menu[] =
 	{"Clip sides", "Clips left and right columns", "SDL.ClipSides", clip_update},
 	{"Triple buffer", "Triple buffer", "SDL.TripleBuffering", triplebuffering_update},
 	{"New PPU", "New PPU emulation engine", "SDL.NewPPU", newppu_update},
-	{"NTSC Palette", "Emulate NTSC TV's colors", "SDL.NTSCpalette", ntsc_update},
-	{"Tint", "Sets tint for NTSC color", "SDL.Tint", tint_update},
-	{"Hue", "Sets hue for NTSC color", "SDL.Hue", hue_update},
 	{"NTSC Scanline start", "NTSC first drawn scanline", "SDL.ScanLineStartNTSC", slstart_update},
 	{"NTSC Scanline end", "NTSC last drawn scanline", "SDL.ScanLineEndNTSC", slend_update},
 	{"PAL Scanline start", "PAL first drawn scanline", "SDL.ScanLineStartPAL", slstartpal_update},
@@ -286,7 +248,6 @@ int RunVideoSettings()
 				else if (!strncmp(vd_menu[i].name, "Clip sides", 10) \
 					|| !strncmp(vd_menu[i].name, "New PPU", 7)   \
 					|| !strncmp(vd_menu[i].name, "Triple buffer", 13)   \
-					|| !strncmp(vd_menu[i].name, "NTSC Palette", 12)
 					|| !strncmp(vd_menu[i].name, "Integer Frame", 13)) {
 					sprintf(tmp, "%s", itmp ? "on" : "off");
 				}

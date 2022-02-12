@@ -10,10 +10,11 @@ typedef struct _setting_entry {
 #include "main_settings.cpp"
 #include "video_settings.cpp"
 #include "sound_settings.cpp"
+#include "palette_settings.cpp"
 #include "control_settings.cpp"
 #include "overclock_settings.cpp"
 
-#define SETTINGS_MENUSIZE 6
+#define SETTINGS_MENUSIZE 7
 
 static int cmd_main_settings() {
 	return RunMainSettings();
@@ -25,6 +26,10 @@ static int cmd_video_settings() {
 
 static int cmd_sound_settings() {
 	return RunSoundSettings();
+}
+
+static int cmd_palette_settings() {
+	return RunPaletteSettings();
 }
 
 static int cmd_control_settings() {
@@ -45,6 +50,7 @@ static MenuEntry
 		{ "Main Setup", "Change fceux main config", cmd_main_settings },
 		{ "Video Setup", "Change video config", cmd_video_settings },
 		{ "Sound Setup", "Change sound config", cmd_sound_settings },
+		{ "Palette Setup", "Change palette config", cmd_palette_settings },
 		{ "Control Setup", "Change control config", cmd_control_settings },
 		{ "Overclock", "Change NES overclock settings", cmd_oc_settings },
 		{ "Save config as default",	"Override default config", cmd_config_save } };

@@ -115,24 +115,6 @@ static void frameskip_update(unsigned long key) {
 }
 #endif
 
-// Custom palette
-static void custom_update(unsigned long key) {
-	const char *types[] = { ".pal", NULL };
-	char palname[128] = "";
-
-	#ifdef WIN32
-	if (!RunFileBrowser("d:\\", palname, types, "Choose nes palette (.pal)")) 
-	#else
-	if (!RunFileBrowser(NULL, palname, types, "Choose nes palette (.pal)") || palname[0] == '\0')
-	#endif
-	{
-	    return;
-	}
-
-	std::string cpalette = std::string(palname);
-	g_config->setOption("SDL.Palette", cpalette);
-}
-
 /* MAIN SETTINGS MENU */
 
 static SettingEntry
@@ -148,7 +130,6 @@ static SettingEntry
 		{ "Show FPS", "Show frames per second", "SDL.ShowFPS", showfps_update },
 		{ "Show mouse", "Show/hide mouse cursor", "SDL.ShowMouseCursor", show_mouse_update },
 		{ "Mouse speed", "Mouse cursor speed", "SDL.MouseSpeed", mouse_update },
-		{ "Custom palette", "Load custom palette", "SDL.Palette", custom_update },
 };
 static int st_menu_items = sizeof(st_menu) / sizeof(st_menu[0]);
 
@@ -238,20 +219,7 @@ int RunMainSettings() {
 
 				g_config->getOption(st_menu[i].option, &itmp);
 
-				if (!strncmp(st_menu[i].name, "Custom palette", 14)) {
-					std::string palname;
-					g_config->getOption(st_menu[i].option, &palname);
-
-					// Remove path of string
-					const int sz = static_cast<int> (palname.size());
-					const int path_sz = palname.rfind("/", palname.size());
-
-					if (path_sz == sz)
-						strncpy(tmp, palname.c_str(), 32);
-					else
-						strncpy(tmp, palname.substr(path_sz + 1, sz - 1
-								- path_sz).c_str(), 32);
-				} else if (!strncmp(st_menu[i].name, "Mouse speed", 11)) {
+				if (!strncmp(st_menu[i].name, "Mouse speed", 11)) {
 					sprintf(tmp, "%d", itmp);
 #ifdef FRAMESKIP
 				} else if (!strncmp(st_menu[i].name, "Frameskip", 9)) {
