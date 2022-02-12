@@ -9,6 +9,7 @@ static void custom_update(unsigned long key) {
 	const char *types[] = { ".pal", NULL };
 	char palname[128] = "";
 	
+	// Left cursor clear palette
 	if (key != DINGOO_LEFT) {;
 		fceuExecutablePath(exePath, sizeof(exePath));
 		strncat(exePath, "/palettes", 9);
@@ -16,11 +17,16 @@ static void custom_update(unsigned long key) {
 		if (!RunFileBrowser(exePath, palname, types, "Choose nes palette (.pal)") || palname[0] == '\0')
 		{
 			return;
-		}
+		}	
 	}
 
 	std::string cpalette = std::string(palname);
 	g_config->setOption("SDL.Palette", cpalette);
+	
+	// Clear custom palette
+	if(!cpalette.size()) {
+		FCEUI_SetUserPalette(NULL, 0);
+	}
 }
 
 // Force Gray Scale
