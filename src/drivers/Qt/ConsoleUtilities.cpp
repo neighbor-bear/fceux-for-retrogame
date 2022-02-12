@@ -312,7 +312,7 @@ int fceuLoadConfigColor( const char *confName, QColor *color )
 //---------------------------------------------------------------------------
 // FCEU Custom Tool Tip Helper Functions
 //---------------------------------------------------------------------------
-QDialog *fceuCustomToolTipShow( QHelpEvent *helpEvent, QDialog *popup )
+QDialog *fceuCustomToolTipShow( const QPoint &globalPos, QDialog *popup )
 {
 	int xo = 32, yo = 32;
 	QPoint pos;
@@ -332,19 +332,19 @@ QDialog *fceuCustomToolTipShow( QHelpEvent *helpEvent, QDialog *popup )
 
 	popup->show();
 
-	pos.setX( helpEvent->globalPos().x() + xo );
-	pos.setY( helpEvent->globalPos().y() + yo );
+	pos.setX( globalPos.x() + xo );
+	pos.setY( globalPos.y() + yo );
 
 	if ( scr )
 	{
 
 		if ( ( (pos.x() + popup->width()) > scr->virtualSize().width() ) )
 		{
-			pos.setX( helpEvent->globalPos().x() - popup->width() - xo );
+			pos.setX( globalPos.x() - popup->width() - xo );
 		}
 		if ( ( (pos.y() + popup->height()) > scr->virtualSize().height() ) )
 		{
-			pos.setY( helpEvent->globalPos().y() - popup->height() - yo );
+			pos.setY( globalPos.y() - popup->height() - yo );
 		}
 		popup->move( pos );
 	}
@@ -492,7 +492,11 @@ void fceuCustomToolTip::mouseMoveEvent(QMouseEvent *event)
 
 	if (!w->rect().isNull()) 
 	{
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+		QPoint pos = event->globalPosition().toPoint();
+#else
 		QPoint pos = event->globalPos();
+#endif
 		pos = mapFromGlobal(pos);
 
 		//printf("QEvent::MouseMove:  (%i,%i)   (%i,%i)\n", 

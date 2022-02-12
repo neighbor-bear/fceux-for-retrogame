@@ -23,27 +23,18 @@ Splicer - Tool for montage
 #include "Qt/TasEditor/taseditor_project.h"
 #include "Qt/TasEditor/TasEditorWindow.h"
 
-//extern TASEDITOR_WINDOW taseditorWindow;
-//extern TASEDITOR_CONFIG taseditorConfig;
-//extern HISTORY history;
-//extern MARKERS_MANAGER markersManager;
-//extern PLAYBACK playback;
-//extern GREENZONE greenzone;
-//extern PIANO_ROLL pianoRoll;
-//extern SELECTION selection;
-
 extern int joysticksPerFrame[INPUT_TYPES_TOTAL];
 //extern int getInputType(MovieData& md);
 
 // resources
 static char buttonNames[NUM_JOYPAD_BUTTONS][2] = {"A", "B", "S", "T", "U", "D", "L", "R"};
-static char selectionText[] = "Selection: ";
+//static char selectionText[] = "Selection: ";
 static char selectionEmptyText[] = "no";
 static char numTextRow[] = "1 row, ";
 static char numTextRows[] = " rows, ";
 static char numTextColumn[] = "1 column";
 static char numTextColumns[] = " columns";
-static char clipboardText[] = "Clipboard: ";
+//static char clipboardText[] = "Clipboard: ";
 static char clipboardEmptyText[] = "empty";
 
 SPLICER::SPLICER()
@@ -307,7 +298,7 @@ void SPLICER::deleteSelectedFrames(void)
 
 	bool markers_changed = false;
 	int start_index = *current_selection->begin();
-	int end_index = *current_selection->rbegin();
+	//int end_index = *current_selection->rbegin();
 	RowsSelection::reverse_iterator current_selection_rend = current_selection->rend();
 	// delete frames on each selection, going backwards
 	for(RowsSelection::reverse_iterator it(current_selection->rbegin()); it != current_selection_rend; it++)
@@ -476,7 +467,7 @@ bool SPLICER::copySelectedInputToClipboard(RowsSelection* currentSelectionOverri
 
 		//CloseClipboard();
 	}
-	catch (std::bad_alloc e)
+	catch (std::bad_alloc const &e)
 	{
 		return false;
 	}
@@ -648,7 +639,7 @@ bool SPLICER::pasteInsertInputFromClipboard(void)
 
 		pGlobal = strchr(pGlobal, '\n');
 		const char* frame;
-		int joy=0;
+		//int joy=0;
 		std::vector<uint8> flash_joy(num_joypads);
 		pos--;
 		while (pGlobal++ && *pGlobal!='\0')

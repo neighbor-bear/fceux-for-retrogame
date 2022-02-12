@@ -34,21 +34,9 @@ extern void ForceExecuteLuaFrameFunctions();
 extern bool mustRewindNow;
 extern bool turbo;
 
-//extern TASEDITOR_CONFIG taseditorConfig;
-//extern TASEDITOR_WINDOW taseditorWindow;
-//extern SELECTION selection;
-//extern MARKERS_MANAGER markersManager;
-//extern GREENZONE greenzone;
-//extern PIANO_ROLL pianoRoll;
-//extern BOOKMARKS bookmarks;
-
-//extern void Update_RAM_Search();
-
-//LRESULT APIENTRY UpperMarkerEditWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-//WNDPROC playbackMarkerEdit_oldWndproc;
-
 // resources
-char upperMarkerText[] = "Marker ";
+static char upperMarkerText[] = "Marker ";
+int  PLAYBACK::pauseFrame = 0;
 
 PLAYBACK::PLAYBACK()
 {
@@ -56,20 +44,6 @@ PLAYBACK::PLAYBACK()
 
 void PLAYBACK::init()
 {
-	//hwndProgressbar = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_PROGRESS1);
-	//SendMessage(hwndProgressbar, PBM_SETRANGE, 0, MAKELPARAM(0, PROGRESSBAR_WIDTH)); 
-	//hwndRewind = GetDlgItem(taseditorWindow.hwndTASEditor, TASEDITOR_REWIND);
-	//hwndForward = GetDlgItem(taseditorWindow.hwndTASEditor, TASEDITOR_FORWARD);
-	//hwndRewindFull = GetDlgItem(taseditorWindow.hwndTASEditor, TASEDITOR_REWIND_FULL);
-	//hwndForwardFull = GetDlgItem(taseditorWindow.hwndTASEditor, TASEDITOR_FORWARD_FULL);
-	//hwndPlaybackMarkerNumber = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_PLAYBACK_MARKER);
-	//SendMessage(hwndPlaybackMarkerNumber, WM_SETFONT, (WPARAM)pianoRoll.hMarkersFont, 0);
-	//hwndPlaybackMarkerEditField = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_PLAYBACK_MARKER_EDIT);
-	//SendMessage(hwndPlaybackMarkerEditField, EM_SETLIMITTEXT, MAX_NOTE_LEN - 1, 0);
-	//SendMessage(hwndPlaybackMarkerEditField, WM_SETFONT, (WPARAM)pianoRoll.hMarkersEditFont, 0);
-	// subclass the edit control
-	//playbackMarkerEdit_oldWndproc = (WNDPROC)SetWindowLongPtr(hwndPlaybackMarkerEditField, GWLP_WNDPROC, (LONG_PTR)UpperMarkerEditWndProc);
-
 	reset();
 }
 void PLAYBACK::reset()
@@ -86,60 +60,65 @@ void PLAYBACK::reset()
 	forwardFullButtonOldState = forwardFullButtonState = false;
 	emuPausedOldState = emuPausedState = true;
 	stopSeeking();
+	turbo = false;
 }
 void PLAYBACK::update()
 {
 	// controls:
 	// update < and > buttons
 	rewindButtonOldState = rewindButtonState;
-	//rewindButtonState = ((Button_GetState(hwndRewind) & BST_PUSHED) != 0 || mustRewindNow);
+	rewindButtonState = tasWin->rewindFrmBtn->isDown();
 	if (rewindButtonState)
 	{
 		if (!rewindButtonOldState)
 		{
-			buttonHoldTimer = clock();
-			handleRewindFrame();
-		} else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < clock())
+			buttonHoldTimer = getTasEditorTime();
+			//handleRewindFrame();
+		}
+		else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < getTasEditorTime())
 		{
 			handleRewindFrame();
 		}
 	}
 	forwardButtonOldState = forwardButtonState;
-	//forwardButtonState = (Button_GetState(hwndForward) & BST_PUSHED) != 0;
+	forwardButtonState = tasWin->advFrmBtn->isDown();
 	if (forwardButtonState && !rewindButtonState)
 	{
 		if (!forwardButtonOldState)
 		{
-			buttonHoldTimer = clock();
-			handleForwardFrame();
-		} else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < clock())
+			buttonHoldTimer = getTasEditorTime();
+			//handleForwardFrame();
+		}
+		else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < getTasEditorTime())
 		{
 			handleForwardFrame();
 		}
 	}
 	// update << and >> buttons
 	rewindFullButtonOldState = rewindFullButtonState;
-	//rewindFullButtonState = ((Button_GetState(hwndRewindFull) & BST_PUSHED) != 0);
+	rewindFullButtonState = tasWin->rewindMkrBtn->isDown();
 	if (rewindFullButtonState && !rewindButtonState && !forwardButtonState)
 	{
 		if (!rewindFullButtonOldState)
 		{
-			buttonHoldTimer = clock();
-			handleRewindFull();
-		} else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < clock())
+			buttonHoldTimer = getTasEditorTime();
+			//handleRewindFull();
+		}
+		else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < getTasEditorTime())
 		{
 			handleRewindFull();
 		}
 	}
 	forwardFullButtonOldState = forwardFullButtonState;
-	//forwardFullButtonState = (Button_GetState(hwndForwardFull) & BST_PUSHED) != 0;
+	forwardFullButtonState = tasWin->advMkrBtn->isDown();
 	if (forwardFullButtonState && !rewindButtonState && !forwardButtonState && !rewindFullButtonState)
 	{
 		if (!forwardFullButtonOldState)
 		{
-			buttonHoldTimer = clock();
-			handleForwardFull();
-		} else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < clock())
+			buttonHoldTimer = getTasEditorTime();
+			//handleForwardFull();
+		}
+		else if (buttonHoldTimer + BUTTON_HOLD_REPEAT_DELAY < getTasEditorTime())
 		{
 			handleForwardFull();
 		}
@@ -155,7 +134,7 @@ void PLAYBACK::update()
 		bookmarks->redrawChangedBookmarks(currFrameCounter);
 		lastCursorPos = currFrameCounter;
 		// follow the Playback cursor, but in case of seeking don't follow it
-		//pianoRoll.followPlaybackCursorIfNeeded(false);	//pianoRoll.updatePlaybackCursorPositionInPianoRoll();	// an unfinished experiment
+		tasWin->pianoRoll->followPlaybackCursorIfNeeded(false);	//pianoRoll.updatePlaybackCursorPositionInPianoRoll();	// an unfinished experiment
 		// enforce redrawing now
 		//UpdateWindow(pianoRoll.hwndList);
 		// lazy update of "Playback's Marker text"
@@ -179,10 +158,19 @@ void PLAYBACK::update()
 
 	// pause when seeking hits pause_frame
 	if (pauseFrame && currFrameCounter + 1 >= pauseFrame)
+	{
+		// force frame counter back to target pause frame,
+		// since Qt/SDL port is multithreaded, emulation thread sometimes overshoots target
+		// before GUI thread can shutoff seek.
+		//currFrameCounter = pauseFrame - 1;
+
 		stopSeeking();
+	}
 	else if (currFrameCounter >= getLastPosition() && currFrameCounter >= currMovieData.getNumRecords() - 1 && mustAutopauseAtTheEnd && taseditorConfig->autopauseAtTheEndOfMovie && !isTaseditorRecording())
+	{
 		// pause at the end of the movie
 		pauseEmulation();
+	}
 
 	// update flashing pauseframe
 	if (oldPauseFrame != pauseFrame && oldPauseFrame)
@@ -196,10 +184,14 @@ void PLAYBACK::update()
 	if (pauseFrame)
 	{
 		if (emuPausedState)
-			showPauseFrame = (int)(clock() / PAUSEFRAME_BLINKING_PERIOD_WHEN_PAUSED) & 1;
+			showPauseFrame = (int)(getTasEditorTime() / PAUSEFRAME_BLINKING_PERIOD_WHEN_PAUSED) & 1;
 		else
-			showPauseFrame = (int)(clock() / PAUSEFRAME_BLINKING_PERIOD_WHEN_SEEKING) & 1;
-	} else showPauseFrame = false;
+			showPauseFrame = (int)(getTasEditorTime() / PAUSEFRAME_BLINKING_PERIOD_WHEN_SEEKING) & 1;
+	}
+	else
+	{
+		showPauseFrame = false;
+	}
 	if (oldStateOfShowPauseFrame != showPauseFrame)
 	{
 		// update pauseframe gfx
@@ -213,16 +205,20 @@ void PLAYBACK::update()
 	if (pauseFrame)
 	{
 		if (oldStateOfShowPauseFrame != showPauseFrame)		// update progressbar from time to time
+		{
 			// display seeking progress
 			setProgressbar(currFrameCounter - seekingBeginningFrame, pauseFrame - seekingBeginningFrame);
-	} else if (emuPausedOldState != emuPausedState)
+		}
+	}
+	else if (emuPausedOldState != emuPausedState)
 	{
 		// emulator got paused/unpaused externally
 		if (emuPausedOldState && !emuPausedState)
 		{
 			// externally unpaused - show empty progressbar
 			setProgressbar(0, 1);
-		} else
+		}
+		else
 		{
 			// externally paused - progressbar should be full
 			setProgressbar(1, 1);
@@ -233,15 +229,21 @@ void PLAYBACK::update()
 	if (emuPausedState)
 	{
 		if (currFrameCounter < currMovieData.getNumRecords() - 1)
+		{
 			mustAutopauseAtTheEnd = true;
+		}
 		else
+		{
 			mustAutopauseAtTheEnd = false;
+		}
 	}
 
 	// this little statement is very important for adequate work of the "green arrow" and "Restore last position"
 	if (!emuPausedState)
+	{
 		// when emulating, lost_position_frame becomes unstable (which means that it's probably not equal to the end of current segment anymore)
 		lastPositionIsStable = false;
+	}
 }
 
 // called after saving the project, because saving uses the progressbar for itself
@@ -250,14 +252,19 @@ void PLAYBACK::updateProgressbar()
 	if (pauseFrame)
 	{
 		setProgressbar(currFrameCounter - seekingBeginningFrame, pauseFrame - seekingBeginningFrame);
-	} else
+	}
+	else
 	{
 		if (emuPausedState)
+		{
 			// full progressbar
 			setProgressbar(1, 1);
+		}
 		else
+		{
 			// cleared progressbar
 			setProgressbar(0, 1);
+		}
 	}
 	//RedrawWindow(hwndProgressbar, NULL, NULL, RDW_INVALIDATE);
 }
@@ -353,12 +360,20 @@ void PLAYBACK::startSeekingToFrame(int frame)
 		pauseFrame = frame + 1;
 	}
 	if (taseditorConfig->turboSeek)
+	{
+		//printf("Turbo seek on\n");
 		turbo = true;
+	}
 	unpauseEmulation();
 }
 void PLAYBACK::stopSeeking()
 {
 	pauseFrame = 0;
+	//printf("Seek Finished\n");
+	//if ( turbo )
+	//{
+	//	printf("Turbo seek off\n");
+	//}
 	turbo = false;
 	pauseEmulation();
 	setProgressbar(1, 1);
@@ -374,17 +389,21 @@ void PLAYBACK::handleRewindFrame()
 	else
 	{
 		// cursor is at frame 0 - can't rewind, but still must make cursor visible if needed
-		//pianoRoll.followPlaybackCursorIfNeeded(true);
+		tasWin->pianoRoll->followPlaybackCursorIfNeeded(true);
 	}
 	if (!pauseFrame)
+	{
 		pauseEmulation();
+	}
 }
 void PLAYBACK::handleForwardFrame()
 {
 	if (pauseFrame && !emuPausedState) return;
 	jump(currFrameCounter + 1);
 	if (!pauseFrame)
+	{
 		pauseEmulation();
+	}
 	turbo = false;
 }
 void PLAYBACK::handleRewindFull(int speed)
@@ -456,11 +475,13 @@ void PLAYBACK::ensurePlaybackIsInsideGreenzone(bool executeLua)
 	{
 		// since the game state was changed by this jump, we must update possible Lua callbacks and other tools that would normally only update in FCEUI_Emulate
 		if (executeLua)
+		{
 			ForceExecuteLuaFrameFunctions();
+		}
 		//Update_RAM_Search(); // Update_RAM_Watch() is also called.
 	}
 	// follow the Playback cursor, but in case of seeking don't follow it
-	//pianoRoll.followPlaybackCursorIfNeeded(false);
+	tasWin->pianoRoll->followPlaybackCursorIfNeeded(false);
 }
 
 // an interface for sending Playback cursor to any frame
@@ -493,7 +514,7 @@ void PLAYBACK::jump(int frame, bool forceStateReload, bool executeLua, bool foll
 	}
 
 	// follow the Playback cursor, and optionally follow pauseframe (if seeking was launched)
-	//pianoRoll.followPlaybackCursorIfNeeded(followPauseframe);
+	tasWin->pianoRoll->followPlaybackCursorIfNeeded(followPauseframe);
 
 	// redraw respective Piano Roll lines if needed
 	if (lastCursor != currFrameCounter)
@@ -553,6 +574,7 @@ int PLAYBACK::getLastPosition()
 	return lastPositionFrame - 1;
 }
 
+// getPauseFrame must be thread safe, it is called from both GUI and emulation threads.
 int PLAYBACK::getPauseFrame()
 {
 	return pauseFrame - 1;
@@ -567,6 +589,11 @@ int PLAYBACK::getFlashingPauseFrame()
 
 void PLAYBACK::setProgressbar(int a, int b)
 {
+	if ( tasWin )
+	{
+		tasWin->progBar->setRange(0,b);
+		tasWin->progBar->setValue(a);
+	}
 	//SendMessage(hwndProgressbar, PBM_SETPOS, PROGRESSBAR_WIDTH * a / b, 0);
 }
 void PLAYBACK::cancelSeeking()
@@ -574,84 +601,6 @@ void PLAYBACK::cancelSeeking()
 	if (pauseFrame)
 		stopSeeking();
 }
-// -------------------------------------------------------------------------
-//LRESULT APIENTRY UpperMarkerEditWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-//{
-//	extern PLAYBACK playback;
-//	extern SELECTION selection;
-//	switch(msg)
-//	{
-//		case WM_SETFOCUS:
-//		{
-//			markersManager.markerNoteEditMode = MARKER_NOTE_EDIT_UPPER;
-//			// enable editing
-//			SendMessage(playback.hwndPlaybackMarkerEditField, EM_SETREADONLY, false, 0);
-//			// disable FCEUX keyboard
-//			disableGeneralKeyboardInput();
-//			break;
-//		}
-//		case WM_KILLFOCUS:
-//		{
-//			// if we were editing, save and finish editing
-//			if (markersManager.markerNoteEditMode == MARKER_NOTE_EDIT_UPPER)
-//			{
-//				markersManager.updateEditedMarkerNote();
-//				markersManager.markerNoteEditMode = MARKER_NOTE_EDIT_NONE;
-//			}
-//			// disable editing (make the bg grayed)
-//			SendMessage(playback.hwndPlaybackMarkerEditField, EM_SETREADONLY, true, 0);
-//			// enable FCEUX keyboard
-//			if (taseditorWindow.TASEditorIsInFocus)
-//				enableGeneralKeyboardInput();
-//			break;
-//		}
-//		case WM_CHAR:
-//		case WM_KEYDOWN:
-//		{
-//			if (markersManager.markerNoteEditMode == MARKER_NOTE_EDIT_UPPER)
-//			{
-//				switch(wParam)
-//				{
-//					case VK_ESCAPE:
-//						// revert text to original note text
-//						SetWindowText(playback.hwndPlaybackMarkerEditField, markersManager.getNoteCopy(playback.displayedMarkerNumber).c_str());
-//						SetFocus(pianoRoll.hwndList);
-//						return 0;
-//					case VK_RETURN:
-//						// exit and save text changes
-//						SetFocus(pianoRoll.hwndList);
-//						return 0;
-//					case VK_TAB:
-//					{
-//						// switch to lower edit control (also exit and save text changes)
-//						SetFocus(selection.hwndSelectionMarkerEditField);
-//						// scroll to the Marker
-//						if (taseditorConfig.followMarkerNoteContext)
-//							pianoRoll.followMarker(selection.displayedMarkerNumber);
-//						return 0;
-//					}
-//				}
-//			}
-//			break;
-//		}
-//		case WM_MBUTTONDOWN:
-//		case WM_MBUTTONDBLCLK:
-//		{
-//			playback.handleMiddleButtonClick();
-//			return 0;
-//		}
-//		case WM_LBUTTONDOWN:
-//		case WM_RBUTTONDOWN:
-//		{
-//			// scroll to the Marker
-//			if (taseditorConfig.followMarkerNoteContext)
-//				pianoRoll.followMarker(playback.displayedMarkerNumber);
-//			break;
-//		}
-//	}
-//	return CallWindowProc(playbackMarkerEdit_oldWndproc, hWnd, msg, wParam, lParam);
-//}
-
 // -------------------------------------------------------------------------
 UpperMarkerNoteEdit::UpperMarkerNoteEdit( QWidget *parent )
 	: QLineEdit(parent)

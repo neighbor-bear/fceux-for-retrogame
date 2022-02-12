@@ -27,26 +27,8 @@ History - History of movie modifications
 #include "Qt/TasEditor/taseditor_project.h"
 #include "Qt/TasEditor/TasEditorWindow.h"
 
-//LRESULT APIENTRY historyListWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-//WNDPROC hwndHistoryList_oldWndProc;
-
-//extern TASEDITOR_CONFIG taseditorConfig;
-//extern TASEDITOR_WINDOW taseditorWindow;
-//extern MARKERS_MANAGER markersManager;
-//extern BOOKMARKS bookmarks;
-//extern BRANCHES branches;
-//extern PLAYBACK playback;
-//extern SELECTION selection;
-//extern GREENZONE greenzone;
-//extern TASEDITOR_PROJECT project;
-//extern PIANO_ROLL pianoRoll;
-//extern POPUP_DISPLAY popupDisplay;
-//extern TASEDITOR_LUA taseditor_lua;
-
 extern int joysticksPerFrame[INPUT_TYPES_TOTAL];
 extern int getInputType(MovieData& md);
-
-//extern WindowItemData windowItems[];
 
 char historySaveID[HISTORY_ID_LEN] = "HISTORY";
 char historySkipSaveID[HISTORY_ID_LEN] = "HISTORX";
@@ -112,22 +94,14 @@ char joypadCaptions[5][11] = {"(Commands)", "(1P)", "(2P)", "(3P)", "(4P)"};
 
 HISTORY::HISTORY()
 {
+	updateScheduled = false;
 }
 
 void HISTORY::init(void)
 {
-	// prepare the history listview
-	//hwndHistoryList = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_HISTORYLIST);
-	//ListView_SetExtendedListViewStyleEx(hwndHistoryList, LVS_EX_DOUBLEBUFFER|LVS_EX_FULLROWSELECT|LVS_EX_GRIDLINES, LVS_EX_DOUBLEBUFFER|LVS_EX_FULLROWSELECT|LVS_EX_GRIDLINES);
-	//// subclass the listview
-	//hwndHistoryList_oldWndProc = (WNDPROC)SetWindowLongPtr(hwndHistoryList, GWLP_WNDPROC, (LONG_PTR)historyListWndProc);
-	//LVCOLUMN lvc;
-	//lvc.mask = LVCF_WIDTH | LVCF_FMT;
-	//lvc.cx = HISTORY_LIST_WIDTH;
-	//lvc.fmt = LVCFMT_LEFT;
-	//ListView_InsertColumn(hwndHistoryList, 0, &lvc);
+	updateScheduled = false;
 	// shedule first autocompression
-	nextAutocompressTime = clock() + TIME_BETWEEN_AUTOCOMPRESSIONS;
+	nextAutocompressTime = getTasEditorTime() + TIME_BETWEEN_AUTOCOMPRESSIONS;
 }
 void HISTORY::free()
 {
@@ -170,16 +144,22 @@ void HISTORY::update()
 	showUndoHint = false;
 	if (undoHintPos >= 0)
 	{
-		if ((int)clock() < undoHintTimer)
+		if (getTasEditorTime() < undoHintTimer)
 			showUndoHint = true;
 		else
 			undoHintPos = -1;		// finished hinting
+	}
+
+	if ( updateScheduled )
+	{
+		updateScheduled = false;
+		redrawList();
 	}
 	//if (oldShowUndoHint != showUndoHint)
 	//	pianoRoll.redrawRow(undoHintPos);
 
 	// When CPU is idle, compress items from time to time
-	if (clock() > nextAutocompressTime)
+	if (getTasEditorTime() > nextAutocompressTime)
 	{
 		if (FCEUI_EmulationPaused())
 		{
@@ -199,7 +179,7 @@ void HISTORY::update()
 				}
 			}
 		}
-		nextAutocompressTime = clock() + TIME_BETWEEN_AUTOCOMPRESSIONS;
+		nextAutocompressTime = getTasEditorTime() + TIME_BETWEEN_AUTOCOMPRESSIONS;
 	}
 }
 
@@ -367,7 +347,7 @@ int HISTORY::jumpInTime(int new_pos)
 		undoHintPos = getCurrentSnapshot().keyFrame;		// redo
 	else
 		undoHintPos = getNextToCurrentSnapshot().keyFrame;	// undo
-	undoHintTimer = clock() + UNDO_HINT_TIME;
+	undoHintTimer = getTasEditorTime() + UNDO_HINT_TIME;
 	showUndoHint = true;
 
 	real_pos = (historyStartPos + historyCursorPos) % historySize;
@@ -1009,7 +989,11 @@ void HISTORY::save(EMUFILE *os, bool really_save)
 {
 	if (really_save)
 	{
-		int real_pos, last_tick = 0;
+		int real_pos, last_tick = -1;
+
+		setTasProjectProgressBarText("Saving History...");
+		setTasProjectProgressBar( 0, historyTotalItems );
+
 		// write "HISTORY" string
 		os->fwrite(historySaveID, HISTORY_ID_LEN);
 		// write vars
@@ -1024,11 +1008,14 @@ void HISTORY::save(EMUFILE *os, bool really_save)
 			os->fwrite(&currentBranchNumberBackups[real_pos], 1);
 			if (i / SAVING_HISTORY_PROGRESSBAR_UPDATE_RATE > last_tick)
 			{
+				setTasProjectProgressBar( i, historyTotalItems );
 				playback->setProgressbar(i, historyTotalItems);
 				last_tick = i / PROGRESSBAR_UPDATE_RATE;
 			}
 		}
-	} else
+		setTasProjectProgressBar( historyTotalItems, historyTotalItems );
+	}
+	else
 	{
 		// write "HISTORX" string
 		os->fwrite(historySkipSaveID, HISTORY_ID_LEN);
@@ -1069,6 +1056,9 @@ bool HISTORY::load(EMUFILE *is, unsigned int offset)
 	if (!read32le(&historyTotalItems, is)) goto error;
 	if (historyCursorPos > historyTotalItems) goto error;
 	historyStartPos = 0;
+
+	setTasProjectProgressBarText("Loading History...");
+	setTasProjectProgressBar( 0, historySize );
 	// read items
 	total = historyTotalItems;
 	if (historyTotalItems > historySize)
@@ -1100,6 +1090,7 @@ bool HISTORY::load(EMUFILE *is, unsigned int offset)
 		if (snapshots[i].load(is)) goto error;
 		if (bookmarkBackups[i].load(is)) goto error;
 		if (is->fread(&currentBranchNumberBackups[i], 1) != 1) goto error;
+		setTasProjectProgressBar( i, historyTotalItems );
 		playback->setProgressbar(i, historyTotalItems);
 	}
 	// skip redo items if needed
@@ -1111,6 +1102,7 @@ bool HISTORY::load(EMUFILE *is, unsigned int offset)
 	}
 
 	// everything went well
+	setTasProjectProgressBar( historyTotalItems, historyTotalItems );
 	// init vars
 	undoHintPos = oldUndoHintPos = undoHintTimer = -1;
 	oldShowUndoHint = showUndoHint = false;
@@ -1201,6 +1193,7 @@ void HISTORY::updateList(void)
 	// Emulation thread cannot update graphics
 	if ( QThread::currentThread() == consoleWindow->emulatorThread )
 	{
+		updateScheduled = true;
 		return;
 	}
 	//update the number of items in the history list
@@ -1208,7 +1201,10 @@ void HISTORY::updateList(void)
 
 	if (currLVItemCount != historyTotalItems)
 	{
-		tasWin->updateHistoryItems();
+		if ( tasWin->updateHistoryItems() == false )
+		{
+			updateScheduled = true;
+		}
 	}
 }
 
@@ -1217,9 +1213,13 @@ void HISTORY::redrawList(void)
 	// Emulation thread cannot update graphics
 	if ( QThread::currentThread() == consoleWindow->emulatorThread )
 	{
+		updateScheduled = true;
 		return;
 	}
-	tasWin->updateHistoryItems();
+	if ( tasWin->updateHistoryItems() == false )
+	{
+		updateScheduled = true;
+	}
 	//ListView_SetItemState(hwndHistoryList, historyCursorPos, LVIS_FOCUSED|LVIS_SELECTED, LVIS_FOCUSED|LVIS_SELECTED);
 	//ListView_EnsureVisible(hwndHistoryList, historyCursorPos, FALSE);
 	//InvalidateRect(hwndHistoryList, 0, FALSE);
@@ -1327,80 +1327,6 @@ int HISTORY::getUndoHint()
 }
 bool HISTORY::isCursorOverHistoryList()
 {
-//	POINT p;
-//	if (GetCursorPos(&p))
-//	{
-//		ScreenToClient(hwndHistoryList, &p);
-//		RECT wrect;
-//		GetWindowRect(hwndHistoryList, &wrect);
-//		if (p.x >= 0
-//			&& p.y >= 0
-//			&& p.x < (wrect.right - wrect.left)
-//			&& p.y < (wrect.bottom - wrect.top))
-//			return true;
-//	}
 	return false;
 }
 // ---------------------------------------------------------------------------------
-//LRESULT APIENTRY historyListWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-//{
-//	extern HISTORY history;
-//	switch(msg)
-//	{
-//		case WM_CHAR:
-//		case WM_KEYDOWN:
-//		case WM_KEYUP:
-//		case WM_KILLFOCUS:
-//			return 0;
-//		case WM_LBUTTONDOWN:
-//		case WM_LBUTTONDBLCLK:
-//		{
-//			if (GetFocus() != hWnd)
-//				SetFocus(hWnd);
-//			// perform hit test
-//			LVHITTESTINFO info;
-//			info.pt.x = GET_X_LPARAM(lParam);
-//			info.pt.y = GET_Y_LPARAM(lParam);
-//			ListView_SubItemHitTest(hWnd, (LPARAM)&info);
-//			history.handleSingleClick(info.iItem);
-//			return 0;
-//		}
-//		case WM_MBUTTONDOWN:
-//		case WM_MBUTTONDBLCLK:
-//		{
-//			if (GetFocus() != hWnd)
-//				SetFocus(hWnd);
-//			playback->handleMiddleButtonClick();
-//			return 0;
-//		}
-//		case WM_RBUTTONDOWN:
-//		case WM_RBUTTONDBLCLK:
-//			if (GetFocus() != hWnd)
-//				SetFocus(hWnd);
-//			return 0;
-//		case WM_MOUSEWHEEL:
-//		{
-//			if (!history.isCursorOverHistoryList())
-//			{
-//				return SendMessage(pianoRoll.hwndList, msg, wParam, lParam);
-//			}
-//			break;
-//		}
-//		case WM_MOUSEWHEEL_RESENT:
-//		{
-//			// this is message from Piano Roll
-//			// it means that cursor is currently over History List, and user scrolls the wheel (although focus may be on some other window)
-//			// ensure that wParam's low-order word is 0 (so fwKeys = 0)
-//			CallWindowProc(hwndHistoryList_oldWndProc, hWnd, WM_MOUSEWHEEL, wParam & ~(LOWORD(-1)), lParam);
-//			return 0;
-//		}
-//        case WM_MOUSEACTIVATE:
-//			if (GetFocus() != hWnd)
-//				SetFocus(hWnd);
-//            break;
-//
-//	}
-//	return CallWindowProc(hwndHistoryList_oldWndProc, hWnd, msg, wParam, lParam);
-//}
-
-

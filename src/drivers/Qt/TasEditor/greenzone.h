@@ -7,7 +7,7 @@
 
 #define GREENZONE_ID_LEN 10
 
-#define TIME_BETWEEN_CLEANINGS (10000 * (CLOCKS_PER_SEC / 1000)) // in milliseconds
+#define TIME_BETWEEN_CLEANINGS (10000)
 
 // Greenzone cleaning masks
 #define EVERY16TH 0xFFFFFFF0
@@ -61,6 +61,6 @@ private:
 	std::vector<std::vector<uint8_t>> savestates;
 
 	// not saved data
-	int nextCleaningTime;
+	uint64_t nextCleaningTime;
 	
 };

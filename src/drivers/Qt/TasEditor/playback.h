@@ -1,14 +1,15 @@
 // Specification file for Playback class
 #pragma once
 
+#include <time.h>
 #include <QLineEdit>
 
 #define PROGRESSBAR_WIDTH 200
 
-#define PAUSEFRAME_BLINKING_PERIOD_WHEN_SEEKING 100
-#define PAUSEFRAME_BLINKING_PERIOD_WHEN_PAUSED 250
+#define PAUSEFRAME_BLINKING_PERIOD_WHEN_SEEKING (100)
+#define PAUSEFRAME_BLINKING_PERIOD_WHEN_PAUSED (250)
 
-#define BUTTON_HOLD_REPEAT_DELAY 250			// in milliseconds
+#define BUTTON_HOLD_REPEAT_DELAY (250) // in milliseconds
 
 class UpperMarkerNoteEdit : public QLineEdit
 {
@@ -61,7 +62,7 @@ public:
 	int getLastPosition();		// actually returns lost_position_frame-1
 	void setLastPosition(int frame);
 
-	int getPauseFrame();
+	static int getPauseFrame();
 	int getFlashingPauseFrame();
 
 	void setProgressbar(int a, int b);
@@ -75,7 +76,7 @@ public:
 private:
 	bool setPlaybackAboveOrToFrame(int frame, bool forceStateReload = false);
 
-	int pauseFrame;
+	static int pauseFrame;
 	int lastPositionFrame;
 	bool lastPositionIsStable;	// for when Greenzone invalidates several times, but the end of current segment must remain the same
 
@@ -89,7 +90,7 @@ private:
 	bool forwardButtonState, forwardButtonOldState;
 	bool rewindFullButtonState, rewindFullButtonOldState;
 	bool forwardFullButtonState, forwardFullButtonOldState;
-	int buttonHoldTimer;
+	uint64_t buttonHoldTimer;
 	int seekingBeginningFrame;
 
 };

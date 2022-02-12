@@ -197,7 +197,7 @@ Build files are created in the `bin`directory.
 ## What's new
 
 #### 12 February 2022
-  - Updated to upstream 2.5.0
+  - Updated to upstream 2.6.2
   - Change video mode to 320x240 when access cheats with hotkey
   - Added Pixel Aspect Ratio for hardware scaling (1:1, 8:7, 4:3).
   - Added configuration to change NTSC start & end scanlines.

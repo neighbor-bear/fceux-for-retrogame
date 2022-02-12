@@ -28,28 +28,20 @@ Greenzone - Access zone
 #include "Qt/TasEditor/taseditor_project.h"
 #include "Qt/TasEditor/TasEditorWindow.h"
 
-//extern TASEDITOR_CONFIG taseditorConfig;
-//extern TASEDITOR_PROJECT project;
-//extern PLAYBACK playback;
-//extern HISTORY history;
-//extern BOOKMARKS bookmarks;
-//extern MARKERS_MANAGER markersManager;
-//extern PIANO_ROLL pianoRoll;
-//extern SELECTION selection;
-
 extern char lagFlag;
 
-char greenzone_save_id[GREENZONE_ID_LEN] = "GREENZONE";
-char greenzone_skipsave_id[GREENZONE_ID_LEN] = "GREENZONX";
+static char greenzone_save_id[GREENZONE_ID_LEN] = "GREENZONE";
+static char greenzone_skipsave_id[GREENZONE_ID_LEN] = "GREENZONX";
 
 GREENZONE::GREENZONE()
 {
+	nextCleaningTime = 0;
 }
 
 void GREENZONE::init()
 {
 	reset();
-	nextCleaningTime = clock() + TIME_BETWEEN_CLEANINGS;
+	nextCleaningTime = getTasEditorTime() + TIME_BETWEEN_CLEANINGS;
 }
 void GREENZONE::free()
 {
@@ -75,7 +67,7 @@ void GREENZONE::update()
 	}
 
 	// run cleaning from time to time
-	if (clock() > nextCleaningTime)
+	if (getTasEditorTime() > nextCleaningTime)
 		runGreenzoneCleaning();
 
 	// also log lag frames
@@ -188,7 +180,7 @@ finish:
 		bookmarks->redrawBookmarksList();
 	}
 	// shedule next cleaning
-	nextCleaningTime = clock() + TIME_BETWEEN_CLEANINGS;
+	nextCleaningTime = getTasEditorTime() + TIME_BETWEEN_CLEANINGS;
 }
 
 // returns true if actually cleared savestate data
@@ -224,13 +216,15 @@ void GREENZONE::ungreenzoneSelectedFrames()
 	RowsSelection* current_selection = selection->getCopyOfCurrentRowsSelection();
 	if (current_selection->size() == 0) return;
 	bool changed = false;
-	int size = savestates.size();
-	int start_index = *current_selection->begin();
-	int end_index = *current_selection->rbegin();
+	//int size = savestates.size();
+	//int start_index = *current_selection->begin();
+	//int end_index = *current_selection->rbegin();
 	RowsSelection::reverse_iterator current_selection_rend = current_selection->rend();
 	// degreenzone frames, going backwards
 	for (RowsSelection::reverse_iterator it(current_selection->rbegin()); it != current_selection_rend; it++)
+	{
 		changed = changed | clearSavestateAndFreeMemory(*it);
+	}
 	if (changed)
 	{
 		//pianoRoll.redraw();
@@ -242,6 +236,7 @@ void GREENZONE::save(EMUFILE *os, int save_type)
 {
 	if (save_type != GREENZONE_SAVING_MODE_NO)
 	{
+		setTasProjectProgressBarText("Saving Greenzone...");
 		collectCurrentState();		// in case the project is being saved before the greenzone.update() was called within current frame
 		runGreenzoneCleaning();
 		if (greenzoneSize > (int)savestates.size())
@@ -254,9 +249,11 @@ void GREENZONE::save(EMUFILE *os, int save_type)
 		write32le(greenzoneSize, os);
 		// write Playback cursor position
 		write32le(currFrameCounter, os);
+
+		setTasProjectProgressBar( 0, greenzoneSize );
 	}
 	int frame, size;
-	int last_tick = 0;
+	int last_tick = -1;
 
 	switch (save_type)
 	{
@@ -268,6 +265,7 @@ void GREENZONE::save(EMUFILE *os, int save_type)
 				// update TASEditor progressbar from time to time
 				if (frame / PROGRESSBAR_UPDATE_RATE > last_tick)
 				{
+					setTasProjectProgressBar( frame, greenzoneSize );
 					playback->setProgressbar(frame, greenzoneSize);
 					last_tick = frame / PROGRESSBAR_UPDATE_RATE;
 				}
@@ -292,6 +290,7 @@ void GREENZONE::save(EMUFILE *os, int save_type)
 					// update TASEditor progressbar from time to time
 					if (frame / PROGRESSBAR_UPDATE_RATE > last_tick)
 					{
+						setTasProjectProgressBar( frame, greenzoneSize );
 						playback->setProgressbar(frame, greenzoneSize);
 						last_tick = frame / PROGRESSBAR_UPDATE_RATE;
 					}
@@ -317,6 +316,7 @@ void GREENZONE::save(EMUFILE *os, int save_type)
 					// update TASEditor progressbar from time to time
 					if (frame / PROGRESSBAR_UPDATE_RATE > last_tick)
 					{
+						setTasProjectProgressBar( frame, greenzoneSize );
 						playback->setProgressbar(frame, greenzoneSize);
 						last_tick = frame / PROGRESSBAR_UPDATE_RATE;
 					}
@@ -351,19 +351,24 @@ void GREENZONE::save(EMUFILE *os, int save_type)
 			break;
 		}
 	}
+	if (save_type != GREENZONE_SAVING_MODE_NO)
+	{
+		setTasProjectProgressBar( greenzoneSize, greenzoneSize );
+	}
 }
 // returns true if couldn't load
 bool GREENZONE::load(EMUFILE *is, unsigned int offset)
 {
 	int frame = 0, prev_frame = -1, size = 0;
-	int last_tick = 0;
+	int last_tick = -1;
 	char save_id[GREENZONE_ID_LEN];
 
 	free();
 	if (offset)
 	{
 		if (is->fseek(offset, SEEK_SET)) goto error;
-	} else
+	}
+	else
 	{
 		reset();
 		playback->restartPlaybackFromZeroGround();		// reset Playback cursor to frame 0
@@ -409,6 +414,8 @@ bool GREENZONE::load(EMUFILE *is, unsigned int offset)
 		goto error;
 	}
 	if (strcmp(greenzone_save_id, save_id)) goto error;		// string is not valid
+
+	setTasProjectProgressBarText("Loading Greenzone...");
 	// read LagLog
 	lagLog.load(is);
 	// read size
@@ -433,6 +440,7 @@ bool GREENZONE::load(EMUFILE *is, unsigned int offset)
 				// update TASEditor progressbar from time to time
 				if (frame / PROGRESSBAR_UPDATE_RATE > last_tick)
 				{
+					setTasProjectProgressBar( frame, greenzoneSize );
 					playback->setProgressbar(frame, greenzoneSize);
 					last_tick = frame / PROGRESSBAR_UPDATE_RATE;
 				}
@@ -483,6 +491,10 @@ bool GREENZONE::load(EMUFILE *is, unsigned int offset)
 				}
 			}
 		}
+	}
+	if ( greenzoneSize > 0 )
+	{
+		setTasProjectProgressBar( greenzoneSize, greenzoneSize );
 	}
 error:
 	FCEU_printf("Error loading Greenzone\n");

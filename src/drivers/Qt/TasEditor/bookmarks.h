@@ -1,7 +1,10 @@
 // Specification file for Bookmarks class
 #pragma once
 #include <vector>
+#include <time.h>
 
+#include <QFont>
+#include <QTimer>
 #include <QWidget>
 #include <QScrollBar>
 
@@ -39,7 +42,7 @@ enum BOOKMARK_COMMANDS
 #define ITEM_UNDER_MOUSE_CLOUD (-1)
 #define ITEM_UNDER_MOUSE_FIREBALL (TOTAL_BOOKMARKS)
 
-#define BOOKMARKS_FLASH_TICK 100		// in milliseconds
+#define BOOKMARKS_FLASH_TICK 100   // in milliseconds
 
 // listview columns
 enum
@@ -67,13 +70,12 @@ public:
 	void reset_vars();
 	void update();
 
+	void setFont( QFont &font );
 	void save(EMUFILE *os, bool really_save = true);
 	bool load(EMUFILE *is, unsigned int offset);
 
 	void command(int command_id, int slot = -1);
 
-	//void getDispInfo(NMLVDISPINFO* nmlvDispInfo);
-	//LONG handleCustomDraw(NMLVCUSTOMDRAW* msg);
 	void handleLeftClick();
 	void handleRightClick();
 
@@ -98,13 +100,10 @@ public:
 	bool mustCheckItemUnderMouse;
 	bool mouseOverBranchesBitmap, mouseOverBookmarksList;
 	int itemUnderMouse;
-	//TRACKMOUSEEVENT tme, tmeList;
 	int bookmarkLeftclicked, bookmarkRightclicked, columnClicked;
 	int listTopMargin;
 	int listRowLeft;
 	int listRowHeight;
-
-	//HWND hwndBookmarksList, hwndBranchesBitmap, hwndBookmarks;
 
 protected:
 	void resizeEvent(QResizeEvent *event);
@@ -112,6 +111,8 @@ protected:
 	void mousePressEvent(QMouseEvent * event);
 	void mouseReleaseEvent(QMouseEvent * event);
 	void mouseMoveEvent(QMouseEvent * event);
+	void focusOutEvent(QFocusEvent *event);
+	void leaveEvent(QEvent *event);
 	bool event(QEvent *event);
 
 	int    calcColumn( int px );
@@ -126,16 +127,16 @@ private:
 	// not saved vars
 	std::vector<int> commands;
 	int selectedSlot;
-	int nextFlashUpdateTime;
 	int mouseX, mouseY;
+	uint64_t nextFlashUpdateTime;
 
-	// GDI stuff
-	//HFONT hBookmarksFont;
-	//HIMAGELIST hImgList;
+	// GUI stuff
 	QFont       font;
 	QScrollBar *hbar;
 	QScrollBar *vbar;
+	QTimer     *imageTimer;
 
+	int imageItem;
 	int viewWidth;
 	int viewHeight;
 	int viewLines;
@@ -154,4 +155,12 @@ private:
 	int pxStartCol1;
 	int pxStartCol2;
 	int pxStartCol3;
+
+	bool redrawFlag;
+
+	private slots:
+		void showImage(void);
+
+	signals:
+		void imageIndexChanged(int);
 };

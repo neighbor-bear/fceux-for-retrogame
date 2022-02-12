@@ -28,28 +28,9 @@ Bookmarks/Branches - Manager of Bookmarks
 #include "Qt/TasEditor/TasEditorWindow.h"
 #include "Qt/TasEditor/TasColors.h"
 
-//#pragma comment(lib, "msimg32.lib")
-
-//LRESULT APIENTRY BookmarksListWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-//WNDPROC hwndBookmarksList_oldWndProc;
-
-//extern TASEDITOR_CONFIG taseditorConfig;
-//extern TASEDITOR_WINDOW taseditorWindow;
-//extern POPUP_DISPLAY popupDisplay;
-//extern PLAYBACK playback;
-//extern RECORDER recorder;
-//extern SELECTION selection;
-//extern GREENZONE greenzone;
-//extern TASEDITOR_PROJECT project;
-//extern HISTORY history;
-//extern PIANO_ROLL pianoRoll;
-//extern MARKERS_MANAGER markersManager;
-//extern BRANCHES branches;
-
 // resources
-char bookmarks_save_id[BOOKMARKS_ID_LEN] = "BOOKMARKS";
-char bookmarks_skipsave_id[BOOKMARKS_ID_LEN] = "BOOKMARKX";
-char bookmarksCaption[3][23] = { " Bookmarks ", " Bookmarks / Branches ", " Branches " };
+static char bookmarks_save_id[BOOKMARKS_ID_LEN] = "BOOKMARKS";
+static char bookmarks_skipsave_id[BOOKMARKS_ID_LEN] = "BOOKMARKX";
 // color tables for flashing when saving/loading bookmarks
 //COLORREF bookmark_flash_colors[TOTAL_BOOKMARK_COMMANDS][FLASH_PHASE_MAX+1] = {
 //	// set
@@ -68,7 +49,15 @@ BOOKMARKS::BOOKMARKS(QWidget *parent)
 	viewWidth  = 256;
 	viewHeight = 256;
 
-	g_config->getOption("SDL.TasPianoRollFont", &fontString);
+	editMode = EDIT_MODE_BOOKMARKS;
+
+	imageItem  = 0;
+	imageTimer = new QTimer(this);
+	imageTimer->setSingleShot(true);
+	imageTimer->setInterval(100);
+	connect( imageTimer, SIGNAL(timeout(void)), this, SLOT(showImage(void)) );
+
+	g_config->getOption("SDL.TasBookmarksFont", &fontString);
 
 	if ( fontString.size() > 0 )
 	{
@@ -80,11 +69,15 @@ BOOKMARKS::BOOKMARKS(QWidget *parent)
 		font.setStyle( QFont::StyleNormal );
 		font.setStyleHint( QFont::Monospace );
 	}
+	font.setBold(true);
 
 	this->setFocusPolicy(Qt::StrongFocus);
 	this->setMouseTracking(true);
 
 	calcFontData();
+
+	redrawFlag = false;
+	nextFlashUpdateTime = 0;
 }
 
 BOOKMARKS::~BOOKMARKS(void)
@@ -94,191 +87,17 @@ BOOKMARKS::~BOOKMARKS(void)
 void BOOKMARKS::init()
 {
 	free();
-//	hwndBookmarksList = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_BOOKMARKSLIST);
-//	hwndBranchesBitmap = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_BRANCHES_BITMAP);
-//	hwndBookmarks = GetDlgItem(taseditorWindow.hwndTASEditor, IDC_BOOKMARKS_BOX);
-//
-//	// set a font which is overridden elsewhere and so really only used to calculate the row size
-//	SendMessage(hwndBookmarksList, WM_SETFONT, (WPARAM)pianoRoll.hItemMeasurementFont, 0);
-//	// prepare bookmarks listview
-//	ListView_SetExtendedListViewStyleEx(hwndBookmarksList, LVS_EX_DOUBLEBUFFER|LVS_EX_FULLROWSELECT|LVS_EX_GRIDLINES, LVS_EX_DOUBLEBUFFER|LVS_EX_FULLROWSELECT|LVS_EX_GRIDLINES);
-//	// subclass the listview
-//	hwndBookmarksList_oldWndProc = (WNDPROC)SetWindowLongPtr(hwndBookmarksList, GWLP_WNDPROC, (LONG_PTR)BookmarksListWndProc);
-//	// setup images for the listview
-//	hImgList = ImageList_Create(11, 13, ILC_COLOR8 | ILC_MASK, 1, 1);
-//	HBITMAP bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP0));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP1));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP2));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP3));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP4));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP5));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP6));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP7));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP8));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP9));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP10));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP11));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP12));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP13));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP14));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP15));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP16));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP17));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP18));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP19));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED0));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED1));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED2));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED3));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED4));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED5));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED6));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED7));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED8));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED9));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED10));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED11));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED12));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED13));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED14));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED15));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED16));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED17));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED18));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	bmp = LoadBitmap(fceu_hInstance, MAKEINTRESOURCE(IDB_BITMAP_SELECTED19));
-//	ImageList_AddMasked(hImgList, bmp, 0xFFFFFF);
-//	DeleteObject(bmp);
-//	ListView_SetImageList(hwndBookmarksList, hImgList, LVSIL_SMALL);
-//	// setup columns
-//	LVCOLUMN lvc;
-//	// icons column
-//	lvc.mask = LVCF_WIDTH;
-//	lvc.cx = BOOKMARKSLIST_COLUMN_ICONS_WIDTH;
-//	ListView_InsertColumn(hwndBookmarksList, 0, &lvc);
-//	// keyframe column
-//	lvc.mask = LVCF_WIDTH | LVCF_FMT;
-//	lvc.fmt = LVCFMT_CENTER;
-//	lvc.cx = BOOKMARKSLIST_COLUMN_FRAMENUM_WIDTH;
-//	ListView_InsertColumn(hwndBookmarksList, 1, &lvc);
-//	// time column
-//	lvc.cx = BOOKMARKSLIST_COLUMN_TIMESTAMP_WIDTH;
-//	ListView_InsertColumn(hwndBookmarksList, 2, &lvc);
-//	// create 10 rows
-//	ListView_SetItemCountEx(hwndBookmarksList, TOTAL_BOOKMARKS, LVSICF_NOSCROLL | LVSICF_NOINVALIDATEALL);
 
 	reset();
 	selectedSlot = DEFAULT_SLOT;
-	// find the top/height of the "Time" cell of the 1st row (for mouseover hittest calculations)
-	//RECT temp_rect, wrect;
-	//if (ListView_GetSubItemRect(hwndBookmarksList, 0, 2, LVIR_BOUNDS, &temp_rect) && temp_rect.bottom != temp_rect.top)
-	//{
-	//	listTopMargin = temp_rect.top;
-	//	listRowLeft = temp_rect.left;
-	//	listRowHeight = temp_rect.bottom - temp_rect.top;
-	//} else
-	//{
-	//	// couldn't get rect, set default values
-	//	listTopMargin = 0;
-	//	listRowLeft = BOOKMARKSLIST_COLUMN_ICONS_WIDTH + BOOKMARKSLIST_COLUMN_FRAMENUM_WIDTH;
-	//	listRowHeight = 14;
-	//}
-	// calculate the needed height of client area (so that all 10 rows fir the screen)
-	//int total_list_height = listTopMargin + listRowHeight * TOTAL_BOOKMARKS;
-	// find the difference between Bookmarks List window and Bookmarks List client area
-	//GetWindowRect(hwndBookmarksList, &wrect);
-	//GetClientRect(hwndBookmarksList, &temp_rect);
-	//total_list_height += (wrect.bottom - wrect.top) - (temp_rect.bottom - temp_rect.top);
-	// change the height
-	//taseditorWindow.changeBookmarksListHeight(total_list_height);
+	imageItem = 0;
+	editMode = EDIT_MODE_BOOKMARKS;
 
 	redrawBookmarksSectionCaption();
 }
 void BOOKMARKS::free()
 {
 	bookmarksArray.resize(0);
-	//if (hImgList)
-	//{
-	//	ImageList_Destroy(hImgList);
-	//	hImgList = 0;
-	//}
 }
 void BOOKMARKS::reset()
 {
@@ -300,11 +119,21 @@ void BOOKMARKS::reset_vars()
 	mouseOverBranchesBitmap = false;
 	mustCheckItemUnderMouse = true;
 	bookmarkLeftclicked = bookmarkRightclicked = ITEM_UNDER_MOUSE_NONE;
-	nextFlashUpdateTime = clock() + BOOKMARKS_FLASH_TICK;
+	nextFlashUpdateTime = getTasEditorTime() + BOOKMARKS_FLASH_TICK;
+	imageItem = 0;
+}
+
+void BOOKMARKS::setFont( QFont &newFont )
+{
+	font = newFont;
+	font.setBold(true);
+	QWidget::setFont( font );
+	calcFontData();
 }
 
 void BOOKMARKS::calcFontData(void)
 {
+	int w,h;
 	QWidget::setFont(font);
 	QFontMetrics metrics(font);
 #if QT_VERSION > QT_VERSION_CHECK(5, 11, 0)
@@ -316,15 +145,15 @@ void BOOKMARKS::calcFontData(void)
 	pxLineSpacing  = metrics.lineSpacing() * 1.25;
 	pxLineLead     = pxLineSpacing - metrics.height();
 	pxCursorHeight = metrics.height();
-	pxLineTextOfs  = pxCharHeight + (pxLineSpacing - pxCharHeight) / 2;
+	pxLineTextOfs  = pxLineSpacing - ((pxLineSpacing - pxCharHeight) / 2) + (pxLineSpacing - pxCharHeight + 1) % 2;
 
 	//printf("W:%i  H:%i  LS:%i  \n", pxCharWidth, pxCharHeight, pxLineSpacing );
 
 	viewLines   = (viewHeight / pxLineSpacing) + 1;
 
 	pxWidthCol1     =  3 * pxCharWidth;
-	pxWidthFrameCol = 12 * pxCharWidth;
-	pxWidthTimeCol  = 12 * pxCharWidth;
+	pxWidthFrameCol =  9 * pxCharWidth;
+	pxWidthTimeCol  = 10 * pxCharWidth;
 
 	pxLineWidth = pxWidthCol1 + pxWidthFrameCol + pxWidthTimeCol;
 
@@ -332,11 +161,12 @@ void BOOKMARKS::calcFontData(void)
 	pxStartCol2 =  pxWidthCol1;
 	pxStartCol3 =  pxWidthCol1 + pxWidthFrameCol;
 
-	viewWidth  = pxLineWidth;
-	viewHeight = pxLineSpacing * TOTAL_BOOKMARKS;
+	w = pxLineWidth;
+	h = pxLineSpacing * TOTAL_BOOKMARKS;
 
-	setMinimumWidth( viewWidth );
-	setMinimumHeight( viewHeight );
+	setMinimumWidth( w );
+	setMinimumHeight( h );
+	resize(w,h);
 }
 
 void BOOKMARKS::update()
@@ -371,9 +201,9 @@ void BOOKMARKS::update()
 	commands.resize(0);
 
 	// once per 100 milliseconds update bookmark flashes
-	if (clock() > nextFlashUpdateTime)
+	if (getTasEditorTime() > nextFlashUpdateTime)
 	{
-		nextFlashUpdateTime = clock() + BOOKMARKS_FLASH_TICK;
+		nextFlashUpdateTime = getTasEditorTime() + BOOKMARKS_FLASH_TICK;
 		for (int i = 0; i < TOTAL_BOOKMARKS; ++i)
 		{
 			if (bookmarkRightclicked == i || bookmarkLeftclicked == i)
@@ -400,15 +230,26 @@ void BOOKMARKS::update()
 	if (mustCheckItemUnderMouse)
 	{
 		if (editMode == EDIT_MODE_BRANCHES)
+		{
 			itemUnderMouse = branches->findItemUnderMouse(mouseX, mouseY);
+		}
 		else if (editMode == EDIT_MODE_BOTH)
+		{
 			itemUnderMouse = findItemUnderMouse();
+		}
 		else
+		{
 			itemUnderMouse = ITEM_UNDER_MOUSE_NONE;
+		}
 		mustCheckItemUnderMouse = false;
+		redrawFlag = true;
 	}
 
-	QWidget::update();
+	if ( redrawFlag )
+	{
+		QWidget::update();
+		redrawFlag = false;
+	}
 }
 
 // stores commands in array for update() function
@@ -552,11 +393,19 @@ void BOOKMARKS::save(EMUFILE *os, bool really_save)
 {
 	if (really_save)
 	{
+		setTasProjectProgressBarText("Saving Bookmarks...");
+		setTasProjectProgressBar( 0, TOTAL_BOOKMARKS );
+
 		// write "BOOKMARKS" string
 		os->fwrite(bookmarks_save_id, BOOKMARKS_ID_LEN);
 		// write all 10 bookmarks
 		for (int i = 0; i < TOTAL_BOOKMARKS; ++i)
+		{
+			setTasProjectProgressBar( i, TOTAL_BOOKMARKS );
 			bookmarksArray[i].save(os);
+		}
+		setTasProjectProgressBar( TOTAL_BOOKMARKS, TOTAL_BOOKMARKS );
+
 		// write branches
 		branches->save(os);
 	} else
@@ -644,6 +493,7 @@ void BOOKMARKS::redrawBookmarksList(bool eraseBG)
 	{
 		//InvalidateRect(hwndBookmarksList, 0, eraseBG);
 	}
+	redrawFlag = true;
 }
 void BOOKMARKS::redrawChangedBookmarks(int frame)
 {
@@ -657,11 +507,11 @@ void BOOKMARKS::redrawChangedBookmarks(int frame)
 }
 void BOOKMARKS::redrawBookmark(int bookmarkNumber)
 {
-	//redrawBookmarksListRow((bookmarkNumber + TOTAL_BOOKMARKS - 1) % TOTAL_BOOKMARKS);
+	redrawFlag = true;
 }
 void BOOKMARKS::redrawBookmarksListRow(int rowIndex)
 {
-	//ListView_RedrawItems(hwndBookmarksList, rowIndex, rowIndex);
+	redrawFlag = true;
 }
 
 void BOOKMARKS::resizeEvent(QResizeEvent *event)
@@ -672,7 +522,7 @@ void BOOKMARKS::resizeEvent(QResizeEvent *event)
 
 void BOOKMARKS::paintEvent(QPaintEvent *event)
 {
-	fceuCriticalSection emuLock;
+	FCEU_CRITICAL_SECTION( emuLock );
 	QPainter painter(this);
 	int x, y, item, cell_y;
 	QColor white(255,255,255), black(0,0,0), blkColor;
@@ -816,7 +666,7 @@ void BOOKMARKS::paintEvent(QPaintEvent *event)
 		{
 			x = pxStartCol2 + pxCharWidth;
 
-			U32ToDecStr( txt, bookmarksArray[item].snapshot.keyFrame, 10);
+			U32ToDecStr( txt, bookmarksArray[item].snapshot.keyFrame, 7);
 
 			painter.drawText( x, y+pxLineTextOfs, tr(txt) );
 
@@ -896,6 +746,7 @@ int  BOOKMARKS::calcColumn( int px )
 
 void BOOKMARKS::mousePressEvent(QMouseEvent * event)
 {
+	FCEU_CRITICAL_SECTION( emuLock );
 	int item, row_under_mouse, item_valid;
 	QPoint c = convPixToCursor( event->pos() );
 
@@ -930,10 +781,13 @@ void BOOKMARKS::mousePressEvent(QMouseEvent * event)
 		playback->handleMiddleButtonClick();
 	}
 	//printf("Mouse Button Pressed: 0x%x (%i,%i)\n", event->button(), c.x(), c.y() );
+	
+	redrawFlag = true;
 }
 
 void BOOKMARKS::mouseReleaseEvent(QMouseEvent * event)
 {
+	FCEU_CRITICAL_SECTION( emuLock );
 	//QPoint c = convPixToCursor( event->pos() );
 
 	//printf("Mouse Button Released: 0x%x (%i,%i)\n", event->button(), c.x(), c.y() );
@@ -954,19 +808,96 @@ void BOOKMARKS::mouseReleaseEvent(QMouseEvent * event)
 		}
 		bookmarkRightclicked = ITEM_UNDER_MOUSE_NONE;
 	}
+	redrawFlag = true;
+}
+
+void BOOKMARKS::showImage(void)
+{
+	FCEU_CRITICAL_SECTION( emuLock ); 
+
+	bool item_valid = (imageItem >= 0) && (imageItem < TOTAL_BOOKMARKS);
+
+	if ( item_valid && (imageItem != bookmarkPreviewPopup::currentIndex()) )
+	{
+		bookmarkPreviewPopup *popup = bookmarkPreviewPopup::currentInstance();
+
+		if ( popup == NULL )
+		{
+			popup = new bookmarkPreviewPopup(imageItem, this);
+
+			connect( this, SIGNAL(imageIndexChanged(int)), popup, SLOT(imageIndexChanged(int)) );
+
+			popup->show();
+		}
+		else
+		{
+			popup->reloadImage(imageItem);
+		}
+	}
 }
 
 void BOOKMARKS::mouseMoveEvent(QMouseEvent * event)
 {
-	//QPoint c = convPixToCursor( event->pos() );
+	FCEU_CRITICAL_SECTION( emuLock );
+	int item, row_under_mouse, item_valid, column;
+
+	QPoint c = convPixToCursor( event->pos() );
 
 	//printf("Mouse Move: 0x%x (%i,%i)\n", event->button(), c.x(), c.y() );
+	
+	row_under_mouse = c.y();
+	column = calcColumn( event->pos().x() );
+
+	item = (row_under_mouse + 1) % TOTAL_BOOKMARKS;
+	item_valid = (item >= 0) && (item < TOTAL_BOOKMARKS);
+
+	if ( item_valid && (column == BOOKMARKSLIST_COLUMN_TIME) && bookmarks->bookmarksArray[item].notEmpty)
+	{
+		if ( item != imageItem )
+		{
+			emit imageIndexChanged(item);
+		}
+		imageItem = item;
+		imageTimer->start();
+		QToolTip::hideText();
+	}
+	else
+	{
+		item = -1;
+		if ( item != imageItem )
+		{
+			emit imageIndexChanged(item);
+		}
+		imageItem = item;
+		imageTimer->stop();
+	}
+}
+
+void BOOKMARKS::focusOutEvent(QFocusEvent *event)
+{
+	int item = -1;
+	if ( item != imageItem )
+	{
+		emit imageIndexChanged(item);
+	}
+	imageItem = item;
+}
+
+void BOOKMARKS::leaveEvent(QEvent *event)
+{
+	int item = -1;
+	if ( item != imageItem )
+	{
+		emit imageIndexChanged(item);
+	}
+	imageItem = item;
 }
 
 bool BOOKMARKS::event(QEvent *event)
 {
 	if (event->type() == QEvent::ToolTip)
 	{
+		FCEU_CRITICAL_SECTION( emuLock );
 		int item, row_under_mouse, item_valid, column;
 		QHelpEvent *helpEvent = static_cast<QHelpEvent *>(event);
 
@@ -980,7 +911,7 @@ bool BOOKMARKS::event(QEvent *event)
 
 		if ( item_valid && (column == BOOKMARKSLIST_COLUMN_TIME) && bookmarks->bookmarksArray[item].notEmpty)
 		{
-			static_cast<bookmarkPreviewPopup*>(fceuCustomToolTipShow( helpEvent, new bookmarkPreviewPopup(item, this) ));
+			//static_cast<bookmarkPreviewPopup*>(fceuCustomToolTipShow( helpEvent, new bookmarkPreviewPopup(item, this) ));
 			//QToolTip::showText(helpEvent->globalPos(), tr(stmp), this );
 			QToolTip::hideText();
 			event->ignore();
@@ -989,7 +920,10 @@ bool BOOKMARKS::event(QEvent *event)
 		{
 			QToolTip::showText(helpEvent->globalPos(), tr("Right click = set Bookmark, Left click = jump to Bookmark or load Branch"), this );
 		}
-
+		else
+		{
+			QToolTip::hideText();
+		}
 		return true;
 	}
 	return QWidget::event(event);
