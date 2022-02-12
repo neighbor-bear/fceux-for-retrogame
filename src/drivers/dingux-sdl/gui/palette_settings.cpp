@@ -15,6 +15,28 @@ static void custom_update(unsigned long key) {
 	g_config->setOption("SDL.Palette", cpalette);
 }
 
+// Force Gray Scale
+static void forcegrayscale_update(unsigned long key)
+{
+	int val;
+
+	if (key == DINGOO_RIGHT) val = 1;
+	if (key == DINGOO_LEFT) val = 0;
+
+	g_config->setOption("SDL.ForceGrayScale", val);
+}
+
+// De-emphasis Bit Swap
+static void deemphbitswap_update(unsigned long key)
+{
+	int val;
+
+	if (key == DINGOO_RIGHT) val = 1;
+	if (key == DINGOO_LEFT) val = 0;
+
+	g_config->setOption("SDL.DeempBitSwap", val);
+}
+
 // NTSC TV's colors
 static void ntsc_update(unsigned long key)
 {
@@ -55,6 +77,8 @@ static void hue_update(unsigned long key)
 static SettingEntry palette_menu[] = 
 {
 	{"Custom palette", "Load custom palette", "SDL.Palette", custom_update},
+	{"Force Grayscale","Force gray scale","SDL.ForceGrayScale", forcegrayscale_update},
+	{"De-emphasis Bit Swap","De-emphasis Bit Swap","SDL.DeempBitSwap", deemphbitswap_update},
 	{"NTSC Palette", "Emulate NTSC TV's colors", "SDL.NTSCpalette", ntsc_update},
 	{"Tint", "Sets tint for NTSC color", "SDL.Tint", tint_update},
 	{"Hue", "Sets hue for NTSC color", "SDL.Hue", hue_update},
@@ -159,7 +183,9 @@ int RunPaletteSettings()
 					else
 						strncpy(tmp, palname.substr(path_sz + 1, sz - 1
 								- path_sz).c_str(), 32);
-				} else if (!strncmp(palette_menu[i].name, "NTSC Palette", 12)) {
+				} else if (!strncmp(palette_menu[i].name, "NTSC Palette", 12)
+					 ||!strncmp(palette_menu[i].name, "Force Grayscale", 15)
+					 ||!strncmp(palette_menu[i].name, "De-emphasis Bit Swap", 20)) {
 					sprintf(tmp, "%s", itmp ? "on" : "off");
 				}
 				else sprintf(tmp, "%d", itmp);

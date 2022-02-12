@@ -27,6 +27,8 @@
 #include <windows.h>
 #endif
 
+extern bool force_grayscale;
+
 /**
  * Read a custom pallete from a file and load it into the core.
  */
@@ -143,6 +145,13 @@ Config * InitConfig() {
 	config->addOption("tint", "SDL.Tint", 56);
 	config->addOption("hue", "SDL.Hue", 72);
 	config->addOption("ntsccolor", "SDL.NTSCpalette", 0);
+	config->addOption("SDL.ForceGrayScale", 0);
+	config->addOption("SDL.DeempBitSwap", 0);
+	config->addOption("SDL.PalNotch", 100);
+	config->addOption("SDL.PalSaturation", 100);
+	config->addOption("SDL.PalSharpness", 0);
+	config->addOption("SDL.PalContrast", 100);
+	config->addOption("SDL.PalBrightness", 50);
 
 	// scanline settings
 	config->addOption("slstart", "SDL.ScanLineStartNTSC", 0+8);
@@ -436,6 +445,8 @@ void UpdateEMUCore(Config *config) {
 	FCEUI_SetNTSCTH(ntsccol, ntsctint, ntschue);
 	
 	config->getOption("SDL.IntFrameRate"  , &useIntFrameRate);
+	config->getOption("SDL.ForceGrayScale", &force_grayscale);
+	config->getOption("SDL.DeempBitSwap"  , &paldeemphswap);
 	
 	config->getOption("SDL.Palette", &cpalette);
 	if (cpalette.size()) {

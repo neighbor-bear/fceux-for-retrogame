@@ -462,6 +462,17 @@ static void KeyboardCommands() {
 			}
 			resetkey(DINGOO_Y);
 		}
+		if(_keyonly(DINGOO_UP)) { // R + Up De-emphasis bit swap
+			int deemphswap;
+			g_config->getOption("SDL.DeempBitSwap", &deemphswap);
+			deemphswap ^= 1;
+			g_config->setOption("SDL.DeempBitSwap", deemphswap);
+			UpdateEMUCore(g_config);
+			FCEUD_DriverReset();
+			FCEU_DispMessage("De-emphasis bit swap %s",0,deemphswap?"on":"off");
+			dingoo_clear_video();
+			resetkey(DINGOO_UP);
+		}
 	}
 
 	/*
