@@ -23,6 +23,9 @@ int FCEUD_DriverReset();
 int FCEUD_VideoRegionSave(int pal);
 int FCEUD_ReloadConfig(void);
 void FCEUD_SetAutoResume(int val);
+#ifndef RETROFW
+void FCEUD_SetVideoFilter(int video_filter);
+#endif
 
 void FCEUI_FDSFlip(void);
 

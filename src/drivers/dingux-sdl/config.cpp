@@ -181,6 +181,11 @@ Config * InitConfig() {
 	config->addOption("ystretch", "SDL.YStretch", 0);
 	config->addOption("noframe", "SDL.NoFrame", 0);
 	config->addOption("special", "SDL.SpecialFilter", 0);
+	
+#ifndef RETROFW
+	// Video filter and sharpness level
+	config->addOption("SDL.VideoFilter", 2);
+#endif
 
 	// NOT SUPPORTED
 	// OpenGL options
@@ -437,6 +442,9 @@ Config * InitConfig() {
 void UpdateEMUCore(Config *config) {
 	int ntsccol, ntsctint, ntschue, flag, region;
 	int startNTSC, endNTSC, startPAL, endPAL;
+#ifndef RETROFW
+	int videofilter;
+#endif
 	std::string cpalette;
 
 	config->getOption("SDL.NTSCpalette", &ntsccol);
@@ -452,6 +460,11 @@ void UpdateEMUCore(Config *config) {
 	if (cpalette.size()) {
 		LoadCPalette(cpalette);
 	}
+
+#ifndef RETROFW
+	config->getOption("SDL.VideoFilter", &videofilter);
+	FCEUD_SetVideoFilter(videofilter);
+#endif
 
 	config->getOption("SDL.NewPPU", &newppu);
 	

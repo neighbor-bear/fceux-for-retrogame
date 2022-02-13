@@ -20,6 +20,14 @@ static char *aspect_tag[] = {
 		"4:3",
 };
 
+#ifndef RETROFW
+static char *video_filter_tag[] = {
+		"Nearest",
+		"Bilinear",
+		"Bicubic",
+};
+#endif
+
 static void fullscreen_update(unsigned long key)
 {
 	int val;
@@ -41,6 +49,19 @@ static void aspectselect_update(unsigned long key)
    
 	g_config->setOption("SDL.AspectSelect", val);
 }
+
+#ifndef RETROFW
+static void videofilter_update(unsigned long key)
+{
+	int val;
+	g_config->getOption("SDL.VideoFilter", &val);
+
+	if (key == DINGOO_RIGHT) val = val < 32 ? val+1 : 32;
+	if (key == DINGOO_LEFT) val = val > 0 ? val-1 : 0;
+   
+	g_config->setOption("SDL.VideoFilter", val);
+}
+#endif
 
 // Clip sides
 static void clip_update(unsigned long key)
@@ -143,6 +164,9 @@ static SettingEntry vd_menu[] =
 {
 	{"Video scaling", "Select video scale mode", "SDL.Fullscreen", fullscreen_update},
 	{"HW PAR", "Hardware scaling Pixel AR", "SDL.AspectSelect", aspectselect_update},
+#ifndef RETROFW
+	{"HW Video filter", "Hardware scaling video filter", "SDL.VideoFilter", videofilter_update},
+#endif
 	{"Clip sides", "Clips left and right columns", "SDL.ClipSides", clip_update},
 	{"Triple buffer", "Triple buffer", "SDL.TripleBuffering", triplebuffering_update},
 	{"New PPU", "New PPU emulation engine", "SDL.NewPPU", newppu_update},
@@ -245,6 +269,14 @@ int RunVideoSettings()
 				else if (!strncmp(vd_menu[i].name, "HW PAR", 6)) {
 					sprintf(tmp, "%s", aspect_tag[itmp]);
 				}
+#ifndef RETROFW
+				else if (!strncmp(vd_menu[i].name, "HW Video filter", 15)) {
+					if (itmp > 1)
+						sprintf(tmp, "%s (%d)", video_filter_tag[2], itmp);
+					else
+						sprintf(tmp, "%s", video_filter_tag[itmp]);
+				}
+#endif
 				else if (!strncmp(vd_menu[i].name, "Clip sides", 10) \
 					|| !strncmp(vd_menu[i].name, "New PPU", 7)   \
 					|| !strncmp(vd_menu[i].name, "Triple buffer", 13)   \

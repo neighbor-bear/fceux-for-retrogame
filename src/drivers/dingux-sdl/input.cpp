@@ -473,6 +473,50 @@ static void KeyboardCommands() {
 			dingoo_clear_video();
 			resetkey(DINGOO_UP);
 		}
+#ifndef RETROFW
+		extern int s_fullscreen; // from dingoo_video.cpp
+		if (s_fullscreen == 1) {
+			int left = 0, right = 0;
+			if(_keyonly(DINGOO_LEFT)) { // R + Left Video filter and sharpness up/down
+				left = 1;
+			}
+			if(_keyonly(DINGOO_RIGHT)) { // R + Left Video filter and sharpness up/down
+				right = 1;
+			}
+			if (left || right) {
+				int videofilter;
+				char message[13];
+				g_config->getOption("SDL.VideoFilter", &videofilter);
+				if (left) {
+					if (videofilter>0)
+						videofilter--;
+					else
+						videofilter=32;
+				} else {
+					if (videofilter<32)
+						videofilter++;
+					else
+						videofilter=0;
+				}
+				g_config->setOption("SDL.VideoFilter", videofilter);
+				UpdateEMUCore(g_config);
+				switch (videofilter) {
+					case 0: 
+						snprintf(message, 8, "%s", "Nearest");
+						break;
+					case 1: 
+						snprintf(message, 9, "%s", "Bilinear");
+						break;
+					default:
+						snprintf(message, 13, "%s (%d)", "Bicubic", videofilter);
+						break;
+				}
+				FCEU_DispMessage("%s", 0, message);
+				if (left) resetkey(DINGOO_LEFT);
+				if (right) resetkey(DINGOO_RIGHT);
+			}
+		}
+#endif
 	}
 
 	/*

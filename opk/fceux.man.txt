@@ -29,22 +29,23 @@ Controls
  Start+Select  Open menu in RetroFW (configurable)
 
  Default Hotkeys
- --------------------------------------------------------
- R1 + A        Save state (current slot from gui is used)
- R1 + B        Load state (current slot from gui is used)
- R1 + X        Toggle fullscreen
- R1 + Y        Flip fds disk
- R1 + UP       Toggle framerate display
- R1 + DOWN     Toggle Game Genie
- R1 + LEFT     Insert vsuni coin
- R1 + RIGHT    Open Cheat browser
- R1 + SELECT   Save snapshot
- R1 + START    Pause emulation
- L1 + A        Toggle throttling
- L1 + B        Clip top/bottom (8 pixels each)
- L1 + X        Change Pixel Aspect Ratio
- L1 + Y        Clip sides (8 pixels each side)
- L1 + UP       Toggle de-emphasis bit swap
+ ----------------------------------------------------------------
+ R1 + A          Save state (current slot from gui is used)
+ R1 + B          Load state (current slot from gui is used)
+ R1 + X          Toggle fullscreen
+ R1 + Y          Flip fds disk
+ R1 + UP         Toggle framerate display
+ R1 + DOWN       Toggle Game Genie
+ R1 + LEFT       Insert vsuni coin
+ R1 + RIGHT      Open Cheat browser
+ R1 + SELECT     Save snapshot
+ R1 + START      Pause emulation
+ L1 + A          Toggle throttling
+ L1 + B          Clip top/bottom (8 pixels each)
+ L1 + X          Change Pixel Aspect Ratio
+ L1 + Y          Clip sides (8 pixels each side)
+ L1 + UP         Toggle de-emphasis bit swap
+ L1 + LEFT/RIGHT OpenDingux: Decrease/Increase video filter value
 
  Controls in menus
  --------------------------------------------------------
@@ -225,7 +226,7 @@ Overclock
 What's new
 ----------
 
- 12 February 2022
+ 13 February 2022
   - Updated to upstream 2.6.2
   - Change video mode to 320x240 when access cheats with hotkey
   - Added Pixel Aspect Ratio for hardware scaling: 1:1, 8:7, 4:3
@@ -254,7 +255,7 @@ What's new
     - Sound Buffer size is defaulted to 128 ms. Previous builds have 30 ms as
       default value.
   - Included upstream palette files in the opk file.
-  - Rearrange config menu:
+  - Rearranged config menu:
     - Add Palette settings submenu.
     - Move custom palette and NTSC Palette control to Palette settings menu.
     - Add Force Grayscale and De-emphasis Bit Swap options to Palette menu.
@@ -264,6 +265,10 @@ What's new
       directories, use the B button to go up in directory structure and A button
       to enter in a directory.
     - In Palette settings use the Left cursor to clean custom palette.
+  - Added video filter option for hardware scaler. 
+    - Only for OpenDingux (JZ47xx and JZ46xx). 
+    - L + LEFT/RIGHT decrease/increase the filter value (0-32). 
+    - Values: 0 = Nearest, 1 = Bilinear, 2-32 = Bicubic.
 
  25 September 2021
   - Merged asoderq/sydarn2 overclocking work. As upstream it only works with

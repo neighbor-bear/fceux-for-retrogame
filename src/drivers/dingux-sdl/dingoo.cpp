@@ -48,6 +48,11 @@
 #include <windows.h>
 #endif
 
+#ifdef OD2014
+#define OD_DOWNSCALE_FILE "/sys/devices/platform/jz-lcd.0/sharpness_downscaling"
+#define OD_UPSCALE_FILE   "/sys/devices/platform/jz-lcd.0/sharpness_upscaling"
+#endif
+
 extern void InitGuiVideo();
 
 extern double g_fpsScale;
@@ -1024,6 +1029,37 @@ void FCEUD_TurboToggle(void) {
 void FCEUD_SetAutoResume(int val) {
     AutoResumePlay = val ? true : false;
 }
+#ifndef RETROFW
+void FCEUD_SetVideoFilter(int video_filter) {
+	// Filter and sharpness level 
+	//   - "0" is nearest-neighbour
+	//   - "1" is bilinear
+	//   - 2-32 is bicubic
+	char sharpness_level_c[3] = "2";
+
+	if (video_filter > 32)
+		video_filter = 32;
+	else if (video_filter < 0)
+		video_filter = 0;
+
+	sprintf(sharpness_level_c, "%d", video_filter);
+#ifndef OD2014
+	setenv("SDL_VIDEO_KMSDRM_SCALING_SHARPNESS", sharpness_level_c, 1);
+#else
+	FILE *upscale_file = fopen(OD_UPSCALE_FILE, "wb");
+	if (upscale_file) {
+		fputs(sharpness_level_c, upscale_file);
+		fclose(upscale_file);
+	}
+
+	FILE *downscale_file = fopen(OD_DOWNSCALE_FILE, "wb");
+	if (downscale_file) {
+		fputs(sharpness_level_c, downscale_file);
+		fclose(downscale_file);
+	}
+#endif
+}
+#endif
 FCEUFILE* FCEUD_OpenArchiveIndex(ArchiveScanRecord& asr, std::string &fname,
 		int innerIndex) {
 	return 0;

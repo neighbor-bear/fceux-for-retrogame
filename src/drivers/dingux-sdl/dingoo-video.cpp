@@ -170,6 +170,12 @@ int InitVideo(FCEUGI *gi) {
 		int w, h;
 		if (s_fullscreen == 1) {
 			int aspect_ratio;
+#ifndef RETROFW
+			int videofilter;
+
+			g_config->getOption("SDL.VideoFilter", &videofilter);
+			FCEUD_SetVideoFilter(videofilter);
+#endif
 			g_config->getOption("SDL.AspectSelect", &aspect_ratio);
 			switch (aspect_ratio) {
 			// 1:1

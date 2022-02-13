@@ -115,6 +115,7 @@ L1 + B 				|Clip top/bottom (8 pixels each)
 L1 + X				|Change Pixel Aspect Ratio
 L1 + Y				|Clip sides (8 pixels each side)
 L1 + UP				|Toggle de-emphasis bit swap
+L1 + LEFT/RIGHT                 |OpenDingux: Decrease/Increase video filter value
 
 #### Controls in menus
 
@@ -196,7 +197,7 @@ Build files are created in the `bin`directory.
 
 ## What's new
 
-#### 12 February 2022
+#### 13 February 2022
   - Updated to upstream 2.6.2. See upstreams changes here https://fceux.com/web/help/WhatsNew262.html
   - Change video mode to 320x240 when access cheats with hotkey
   - Added Pixel Aspect Ratio for hardware scaling (1:1, 8:7, 4:3).
@@ -216,13 +217,17 @@ Build files are created in the `bin`directory.
     - The Frameskip levels (0-11) are done via a framekip table, the upstream FCEUX frameskipping is very aggresive. The frameskip table is borrowed from mame084 source so the thanks goes to MAME dev team.
     - Sound Buffer size is defaulted to 128 ms. Previous builds have 30 ms as default value.
   - Included upstream palette files in the opk file.
-  - Rearrange config menu:
+  - Rearranged config menu:
     - Add Palette settings submenu.
     - Move custom palette and NTSC Palette control to Palette settings menu.
     - Add Force Grayscale and De-emphasis Bit Swap options to Palette menu.
     - Add hotkey L1 + UP to toggle de-emphasis bit swap.
     - In Palette settings Custom palette search first for palette files in the `palettes` directory distributed with the opk. You can navigate to other directories, use the B button to go up in directory structure and A button to enter in a directory.
     - In Palette settings use the Left cursor to clean custom palette.
+  - Added video filter option for hardware scaler. 
+    - Only for OpenDingux (JZ47xx and JZ46xx). 
+    - L + LEFT/RIGHT decrease/increase the filter value (0-32). 
+    - Values: 0 = Nearest, 1 = Bilinear, 2-32 = Bicubic.
 
 #### 25 September 2021
   - Merged [asoderq/sydarn2 overclocking work](https://github.com/asoderq/fceux-for-retrogame/releases/tag/2021-09-11). As upstream it only works with Old PPU.
