@@ -1,8 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <SDL/SDL.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "file_list.h"
+
+#ifdef RETROFW
+#define DEFAULT_ROM_DIR "/"
+#else
+#define DEFAULT_ROM_DIR "/media"
+#endif
 
 // Externals
 extern SDL_Surface* screen;
@@ -30,7 +39,7 @@ GetTypeOfBrowser(const char *types[]) {
 	return "File Browser";
 }
 
-static char s_LastDir[128] = "/";
+static char s_LastDir[128] = DEFAULT_ROM_DIR;
 int RunFileBrowser(char *source, char *outname, const char *types[],
 		const char *info) {
 
@@ -59,6 +68,13 @@ int RunFileBrowser(char *source, char *outname, const char *types[],
 	if (pFile != NULL) {
 		fgets (s_LastDir , 128 , pFile);
 		fclose (pFile);
+		
+		// Avoid crash if romdir configured do not exist
+		struct stat ss;
+		ss.st_mode = 0;
+		if ((stat(s_LastDir, &ss) != 0) || !S_ISDIR(ss.st_mode)) {
+			snprintf(s_LastDir, 7, DEFAULT_ROM_DIR);
+		}
 	}
 
 	// Create file list
