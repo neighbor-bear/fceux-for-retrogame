@@ -226,7 +226,7 @@ Overclock
 What's new
 ----------
 
- 13 February 2022
+ 18 February 2022
   - Updated to upstream 2.6.2
   - Change video mode to 320x240 when access cheats with hotkey
   - Added Pixel Aspect Ratio for hardware scaling: 1:1, 8:7, 4:3
@@ -241,7 +241,8 @@ What's new
     refresh.
   - Added sound Buffer size option. It is expressed in ms. Default value is 128
     and the valid values range is from 15 to 200.
-  - Enabled Frameskip configuration with Auto and 0 to 11 levels. Default is 0.
+  - Enabled Frameskip configuration with levels Auto and from 0 to 11. Default
+    level is 0.
   - This changes have impact in previously configured games so you must revise
     its configurations:
     - FPS throttle 'Off' previously implements an implicit frameskip based on
@@ -267,7 +268,7 @@ What's new
     - In Palette settings use the Left cursor to clean custom palette.
   - Added video filter option for hardware scaler. 
     - Only for OpenDingux (JZ47xx and JZ46xx). 
-    - L + LEFT/RIGHT decrease/increase the filter value (0-32). 
+    - Add hotkey L + LEFT/RIGHT to decrease/increase the filter value (0-32). 
     - Values: 0 = Nearest, 1 = Bilinear, 2-32 = Bicubic.
 
  25 September 2021
@@ -349,4 +350,6 @@ Build files are created in the `bin`directory.
 
 ----
 
-Thanks go to all people who worked on each incarnation of FCEUX: the_gama, ValdikSS and DiegoSLTS, Steward-fu, soarqin, gameblabla, pingflood.
+Thanks go to current maintainers of upstream FCEUX andall people who worked on
+each incarnation of FCEUX: the_gama, ValdikSS and DiegoSLTS, Steward-fu, soarqin,
+gameblabla, pingflood.
