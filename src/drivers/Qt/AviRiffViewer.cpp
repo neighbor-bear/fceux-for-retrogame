@@ -148,7 +148,7 @@ AviRiffViewerDialog::AviRiffViewerDialog(QWidget *parent)
 //----------------------------------------------------------------------------
 AviRiffViewerDialog::~AviRiffViewerDialog(void)
 {
-	printf("Destroy AVI RIFF Viewer Window\n");
+	//printf("Destroy AVI RIFF Viewer Window\n");
 
 	if ( avi )
 	{
@@ -158,7 +158,7 @@ AviRiffViewerDialog::~AviRiffViewerDialog(void)
 //----------------------------------------------------------------------------
 void AviRiffViewerDialog::closeEvent(QCloseEvent *event)
 {
-	printf("AVI RIFF Viewer Window Event\n");
+	//printf("AVI RIFF Viewer Window Event\n");
 	done(0);
 	deleteLater();
 	event->accept();
@@ -848,9 +848,11 @@ int  AviRiffViewerDialog::processChunk( AviRiffTreeItem *item )
 		}
 		else if ( strcmp( strhType, "auds" ) == 0 )
 		{
-			data.malloc( item->getSize()+8 );
+			size_t dataSize = item->getSize()+8;
 
-			avi->getChunkData( item->filePos(), data.buf, item->getSize()+8 );
+			data.malloc( dataSize );
+
+			avi->getChunkData( item->filePos(), data.buf, dataSize );
 
 			sprintf( stmp, "%c%c%c%c", data.buf[0], data.buf[1], data.buf[2], data.buf[3] );
 
@@ -907,13 +909,6 @@ int  AviRiffViewerDialog::processChunk( AviRiffTreeItem *item )
 			twi->setText( 0, tr("nBitsPerSample") );
 			twi->setText( 2, tr(stmp) );
 			item->addChild(twi);
-
-			sprintf( stmp, "%u", data.readU16(24) );
-
-			twi = new QTreeWidgetItem();
-			twi->setText( 0, tr("cbSize") );
-			twi->setText( 2, tr(stmp) );
-			item->addChild(twi);
 		}
 	}
 	else if ( isRiffTag( item->getFourcc(), &riffIdx ) )
@@ -950,9 +945,9 @@ int  AviRiffViewerDialog::processChunk( AviRiffTreeItem *item )
 
 		sprintf( stmp, "%u", data.readU32(8) );
 
-		for (i=0; i<item->getSize(); i++)
+		for (i=0; i < static_cast<int>(item->getSize()); i++)
 		{
-			if ( i >= ( sizeof(stmp)-1 ) )
+			if ( i >= (static_cast<int>(sizeof(stmp))-1 ) )
 			{
 				i = sizeof(stmp)-1; break;
 			}

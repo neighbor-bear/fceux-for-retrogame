@@ -18,6 +18,7 @@ extern bool suggestReadOnlyReplay;
 extern bool emulatorCycleToggle;
 extern bool showStatusIconOpt;
 extern bool drawInputAidsEnable;
+extern bool usePaletteForVideoBg;
 extern unsigned int gui_draw_area_width;
 extern unsigned int gui_draw_area_height;
 extern unsigned int emulatorCycleCount;
@@ -30,6 +31,7 @@ int CloseGame(void);
 int reloadLastGame(void);
 int LoadGameFromLua( const char *path );
 
+int  fceuWrapperPreInit( int argc, char *argv[] );
 int  fceuWrapperInit( int argc, char *argv[] );
 int  fceuWrapperMemoryCleanup( void );
 int  fceuWrapperClose( void );

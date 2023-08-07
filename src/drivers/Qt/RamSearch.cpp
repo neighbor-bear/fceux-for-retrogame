@@ -530,7 +530,7 @@ RamSearchDialog_t::~RamSearchDialog_t(void)
 //----------------------------------------------------------------------------
 void RamSearchDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("RAM Search Close Window Event\n");
+	//printf("RAM Search Close Window Event\n");
 	done(0);
 	deleteLater();
 	event->accept();
@@ -1778,7 +1778,7 @@ void QRamSearchView::keyPressEvent(QKeyEvent *event)
 		selAddr = -1;
 		selLine++;
 
-		if (selLine >= actvSrchList.size())
+		if ( static_cast<size_t>(selLine) >= actvSrchList.size())
 		{
 			selLine = actvSrchList.size() - 1;
 		}

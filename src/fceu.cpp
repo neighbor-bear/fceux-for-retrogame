@@ -36,6 +36,7 @@
 #include "unif.h"
 #include "cheat.h"
 #include "palette.h"
+#include "profiler.h"
 #include "state.h"
 #include "movie.h"
 #include "video.h"
@@ -118,6 +119,7 @@ bool movieSubtitles = true; //Toggle for displaying movie subtitles
 bool DebuggerWasUpdated = false; //To prevent the debugger from updating things without being updated.
 bool AutoResumePlay = false;
 char romNameWhenClosingEmulator[2048] = {0};
+static unsigned int pauseTimer = 0;
 
 
 FCEUGI::FCEUGI()
@@ -183,7 +185,6 @@ static void FCEU_CloseGame(void)
 		}
 
 #ifdef __WIN_DRIVER__
-		extern char LoadedRomFName[2048];
 		if (storePreferences(mass_replace(LoadedRomFName, "|", ".").c_str()))
 			FCEUD_PrintError("Couldn't store debugging data");
 		CDLoggerROMClosed();
@@ -211,6 +212,8 @@ static void FCEU_CloseGame(void)
 
 		GameInterface(GI_CLOSE);
 
+		FCEU_StateRecorderStop();
+
 		FCEUI_StopMovie();
 
 		ResetExState(0, 0);
@@ -228,10 +231,10 @@ static void FCEU_CloseGame(void)
 		currFrameCounter = 0;
 
 		//Reset flags for Undo/Redo/Auto Savestating //adelikat: TODO: maybe this stuff would be cleaner as a struct or class
-		lastSavestateMade[0] = 0;
+		lastSavestateMade.clear();
 		undoSS = false;
 		redoSS = false;
-		lastLoadstateMade[0] = 0;
+		lastLoadstateMade.clear();
 		undoLS = false;
 		redoLS = false;
 		AutoSS = false;
@@ -423,7 +426,7 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 	//----------
 	//attempt to open the files
 	FCEUFILE *fp;
-	char fullname[2048];	// this name contains both archive name and ROM file name
+	std::string fullname;	// this name contains both archive name and ROM file name
 	int lastpal = PAL;
 	int lastdendy = dendy;
 
@@ -433,7 +436,7 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 	// currently there's only one situation:
 	// the user clicked cancel form the open from archive dialog
 	int userCancel = 0;
-	fp = FCEU_fopen(name, 0, "rb", 0, -1, romextensions, &userCancel);
+	fp = FCEU_fopen(name, LoadedRomFNamePatchToUse[0] ? LoadedRomFNamePatchToUse : nullptr, "rb", 0, -1, romextensions, &userCancel);
 
 	if (!fp)
 	{
@@ -445,16 +448,19 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 	}
 	else if (fp->archiveFilename != "")
 	{
-		strcpy(fullname, fp->archiveFilename.c_str());
-		strcat(fullname, "|");
-		strcat(fullname, fp->filename.c_str());
-	} else
-		strcpy(fullname, name);
+		fullname.assign(fp->archiveFilename.c_str());
+		fullname.append("|");
+		fullname.append(fp->filename.c_str());
+	}
+	else
+	{
+		fullname.assign(name);
+	}
 
 	// reset loaded game BEFORE it's loading.
 	ResetGameLoaded();
 	//file opened ok. start loading.
-	FCEU_printf("Loading %s...\n\n", fullname);
+	FCEU_printf("Loading %s...\n\n", fullname.c_str());
 	GetFileBase(fp->filename.c_str());
 	//reset parameters so they're cleared just in case a format's loader doesn't know to do the clearing
 	MasterRomInfoParams = TMasterRomInfoParams();
@@ -486,16 +492,16 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 	bool FCEUXLoad(const char *name, FCEUFILE * fp);
 
 	int load_result;
-	load_result = iNESLoad(fullname, fp, OverwriteVidMode);
+	load_result = iNESLoad(fullname.c_str(), fp, OverwriteVidMode);
 	if (load_result == LOADER_INVALID_FORMAT)
 	{
-		load_result = NSFLoad(fullname, fp);
+		load_result = NSFLoad(fullname.c_str(), fp);
 		if (load_result == LOADER_INVALID_FORMAT)
 		{
-			load_result = UNIFLoad(fullname, fp);
+			load_result = UNIFLoad(fullname.c_str(), fp);
 			if (load_result == LOADER_INVALID_FORMAT)
 			{
-				load_result = FDSLoad(fullname, fp);
+				load_result = FDSLoad(fullname.c_str(), fp);
 			}
 		}
 	}	
@@ -504,7 +510,6 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 
 #ifdef __WIN_DRIVER__
 		// ################################## Start of SP CODE ###########################
-		extern char LoadedRomFName[2048];
 		extern int loadDebugDataFailed;
 
 		if ((loadDebugDataFailed = loadPreferences(mass_replace(LoadedRomFName, "|", ".").c_str())))
@@ -593,6 +598,12 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode, bool silen
 	}
 
 	FCEU_fclose(fp);
+
+	if ( FCEU_StateRecorderIsEnabled() )
+	{
+		FCEU_StateRecorderStart();
+	}
+
 	return GameInfo;
 }
 
@@ -726,8 +737,10 @@ extern unsigned int frameAdvHoldTimer;
 
 ///Skip may be passed in, if FRAMESKIP is #defined, to cause this to emulate more than one frame
 void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int skip) {
+	FCEU_PROFILE_FUNC(prof, "Emulate Single Frame");
 	//skip initiates frame skip if 1, or frame skip and sound skip if 2
-	int r, ssize;
+	FCEU_MAYBE_UNUSED int r;
+	int ssize;
 
 	JustFrameAdvanced = false;
 
@@ -744,7 +757,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 		{
 			EmulationPaused = EMULATIONPAUSED_FA;
 		}
-		if (frameAdvance_Delay_count < frameAdvanceDelayScaled)
+		if ( static_cast<unsigned int>(frameAdvance_Delay_count) < frameAdvanceDelayScaled)
 		{
 			frameAdvance_Delay_count++;
 		}
@@ -754,6 +767,22 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 		if (frameAdvance_Delay_count < frameAdvance_Delay)
 			frameAdvance_Delay_count++;
 #endif
+	}
+
+	if (EmulationPaused & EMULATIONPAUSED_TIMER)
+	{
+		if (pauseTimer > 0)
+		{
+			pauseTimer--;
+		}
+		else
+		{
+			EmulationPaused &= ~EMULATIONPAUSED_TIMER;
+		}
+		if (EmulationPaused & EMULATIONPAUSED_PAUSED)
+		{
+			EmulationPaused &= ~EMULATIONPAUSED_TIMER;
+		}
 	}
 
 	if (EmulationPaused & EMULATIONPAUSED_FA)
@@ -779,7 +808,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 			RefreshThrottleFPS();
 		}
 #endif
-		if (EmulationPaused & EMULATIONPAUSED_PAUSED)
+		if (EmulationPaused & (EMULATIONPAUSED_PAUSED | EMULATIONPAUSED_TIMER) )
 		{
 			// emulator is paused
 			memcpy(XBuf, XBackBuf, 256*256);
@@ -793,6 +822,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 
 	AutoFire();
 	UpdateAutosave();
+	FCEU_StateRecorderUpdate();
 
 #ifdef _S9XLUA_H
 	FCEU_LuaFrameBoundary();
@@ -809,6 +839,9 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 	r = FCEUPPU_Loop(skip);
 
 	if (skip != 2) ssize = FlushEmulateSound();  //If skip = 2 we are skipping sound processing
+
+	//flush tracer once a frame, since we're likely to end up back at a user interaction loop after this with emulation paused
+	FCEUD_FlushTrace();
 
 #ifdef _S9XLUA_H
 	CallRegisteredLuaFunctions(LUACALL_AFTEREMULATION);
@@ -1063,7 +1096,7 @@ void FCEU_ResetVidSys(void) {
 
 FCEUS FSettings;
 
-void FCEU_printf(const char *format, ...) 
+void FCEU_printf( __FCEU_PRINTF_FORMAT const char *format, ...)
 {
 	char temp[2048];
 
@@ -1083,7 +1116,7 @@ void FCEU_printf(const char *format, ...)
 	va_end(ap);
 }
 
-void FCEU_PrintError(const char *format, ...) 
+void FCEU_PrintError( __FCEU_PRINTF_FORMAT const char *format, ...)
 {
 	char temp[2048];
 
@@ -1230,12 +1263,16 @@ void FCEUI_ClearEmulationFrameStepped()
 //ideally maybe we shouldnt be using this, but i need it for quick merging
 void FCEUI_SetEmulationPaused(int val) {
 	EmulationPaused = val;
+	if(EmulationPaused)
+		FCEUD_FlushTrace();
 }
 
 void FCEUI_ToggleEmulationPause(void)
 {
 	EmulationPaused = (EmulationPaused & EMULATIONPAUSED_PAUSED) ^ EMULATIONPAUSED_PAUSED;
 	DebuggerWasUpdated = false;
+	if(EmulationPaused)
+		FCEUD_FlushTrace();
 }
 
 void FCEUI_FrameAdvanceEnd(void) {
@@ -1243,8 +1280,35 @@ void FCEUI_FrameAdvanceEnd(void) {
 }
 
 void FCEUI_FrameAdvance(void) {
-	frameAdvanceRequested = true;
 	frameAdvance_Delay_count = 0;
+	frameAdvanceRequested = true;
+}
+
+void FCEUI_PauseForDuration(int secs)
+{
+	int framesPerSec;
+
+	// If already paused, do nothing
+	if (EmulationPaused & EMULATIONPAUSED_PAUSED)
+	{
+		return;
+	}
+
+	if (PAL || dendy)
+	{
+		framesPerSec = 50;
+	}
+	else
+	{
+		framesPerSec = 60;
+	}
+	pauseTimer = framesPerSec * secs;
+	EmulationPaused |= EMULATIONPAUSED_TIMER;
+}
+
+int FCEUI_PauseFramesRemaining(void)
+{
+	return (EmulationPaused & EMULATIONPAUSED_TIMER) ? pauseTimer : 0;
 }
 
 static int AutosaveCounter = 0;
@@ -1261,7 +1325,7 @@ void UpdateAutosave(void) {
 		FCEUSS_Save(f, false);
 		AutoSS = true;  //Flag that an auto-savestate was made
 		free(f);
-        f = NULL;
+		f = NULL;
 		AutosaveStatus[AutosaveIndex] = 1;
 	}
 }

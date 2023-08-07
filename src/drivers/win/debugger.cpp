@@ -481,7 +481,7 @@ void HighlightSyntax(HWND hWnd, int lines)
 	{
 		commentline = false;
 		wordbreak = SendDlgItemMessage(hWnd, IDC_DEBUGGER_DISASSEMBLY, EM_FINDWORDBREAK, (WPARAM)WB_RIGHT, (LPARAM)newline.chrg.cpMin + 21);
-		for (int ch = newline.chrg.cpMin; ; ch++)
+		for (int ch = newline.chrg.cpMin; debug_wstr[ch] != 0; ch++)
 		{
 			if (debug_wstr[ch] == L'=' || debug_wstr[ch] == L'@' || debug_wstr[ch] == L'\n' || debug_wstr[ch] == L'-' || debug_wstr[ch] == L';')
 			{
@@ -1235,7 +1235,7 @@ void DeleteBreak(int sel)
 	if(sel<0) return;
 	if(sel>=numWPs) return;
 	if (watchpoint[sel].cond)
-		freeTree(watchpoint[sel].cond);
+		delete watchpoint[sel].cond;
 	if (watchpoint[sel].condText)
 		free(watchpoint[sel].condText);
 	if (watchpoint[sel].desc)
@@ -1471,7 +1471,7 @@ INT_PTR CALLBACK PatcherCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 							else
 								iapoffset = GetNesFileAddress(GetEditHex(hwndDlg,IDC_ROMPATCHER_OFFSET));
 							if((iapoffset < 16) && (iapoffset != -1)){
-								MessageBox(hDebug, "Sorry, iNES Header editing isn't supported by this tool. If you want to edit the header, please use iNES Header Editor", "Error", MB_OK | MB_ICONASTERISK);
+								MessageBox(hDebug, "Sorry, NES Header editing isn't supported by this tool. If you want to edit the header, please use NES Header Editor", "Error", MB_OK | MB_ICONASTERISK);
 								iapoffset = -1;
 							}
 							if((iapoffset > PRGsize[0]) && (iapoffset != -1)){
@@ -2422,7 +2422,7 @@ INT_PTR CALLBACK DebuggerCallB(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 				int mouse_x = GET_X_LPARAM(lParam);
 				int mouse_y = GET_Y_LPARAM(lParam);
 				//mbg merge 7/18/06 changed pausing check
-				if (FCEUI_EmulationPaused() && (mouse_x > 6) && (mouse_x < 30) && (mouse_y > 10))
+				if ((mouse_x > 6) && (mouse_x < 30) && (mouse_y > 10))
 				{
 					int tmp = (mouse_y - 10) / debugSystem->disasmFontHeight;
 					if (tmp < (int)disassembly_addresses.size())
@@ -2752,7 +2752,7 @@ void UpdatePatcher(HWND hwndDlg){
 		EnableWindow(GetDlgItem(hwndDlg,IDC_ROMPATCHER_PATCH_DATA),FALSE);
 		EnableWindow(GetDlgItem(hwndDlg,IDC_ROMPATCHER_BTN_APPLY),FALSE);
 	}
-	if(GameInfo->type != GIT_CART)EnableWindow(GetDlgItem(hwndDlg,IDC_ROMPATCHER_BTN_SAVE),FALSE);
+	if((GameInfo->type != GIT_CART) && (GameInfo->type != GIT_VSUNI))EnableWindow(GetDlgItem(hwndDlg,IDC_ROMPATCHER_BTN_SAVE),FALSE);
 	else EnableWindow(GetDlgItem(hwndDlg,IDC_ROMPATCHER_BTN_SAVE),TRUE);
 }
 

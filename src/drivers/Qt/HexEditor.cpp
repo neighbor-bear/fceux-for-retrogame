@@ -322,6 +322,8 @@ static void PalettePoke(uint32 addr, uint8 data)
 //----------------------------------------------------------------------------
 static int writeMem( int mode, unsigned int addr, int value )
 {
+	bool updateDebugger = false;
+
 	value = value & 0x000000ff;
 
 	switch ( mode )
@@ -339,6 +341,8 @@ static int writeMem( int mode, unsigned int addr, int value )
 				{
 					wfunc ((uint32) addr,
 					       (uint8) (value & 0x000000ff));
+
+					updateDebugger = true;
 				}
 			}
 			else
@@ -374,7 +378,7 @@ static int writeMem( int mode, unsigned int addr, int value )
 		{
 			if (addr < 16)
 			{
-				fprintf( stdout, "You can't edit ROM header here, however you can use iNES Header Editor to edit the header if it's an iNES format file.");
+				fprintf( stdout, "You can't edit ROM header here, however you can use NES Header Editor to edit the header if it's an iNES or NES2.0 format file.");
 			}
 			else if ( (addr >= 16) && (addr < PRGsize[0]+16) )
 			{
@@ -384,23 +388,32 @@ static int writeMem( int mode, unsigned int addr, int value )
 			{
 				*(uint8 *)(GetNesCHRPointer(addr-16-PRGsize[0])) = value;
 			}
+			updateDebugger = true;
 		}
 		break;
 	}
 
 	hexEditorRequestUpdateAll();
 
-   return 0;
+	if ( updateDebugger )
+	{
+		if (debuggerWindowIsOpen())
+		{
+			updateAllDebuggerWindows(QAsmView::UPDATE_NO_SCROLL);
+		}
+	}
+
+	return 0;
 }
 //----------------------------------------------------------------------------
 
 static int convToXchar( int i )
 {
-   int c = 0;
+	int c = 0;
 
 	if ( (i >= 0) && (i < 10) )
 	{
-      c = i + '0';
+		c = i + '0';
 	}
 	else if ( i < 16 )
 	{
@@ -720,7 +733,7 @@ int HexBookMarkManager_t::saveToFile(void)
 		return -1;
 	}
 
-	for (int i=0; i<v.size(); i++)
+	for (size_t i=0; i<v.size(); i++)
 	{
 		fprintf( fp, "%s:%08X:%s\n", 
 				memViewNames[ v[i]->mode ], v[i]->addr, v[i]->desc );
@@ -1018,7 +1031,7 @@ HexEditorFindDialog_t::~HexEditorFindDialog_t(void)
 //----------------------------------------------------------------------------
 void HexEditorFindDialog_t::closeEvent(QCloseEvent *event)
 {
-	printf("Hex Editor Close Window Event\n");
+	//printf("Hex Editor Close Window Event\n");
 	done(0);
 	deleteLater();
 	event->accept();
@@ -1840,7 +1853,7 @@ void HexEditorDialog_t::openDebugSymbolEditWindow( int addr )
 
 	if ( ret == QDialog::Accepted )
 	{
-		updateAllDebuggerWindows();
+		updateAllDebuggerWindows(QAsmView::UPDATE_NO_SCROLL);
 	}
 }
 //----------------------------------------------------------------------------
@@ -2442,9 +2455,9 @@ int QHexEdit::findPattern( std::vector <unsigned char> &varray, int dir )
 			return -1;
 		}
 		match = 1;
-		for (int i=0; i<varray.size(); i++)
+		for (size_t i=0; i<varray.size(); i++)
 		{
-			if ( (addr+i) >= mb.size() )
+			if ( (addr+i) >= static_cast<size_t>(mb.size()) )
 			{
 				match = 0; break;
 			}
@@ -2764,7 +2777,13 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 		event->accept();
 	}
 	else
-	{
+	{  // Use the input text to modify the values in the editor area.
+
+		if (event->text().isEmpty())
+		{
+			return;
+		}
+
 		int key;
 		if ( cursorPosX >= 32 )
 		{  // Edit Area is ASCII
@@ -2817,6 +2836,7 @@ void QHexEdit::keyPressEvent(QKeyEvent *event)
 		}
 		else
 		{  // Edit Area is Hex
+
 		   key = int(event->text()[0].toUpper().toLatin1());
 		
 		   if ( ::isxdigit( key ) )
@@ -3243,7 +3263,7 @@ void QHexEdit::addBookMarkCB(void)
 	}
 }
 //----------------------------------------------------------------------------
-static int RamFreezeCB(char *name, uint32 a, uint8 v, int compare,int s,int type, void *data)
+static int RamFreezeCB(const char *name, uint32 a, uint8 v, int compare,int s,int type, void *data)
 {
 	return ((QHexEdit*)data)->FreezeRam( name, a, v, compare, s, type );
 }	
@@ -3260,7 +3280,7 @@ int QHexEdit::FreezeRam( const char *name, uint32_t a, uint8_t v, int c, int s, 
 	//	printf("$%04X:%02X   %i: %s\n", a, v, s, name );
 	//}
 
-	if ( a == frzRamAddr )
+	if ( a == static_cast<uint32_t>(frzRamAddr) )
 	{
 		switch ( frzRamMode )
 		{
@@ -4204,6 +4224,11 @@ int hexEditorOpenFromDebugger( int mode, int addr )
 		win = new HexEditorDialog_t(consoleWindow);
 
 		win->show();
+	}
+	else
+	{
+		win->activateWindow();
+		win->raise();
 	}
 
 	win->editor->setMode( mode );
