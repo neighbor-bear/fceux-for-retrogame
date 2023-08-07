@@ -116,7 +116,6 @@ void tasWindowSetFocus(bool val)
 	{
 		tasWin->activateWindow();
 		tasWin->raise();
-		tasWin->setFocus();
 	}
 }
 // this getter contains formula to decide whether to record or replay movie
@@ -932,7 +931,7 @@ QMenuBar *TasEditorWindow::buildMenuBar(void)
 		actGroup->addAction(act);
 		patternMenu->addAction(act);
 
-		act->setChecked( taseditorConfig.currentPattern == i );
+		act->setChecked( static_cast<size_t>(taseditorConfig.currentPattern) == i );
 	}
 
 	// Help
@@ -2917,7 +2916,6 @@ void TasEditorWindow::openFindNoteWindow(void)
 	{
 		findWin->activateWindow();
 		findWin->raise();
-		findWin->setFocus();
 	}
 	else
 	{
@@ -6261,7 +6259,7 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 	FCEU_CRITICAL_SECTION( emuLock );
 	int x, y, row, nrow, lineNum;
 	QPainter painter(this);
-	QColor white(255,255,255), black(0,0,0), blkColor, rowTextColor, hdrGridColor;
+	QColor /*white(255,255,255),*/ black(0,0,0), blkColor, rowTextColor, hdrGridColor;
 	static const char *buttonNames[] = { "A", "B", "S", "T", "U", "D", "L", "R", NULL };
 	char stmp[32];
 	char rowIsSel=0;
@@ -6388,7 +6386,7 @@ void QPianoRoll::paintEvent(QPaintEvent *event)
 
 		lineNum = lineOffset + row;
 
-		if ( lineNum >= currMovieData.records.size() )
+		if ( static_cast<size_t>(lineNum) >= currMovieData.records.size() )
 		{
 			break;
 		}
@@ -7305,7 +7303,16 @@ void TasFindNoteWindow::findNextClicked(void)
 TasRecentProjectAction::TasRecentProjectAction(QString desc, QWidget *parent)
 	: QAction( desc, parent )
 {
+	QString txt;
+	QFileInfo fi(desc);
+
 	path = desc.toStdString();
+
+	txt  = fi.fileName();
+	txt += QString("\t");
+	txt += desc;
+
+	setText( txt );
 }
 //----------------------------------------------------------------------------
 TasRecentProjectAction::~TasRecentProjectAction(void)

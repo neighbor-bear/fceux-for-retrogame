@@ -17,6 +17,7 @@
 /output/auxlib.lua
 /output/fceux.pdb
 /output/7z.dll
+/output/7z_64.dll
 /output/fceux.exe
 /output/fceux.exp
 /output/fceux.lib
@@ -26,6 +27,9 @@
 /vc/userconfig/scmrev.h
 /vc/fceux.zip
 /vc/fceux64.zip
+
+# macOS junk
+.DS_Store
 
 # linux build output
 bin

@@ -83,6 +83,9 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 		case HK_CHEAT_MENU:
 			name = "CheatMenu"; keySeq = ""; title = "Open Cheat Window"; group = "Tools";
 		break;
+		case HK_TOGGLE_ALL_CHEATS:
+			name = "ToggleCheats"; keySeq = ""; title = "Toggle Global Cheat Enable"; group = "Tools";
+		break;
 		case HK_BIND_STATE:
 			name = "BindState"; keySeq = ""; title = "Bind Save State to Movie"; group = "Movie";
 		break;
@@ -184,8 +187,11 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 		case HK_POWER:
 			name = "Power"; keySeq = ""; title = "Power"; group = "Emulation";
 		break;
-		case HK_RESET:
-			name = "Reset"; keySeq = "Ctrl+R"; title = "Reset"; group = "Emulation";
+		case HK_SOFT_RESET:
+			name = "SoftReset"; keySeq = "Ctrl+R"; title = "Soft Reset"; group = "Emulation";
+		break;
+		case HK_HARD_RESET:
+			name = "HardReset"; keySeq = "Ctrl+Shift+R"; title = "Hard Reset"; group = "Emulation";
 		break;
 		case HK_PAUSE:
 			name = "Pause"; keySeq = "Pause"; title = "Pause"; group = "Emulation";
@@ -289,11 +295,20 @@ int getHotKeyConfig( int i, const char **nameOut, const char **keySeqOut, const 
 		case HK_SELECT_STATE_PREV:
 			name = "SelectStatePrev"; keySeq = ""; title = "Select Previous State Slot"; group = "State";
 		break;
+		case HK_LOAD_PREV_STATE:
+			name = "LoadPrevState"; keySeq = ""; title = "Load Previous Recorded State"; group = "State";
+		break;
+		case HK_LOAD_NEXT_STATE:
+			name = "LoadNextState"; keySeq = ""; title = "Load Next Recorded State"; group = "State";
+		break;
+		case HK_VOLUME_MUTE:
+			name = "VolumeMute"; keySeq = ""; title = "Sound Volume Mute"; group = "Sound";
+		break;
 		case HK_VOLUME_DOWN:
-			name = "VolumeDown"; keySeq = "";
+			name = "VolumeDown"; keySeq = ""; title = "Sound Volume Down"; group = "Sound";
 		break;
 		case HK_VOLUME_UP:
-			name = "VolumeUp"; keySeq = "";
+			name = "VolumeUp"; keySeq = ""; title = "Sound Volume Up"; group = "Sound";
 		break;
 		case HK_FKB_ENABLE:
 			name = "FKB_Enable"; keySeq = "ScrollLock"; title = "Toggle Family Keyboard Enable";
@@ -423,7 +438,8 @@ CreateDirs(const std::string &dir)
 static void
 GetBaseDirectory(std::string &dir)
 {
-	char *home = getenv("FCEUX_HOME");
+	const char *home = getenv("FCEUX_HOME");
+	const char *conf = getenv("FCEUX_CONFIG_DIR");
 
 #ifdef WIN32
 	// Windows users want base directory to be where executable resides.
@@ -444,21 +460,27 @@ GetBaseDirectory(std::string &dir)
 	}
 #endif
 
-	if (home) 
+	if (conf)
+	{
+		dir = std::string(conf);
+	}
+	else if (home) 
 	{
 		dir = std::string(home) + "/.fceux";
-	} else {
+	}
+	else
+	{
 #ifdef WIN32
-		home = new char[MAX_PATH + 1];
-		GetModuleFileNameA(NULL, home, MAX_PATH + 1);
+		char *exePath = new char[MAX_PATH + 1];
+		GetModuleFileNameA(NULL, exePath, MAX_PATH + 1);
 
-		char *lastBS = strrchr(home,'\\');
+		char *lastBS = strrchr(exePath,'\\');
 		if(lastBS) {
 			*lastBS = 0;
 		}
 
-		dir = std::string(home);
-		delete[] home;
+		dir = std::string(exePath);
+		delete[] exePath;
 #else
 		dir = "";
 #endif
@@ -483,6 +505,7 @@ InitConfig()
 
 	// sound options
 	config->addOption('s', "sound", "SDL.Sound", 1);
+	config->addOption("soundMute", "SDL.Sound.Mute", 0);
 	config->addOption("volume", "SDL.Sound.Volume", 255);
 	config->addOption("trianglevol", "SDL.Sound.TriangleVolume", 255);
 	config->addOption("square1vol", "SDL.Sound.Square1Volume", 255);
@@ -505,6 +528,7 @@ InitConfig()
 	config->addOption("nospritelim", "SDL.DisableSpriteLimit", 0);
 	config->addOption("swapduty", "SDL.SwapDuty", 0);
 	config->addOption("ramInit", "SDL.RamInitMethod", 0);
+	config->addOption("SDL.FrameAdvanceDelay", 40);
 
 	// color control
 	config->addOption('p', "palette", "SDL.Palette", "");
@@ -529,6 +553,7 @@ InitConfig()
 	config->addOption('f', "fullscreen", "SDL.Fullscreen", 0);
 	config->addOption("videoDriver", "SDL.VideoDriver", 0);
 	config->addOption("SDL.VideoBgColor", "#000000");
+	config->addOption("SDL.UseBgPaletteForVideo", false);
 	config->addOption("SDL.VideoVsync", 1);
 
 	// set x/y res to 0 for automatic fullscreen resolution detection (no change)
@@ -667,6 +692,7 @@ InitConfig()
 	config->addOption("SDL.DebuggerBreakOnBadOpcodes", 0);
 	config->addOption("SDL.DebuggerBreakOnUnloggedCode", 0);
 	config->addOption("SDL.DebuggerBreakOnUnloggedData", 0);
+	config->addOption("SDL.DebugAutoStartTraceLogger", 0);
 
 	// Code Data Logger Options
 	config->addOption("autoSaveCDL"  , "SDL.AutoSaveCDL", 1);
@@ -695,6 +721,7 @@ InitConfig()
 	config->addOption("no-config", "SDL.NoConfig", 0);
 
 	config->addOption("autoresume", "SDL.AutoResume", 0);
+	config->addOption("SDL.FamilyKeyboardFont"  , "");
     
 	// video playback
 	config->addOption("playmov", "SDL.Movie", "");
@@ -726,6 +753,16 @@ InitConfig()
     // auto load/save on gameload/close
 	config->addOption("loadstate", "SDL.AutoLoadState", INVALID_STATE);
 	config->addOption("savestate", "SDL.AutoSaveState", INVALID_STATE);
+
+	config->addOption("SDL.StateRecorderEnable", false);
+	config->addOption("SDL.StateRecorderHistoryDurationMin", 15);
+	config->addOption("SDL.StateRecorderTimingMode", 0);
+	config->addOption("SDL.StateRecorderFramesBetweenSnaps", 60);
+	config->addOption("SDL.StateRecorderTimeBetweenSnapsMin", 0);
+	config->addOption("SDL.StateRecorderTimeBetweenSnapsSec", 3);
+	config->addOption("SDL.StateRecorderCompressionLevel", 0);
+	config->addOption("SDL.StateRecorderPauseOnLoad", 1);
+	config->addOption("SDL.StateRecorderPauseDuration", 3);
 
 	//TODO implement this
 	config->addOption("periodicsaves", "SDL.PeriodicSaves", 0);
@@ -1075,6 +1112,7 @@ UpdateEMUCore(Config *config)
 	config->getOption("SDL.VBlankScanlines"     , &vblankscanlines        );
 	config->getOption("SDL.Skip7bitOverClocking", &skip_7bit_overclocking );
 	config->getOption("SDL.ShowGuiMessages"     , &vidGuiMsgEna           );
+	config->getOption("SDL.FrameAdvanceDelay"   , &frameAdvance_Delay     );
 
 	config->getOption("SDL.PAL", &region);
 	FCEUI_SetRegion(region);

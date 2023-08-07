@@ -51,7 +51,7 @@ static int autoResumeCDL = false;
 static bool autoSaveArmedCDL = false;
 static char loadedcdfile[512] = {0};
 
-static int getDefaultCDLFile(char *filepath);
+static int getDefaultCDLFile(std::string &filepath);
 
 static CodeDataLoggerDialog_t *cdlWin = NULL;
 //----------------------------------------------------
@@ -63,7 +63,6 @@ int openCDLWindow( QWidget *parent )
 	{
 		cdlWin->activateWindow();
 		cdlWin->raise();
-		cdlWin->setFocus();
 	}
 	else
 	{
@@ -280,9 +279,9 @@ CodeDataLoggerDialog_t::CodeDataLoggerDialog_t(QWidget *parent)
 
 	if (autoLoadCDL)
 	{
-		char nameo[2048];
+		std::string nameo;
 		getDefaultCDLFile(nameo);
-		LoadCDLog(nameo);
+		LoadCDLog(nameo.c_str());
 	}
 
 	restoreGeometry(settings.value("cdLogger/geometry").toByteArray());
@@ -444,15 +443,15 @@ void CodeDataLoggerDialog_t::saveCdlFileAs(void)
 
 	if (romFile != NULL)
 	{
-		char dir[512], base[256];
+		std::string dir, base;
 
-		parseFilepath(romFile, dir, base);
+		parseFilepath(romFile, &dir, &base);
 
-		strcat(base, ".cdl");
+		base.append(".cdl");
 
-		dialog.setDirectory(tr(dir));
+		dialog.setDirectory(tr(dir.c_str()));
 
-		dialog.selectFile(tr(base));
+		dialog.selectFile(tr(base.c_str()));
 	}
 
 	// Check config option to use native file dialog or not
@@ -489,7 +488,7 @@ void CodeDataLoggerDialog_t::loadCdlFile(void)
 {
 	int ret, useNativeFileDialogVal;
 	QString filename;
-	char dir[512];
+	std::string dir;
 	const char *romFile;
 	QFileDialog dialog(this, tr("Load CDL File"));
 
@@ -507,7 +506,7 @@ void CodeDataLoggerDialog_t::loadCdlFile(void)
 	{
 		getDirFromFile(romFile, dir);
 
-		dialog.setDirectory(tr(dir));
+		dialog.setDirectory(tr(dir.c_str()));
 	}
 
 	// Check config option to use native file dialog or not
@@ -587,11 +586,11 @@ void CodeDataLoggerDialog_t::SaveStrippedROM(int invert)
 
 	if (romFile != NULL)
 	{
-		char dir[512], base[256];
+		std::string dir;
 
-		parseFilepath(romFile, dir, base);
+		parseFilepath(romFile, &dir);
 
-		dialog.setDirectory(tr(dir));
+		dialog.setDirectory(tr(dir.c_str()));
 	}
 
 	// Check config option to use native file dialog or not
@@ -725,12 +724,12 @@ void CodeDataLoggerDialog_t::SaveUnusedROMClicked(void)
 	SaveStrippedROM(1);
 }
 //----------------------------------------------------
-static int getDefaultCDLFile(char *filepath)
+static int getDefaultCDLFile(std::string &filepath)
 {
 	const char *romFile;
-	char dir[512], baseFile[256];
+	std::string dir, baseFile;
 
-	filepath[0] = 0;
+	filepath.clear();
 
 	romFile = getRomFile();
 
@@ -739,15 +738,18 @@ static int getDefaultCDLFile(char *filepath)
 		return -1;
 	}
 
-	parseFilepath(romFile, dir, baseFile);
+	parseFilepath(romFile, &dir, &baseFile);
 
-	if (dir[0] == 0)
+	if (dir.size() == 0)
 	{
-		sprintf(filepath, "%s.cdl", baseFile);
+		filepath.assign(baseFile);
+		filepath.append(".cdl");
 	}
 	else
 	{
-		sprintf(filepath, "%s/%s.cdl", dir, baseFile);
+		filepath.assign(dir);
+		filepath.append(baseFile);
+		filepath.append(".cdl");
 	}
 
 	//printf("%s\n", filepath );
@@ -787,7 +789,14 @@ void InitCDLog(void)
 	if (!CHRram[0] || (CHRptr[0] == PRGptr[0]))
 	{ // Some kind of workaround for my OneBus VRAM hack, will remove it if I find another solution for that
 		cdloggerVideoDataSize = CHRsize[0];
-		cdloggervdata = (unsigned char *)malloc(cdloggerVideoDataSize);
+		if (cdloggerVideoDataSize > 0)
+		{
+			cdloggervdata = (unsigned char *)malloc(cdloggerVideoDataSize);
+		}
+		else
+		{
+			cdloggervdata = nullptr;
+		}
 	}
 	else
 	{
@@ -829,7 +838,10 @@ void ResetCDLog(void)
 		if (GameInfo->type != GIT_NSF)
 		{
 			undefinedvromcount = 8192;
-			memset(cdloggervdata, 0, 8192);
+			if (cdloggervdata != NULL)
+			{
+				memset(cdloggervdata, 0, 8192);
+			}
 		}
 	}
 	FCEU_WRAPPER_UNLOCK();
@@ -938,11 +950,11 @@ void CDLoggerROMChanged(void)
 		return;
 
 	// try to load respective CDL file
-	char nameo[1024];
+	std::string nameo;
 	getDefaultCDLFile(nameo);
 
 	FILE *FP;
-	FP = fopen(nameo, "rb");
+	FP = fopen(nameo.c_str(), "rb");
 	if (FP != NULL)
 	{
 		// .cdl file with this ROM name exists
@@ -951,7 +963,7 @@ void CDLoggerROMChanged(void)
 		//{
 		//	DoCDLogger();
 		//}
-		if (LoadCDLog(nameo))
+		if (LoadCDLog(nameo.c_str()))
 		{
 			StartCDLogging();
 		}
@@ -967,9 +979,9 @@ void SaveCDLogFile(void)
 {
 	if (loadedcdfile[0] == 0)
 	{
-		char nameo[1024];
+		std::string nameo;
 		getDefaultCDLFile(nameo);
-		RenameCDLog(nameo);
+		RenameCDLog(nameo.c_str());
 	}
 
 	FILE *FP;
