@@ -1,12 +1,12 @@
-FCEUX 2.6.2 for OpenDingux/RetroFW
+FCEUX __RELEASE__ for OpenDingux/RetroFW
 ----------------------------------
-Built on: RELEASE_DATE
+Built on: __RELEASE_DATE__
 
 FCEUX is a cross platform, NTSC and PAL Famicom/NES and Dendy emulator
 
 This is a build for OpenDingux and RetroFW based on soarqin's 
-fork with additions from gameblabla, pingflood's and asoderq/sydarn2 works and
-updated to the upstream version 2.6.2 (Released 4 February 2022).
+fork with additions from gameblabla, pingflood and asoderq/sydarn2 works and
+updated to the upstream version 2.6.5 (Released 07 February 2023).
 
 Bios file
 ---------
@@ -226,6 +226,9 @@ Overclock
 What's new
 ----------
 
+  7 August 2023
+  - Updated to upstream 2.6.5
+
  18 February 2022
   - Updated to upstream 2.6.2
   - Change video mode to 320x240 when access cheats with hotkey
@@ -350,6 +353,6 @@ Build files are created in the `bin`directory.
 
 ----
 
-Thanks go to current maintainers of upstream FCEUX andall people who worked on
+Thanks go to current maintainers of upstream FCEUX and all people who worked on
 each incarnation of FCEUX: the_gama, ValdikSS and DiegoSLTS, Steward-fu, soarqin,
 gameblabla, pingflood.

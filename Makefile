@@ -83,6 +83,7 @@ BOARDS_OBJS = \
 	$(SRC)boards/246.o \
 	$(SRC)boards/252.o \
 	$(SRC)boards/253.o \
+	$(SRC)boards/354.o \
 	$(SRC)boards/411120-c.o \
 	$(SRC)boards/603-5052.o \
 	$(SRC)boards/8157.o \
@@ -108,6 +109,7 @@ BOARDS_OBJS = \
 	$(SRC)boards/cheapocabra.o \
 	$(SRC)boards/cityfighter.o \
 	$(SRC)boards/coolboy.o \
+	$(SRC)boards/coolgirl.o \
 	$(SRC)boards/dance2000.o \
 	$(SRC)boards/datalatch.o \
 	$(SRC)boards/dream.o \
@@ -128,6 +130,7 @@ BOARDS_OBJS = \
 	$(SRC)boards/hp898f.o \
 	$(SRC)boards/hp10xx_hp20xx.o \
 	$(SRC)boards/inlnsf.o \
+	$(SRC)boards/inx007t.o \
 	$(SRC)boards/karaoke.o \
 	$(SRC)boards/kof97.o \
 	$(SRC)boards/ks7010.o \
@@ -237,7 +240,7 @@ ODVERSION =
 
 TARGET = fceux_od
 
-RELEASE = 2.6.2
+RELEASE = 2.6.5
 RELEASE_DATE = $(shell date +%F)
 
 DEBUG=no
@@ -318,7 +321,8 @@ $(SYSTEM_DESKTOP): $(SKELETON_DESKTOP) $(MANUAL)
 
 $(MANUAL): $(DIST_MANUAL)
 	@cp $(DIST_MANUAL) $(MANUAL)
-	@sed -i "s/RELEASE_DATE/${RELEASE_DATE}/g" $(MANUAL)
+	@sed -i "s/__RELEASE_DATE__/${RELEASE_DATE}/g" $(MANUAL)
+	@sed -i "s/__RELEASE__/${RELEASE}/g" $(MANUAL)
 
 $(OPK_TARGET).opk: $(TARGET) $(SYSTEM_DESKTOP) $(MANUAL)
 	@echo Creating bin/$(OPK_TARGET).opk...
