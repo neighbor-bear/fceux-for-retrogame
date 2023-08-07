@@ -537,6 +537,13 @@ void FCEUD_DebugBreakpoint() {
 /**
  * Unimplemented.
  */
+void FCEUD_FlushTrace()
+{
+}
+
+/**
+ * Unimplemented.
+ */
 void FCEUD_TraceInstruction() {
 	return;
 }
