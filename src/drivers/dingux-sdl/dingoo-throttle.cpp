@@ -7,13 +7,15 @@
 
 #include "dingoo.h"
 #include "throttle.h"
+#include "utils/timeStamp.h"
 
 static const double Slowest = 0.015625; // 1/64x speed (around 1 fps on NTSC)
 static const double Fastest = 32;       // 32x speed   (around 1920 fps on NTSC)
 static const double Normal  = 1.0;      // 1x speed    (around 60 fps on NTSC)
 
 static uint32 frameLateCounter = 0;
-static double Lasttime=0, Nexttime=0, Latetime=0;
+static FCEU::timeStampRecord Lasttime, Nexttime, Latetime;
+static FCEU::timeStampRecord DesiredFrameTime, HalfFrameTime, QuarterFrameTime, DoubleFrameTime;
 static double desired_frametime = (1.0 / 60.099823);
 static double desired_frameRate = (60.099823);
 static double baseframeRate     = (60.099823);
@@ -36,13 +38,20 @@ static double frmRateAdjRatio = 1.000000f; // Frame Rate Adjustment Ratio
 
 double getHighPrecTimeStamp(void)
 {
-	struct timespec ts;
 	double t;
 
-	clock_gettime( CLOCK_REALTIME, &ts );
+	if (FCEU::timeStampModuleInitialized())
+	{
+		FCEU::timeStampRecord ts;
+		ts.readNew();
+		t = ts.toSeconds();
+	}
+	else
+	{
+		t = (double)SDL_GetTicks();
 
-	t = (double)ts.tv_sec + (double)(ts.tv_nsec * 1.0e-9);
-
+		t = t * 1e-3;
+	}
 	return t;
 }
 
@@ -84,9 +93,9 @@ static void setTimer( double hz )
 
 	//printf("Timer Set: %li ns\n", ispec.it_value.tv_nsec );
 
-	Lasttime = getHighPrecTimeStamp();
-	Nexttime = Lasttime + desired_frametime;
-	Latetime = Nexttime + (desired_frametime*0.50);
+	Lasttime.readNew();
+	Nexttime = Lasttime + DesiredFrameTime;
+	Latetime = Nexttime + HalfFrameTime;
 }
 
 int getTimingMode(void)
@@ -229,10 +238,17 @@ void RefreshThrottleFPS()
 
 	if ( T < 0 ) T = 1;
 
+	DesiredFrameTime.fromSeconds( desired_frametime );
+	HalfFrameTime = DesiredFrameTime / 2;
+	QuarterFrameTime = DesiredFrameTime / 4;
+	DoubleFrameTime = DesiredFrameTime * 2;
+
+	//printf("FrameTime: %f  %f  %f  %f \n", DesiredFrameTime.toSeconds(),
+	//		HalfFrameTime.toSeconds(), QuarterFrameTime.toSeconds(), DoubleFrameTime.toSeconds() );
 	//printf("FrameTime: %llu  %llu  %f  %lf \n", fps, fps >> 24, hz, desired_frametime );
 
-	Lasttime=0;   
-	Nexttime=0;
+	Lasttime.zero();
+	Nexttime.zero();
 	InFrame=0;
 
 	setTimer( hz * g_fpsScale );
@@ -254,13 +270,12 @@ double getFrameRateAdjustmentRatio(void)
 }
 
 
-int highPrecSleep( double timeSeconds )
+static int highPrecSleep( FCEU::timeStampRecord &ts )
 {
 	int ret = 0;
 	struct timespec req, rem;
 	
-	req.tv_sec  = (long)timeSeconds;
-	req.tv_nsec = (long)((timeSeconds - (double)req.tv_sec) * 1e9);
+	req = ts.toTimeSpec();
 
 	ret = nanosleep( &req, &rem );
 	return ret;
@@ -276,40 +291,36 @@ int SpeedThrottle()
 	{
 		return 0; /* Done waiting */
 	}
-	double time_left;
-	double cur_time, idleStart;
-	double frame_time = desired_frametime;
-	double halfFrame = 0.500 * frame_time;
-	double quarterFrame = 0.250 * frame_time;
-	static double const max_wait = 0.05; //20Hz
+	FCEU::timeStampRecord cur_time, idleStart, time_left;
     
-	idleStart = cur_time = getHighPrecTimeStamp();
+	cur_time.readNew();
+	idleStart = cur_time;
 
-	if (Lasttime < 1.0)
+	if (Lasttime.isZero())
 	{
 		Lasttime = cur_time;
-		Latetime = Lasttime + 2.0*frame_time;
+		Latetime = Lasttime + DoubleFrameTime;
 	}
     
 	if (!InFrame)
 	{
 		InFrame = 1;
-		Nexttime = Lasttime + frame_time;
-		Latetime = Nexttime + halfFrame;
+		Nexttime = Lasttime + DesiredFrameTime;
+		Latetime = Nexttime + HalfFrameTime;
 	}
     
 	if (cur_time >= Nexttime)
 	{
-		time_left = 0;
+		time_left.zero();
 	}
 	else
 	{
 		time_left = Nexttime - cur_time;
 	}
     
-	if (time_left > max_wait)
+	if (time_left.toMilliSeconds() > 50)
 	{
-		time_left = max_wait;
+		time_left.fromMilliSeconds(50);
 		/* In order to keep input responsive, don't wait too long at once */
 		/* 50 ms wait gives us a 20 Hz responsetime which is nice. */
 	}
@@ -334,7 +345,7 @@ int SpeedThrottle()
 			}
 		}
 	}
-	else if ( time_left > 0 )
+	else if ( !time_left.isZero() )
 	{
 		highPrecSleep( time_left );
 	}
@@ -347,14 +358,15 @@ int SpeedThrottle()
 		}
 	}
     
-	cur_time = getHighPrecTimeStamp();
+	cur_time.readNew();
 
-	if ( cur_time >= (Nexttime - quarterFrame) )
+	if ( cur_time >= (Nexttime - QuarterFrameTime) )
 	{
 		if ( keepFrameTimeStats )
 		{
+			FCEU::timeStampRecord diffTime = (cur_time - Lasttime);
 
-			frameDeltaCur = (cur_time - Lasttime);
+			frameDeltaCur = diffTime.toSeconds();
 
 			if ( frameDeltaCur < frameDeltaMin )
 			{
@@ -365,7 +377,9 @@ int SpeedThrottle()
 				frameDeltaMax = frameDeltaCur;
 			}
 
-			frameIdleCur = (cur_time - idleStart);
+			diffTime = (cur_time - idleStart);
+
+			frameIdleCur = diffTime.toSeconds();
 
 			if ( frameIdleCur < frameIdleMin )
 			{
@@ -379,14 +393,14 @@ int SpeedThrottle()
 			//printf("Frame Sleep Time: %f   Target Error: %f us\n", time_left * 1e6, (cur_time - Nexttime) * 1e6 );
 		}
 		Lasttime = Nexttime;
-		Nexttime = Lasttime + frame_time;
-		Latetime = Nexttime + halfFrame;
+		Nexttime = Lasttime + DesiredFrameTime;
+		Latetime = Nexttime + HalfFrameTime;
 
 		if ( cur_time >= Nexttime )
 		{
 			Lasttime = cur_time;
-			Nexttime = Lasttime + frame_time;
-			Latetime = Nexttime + halfFrame;
+			Nexttime = Lasttime + DesiredFrameTime;
+			Latetime = Nexttime + HalfFrameTime;
 		}
 		return 0; /* Done waiting */
 	}
