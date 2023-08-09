@@ -57,6 +57,7 @@ static void lowpass_update(unsigned long key) {
 		val = 0;
 
 	g_config->setOption("SDL.Sound.LowPass", val);
+	FCEUI_SetLowPass(val);
 }
 
 // Buffer size

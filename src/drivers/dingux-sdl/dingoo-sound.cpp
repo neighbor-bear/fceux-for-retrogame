@@ -44,13 +44,14 @@ static unsigned int s_BufferSize50;
 static unsigned int s_BufferSize75;
 static unsigned int s_BufferRead;
 static unsigned int s_BufferWrite;
-static volatile unsigned int s_BufferIn;
+static volatile unsigned int s_BufferIn = 0;
 static unsigned int s_SampleRate = 44100;
 static double noiseGate = 0.0;
 static double noiseGateRate = 0.010;
 static bool   noiseGateActive = true;
 static bool   muteSoundOutput = false;
 static bool   fillInit = 1;
+static const unsigned int supportedSampleRates[] = { 8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 0 };
 
 static int s_mute = 0;
 
@@ -189,13 +190,12 @@ fillaudio(void *udata,
  */
 int InitSound() 
 {
-    int sound, soundrate, soundbufsize, soundvolume, soundtrianglevolume,
-            soundsquare1volume, soundsquare2volume, soundnoisevolume,
-            soundpcmvolume, soundq, lowpass, samples;
+    int i, sound, soundrate, soundbufsize, soundvolume, soundtrianglevolume, soundsquare1volume, soundsquare2volume, soundnoisevolume, soundpcmvolume, soundq;
     SDL_AudioSpec spec;
     char driverName[8];
     int frmRateSampleAdj = 0;
     int samplesPerFrame;
+    bool sampleRateIsSupported = false;
 
     FCEUI_printf("Initializing audio...\n");
     
@@ -223,7 +223,31 @@ int InitSound()
     g_config->getOption("SDL.Sound.Square2Volume", &soundsquare2volume);
     g_config->getOption("SDL.Sound.NoiseVolume", &soundnoisevolume);
     g_config->getOption("SDL.Sound.PCMVolume", &soundpcmvolume);
-    g_config->getOption("SDL.Sound.LowPass", &lowpass);
+
+    i = 0;
+    while (supportedSampleRates[i] != 0)
+    {
+        if (static_cast<unsigned int>(soundrate) == supportedSampleRates[i])
+        {
+            sampleRateIsSupported = true;
+            break;
+        }
+        i++;
+    }
+
+    if (!sampleRateIsSupported)
+    {
+        printf("Error: Audio Sample Rate %i is either invalid or not supported, reverting to default of 44100\n", soundrate);
+        soundrate = 44100;
+        g_config->setOption("SDL.Sound.Rate", soundrate);
+    }
+
+    if ( (soundbufsize < 15) || (soundbufsize > 200) )
+    {
+        printf("Error: Audio Buffer Size of %i ms is invalid, reverting to default of 128\n", soundbufsize);
+        soundbufsize = 128;
+        g_config->setOption("SDL.Sound.BufSize", soundbufsize);
+    }
 
     spec.freq = s_SampleRate = soundrate;
     spec.format = AUDIO_S16SYS;
@@ -243,9 +267,9 @@ int InitSound()
     s_BufferSize = soundbufsize * soundrate / 1000;    
     
     // For safety, set a bare minimum:
-    if (s_BufferSize < spec.samples * 2)
+    if (s_BufferSize < static_cast<unsigned int>(spec.samples * 4))
     {
-	    s_BufferSize = spec.samples * 2;
+	    s_BufferSize = spec.samples * 4;
     }
     s_BufferSize25 =    s_BufferSize/4;
     s_BufferSize50 =    s_BufferSize/2;
@@ -290,8 +314,6 @@ int InitSound()
     FCEUI_SetSquare2Volume(soundsquare2volume);
     FCEUI_SetNoiseVolume(soundnoisevolume);
     FCEUI_SetPCMVolume(soundpcmvolume);
-    FCEUI_SetLowPass(lowpass);
-
     return (1);
 }
 
@@ -516,6 +538,7 @@ KillSound(void)
 		free((void *)s_Buffer);
 		s_Buffer = 0;
 	}
+	s_BufferIn = 0;
 	return 0;
 }
 
