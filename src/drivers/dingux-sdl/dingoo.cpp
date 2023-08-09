@@ -37,6 +37,7 @@
 #include "dummy-netplay.h"
 
 #include "../common/configSys.h"
+#include "../../utils/timeStamp.h"
 #include "../../oldmovie.h"
 #include "../../types.h"
 
@@ -958,7 +959,23 @@ int main(int argc, char *argv[]) {
  * Get the time in ticks.
  */
 uint64 FCEUD_GetTime() {
-	return SDL_GetTicks();
+	uint64 t;
+
+	if (FCEU::timeStampModuleInitialized())
+	{
+		FCEU::timeStampRecord ts;
+
+		ts.readNew();
+
+		t = ts.toCounts();
+	}
+	else
+	{
+		t = (double)SDL_GetTicks();
+
+		t = t * 1e-3;
+	}
+	return t;
 }
 
 /**
@@ -967,7 +984,13 @@ uint64 FCEUD_GetTime() {
 uint64 FCEUD_GetTimeFreq(void)
 {
 	// SDL_GetTicks() is in milliseconds
-	return 1000;
+	uint64 f = 1000;
+
+	if (FCEU::timeStampModuleInitialized())
+	{
+		f = FCEU::timeStampRecord::countFreq();
+	}
+	return f;
 }
 
 /**
