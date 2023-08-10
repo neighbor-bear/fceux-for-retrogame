@@ -315,9 +315,9 @@ void FCEUD_Update(uint8 *XBuf, int32 *Buffer, int Count);
 
 void DoFun(int frameskip, int periodic_saves)
 {
-	uint8 *gfx;
-	int32 *sound;
-	int32 ssize;
+	uint8 *gfx = 0;
+	int32 *sound = 0;
+	int32 ssize = 0;
 	static int fskipc = 0;
 	static int frameskip_counter = 0;
 
@@ -520,12 +520,13 @@ FILE *FCEUD_UTF8fopen(const char *fn, const char *mode) {
 	return (fopen(fn, mode));
 }
 
-static char *s_linuxCompilerString = "g++ " __VERSION__;
+#define __COMPILER__STRING__ "gcc " __VERSION__
+static const char *s_CompilerString = __COMPILER__STRING__;
 /**
  * Returns the compiler string.
  */
 const char *FCEUD_GetCompilerString() {
-	return (const char *) s_linuxCompilerString;
+	return s_CompilerString;
 }
 
 /**
