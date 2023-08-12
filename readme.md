@@ -1,4 +1,4 @@
-# FCEUX 2.6.2 for OpenDingux/RetroFW
+# FCEUX 2.6.5 for OpenDingux/RetroFW
 
 FCEUX is a cross platform, NTSC and PAL Famicom/NES and Dendy emulator
 
