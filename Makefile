@@ -267,7 +267,7 @@ else ifeq ($(DEVICE),lepus)
 else
     OPTIMIZE += -mips32r2
 endif
-OPTIMIZE += -ffast-math -ftree-vectorize -fno-strict-aliasing
+OPTIMIZE += -ffast-math -ftree-vectorize -fno-strict-aliasing -fipa-pta
 ifdef PROFILE_GEN
 ifeq ($(DEVICE),retrofw)
 PROFILE_DIR=/home/retrofw/profile/fceux
