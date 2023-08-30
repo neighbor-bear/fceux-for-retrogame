@@ -1,10 +1,10 @@
-# FCEUX 2.6.5 for OpenDingux/RetroFW
+# FCEUX 2.6.6 for OpenDingux/RetroFW
 
 FCEUX is a cross platform, NTSC and PAL Famicom/NES and Dendy emulator
 
-This is a build for OpenDingux and RetroFW based on soarqin's fork with additions from gameblabla, pingflood and asoderq/sydarn2 works and updated to the upstream version 2.6.5 (Released 7 February 2023).
+This is a build for OpenDingux and RetroFW based on soarqin's fork with additions from gameblabla, pingflood and asoderq/sydarn2 works and updated to the upstream version 2.6.6 (Released 26 August 2023).
 
-You can see the upstream FCEUX changelog [here](https://fceux.com/web/help/WhatsNew265.html)
+You can see the upstream FCEUX changelog [here](https://fceux.com/web/help/WhatsNew266.html)
 
 ## Bios file
 

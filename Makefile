@@ -242,7 +242,7 @@ ODVERSION =
 
 TARGET = fceux_od
 
-RELEASE = 2.6.5
+RELEASE = 2.6.6
 RELEASE_DATE = $(shell date +%F)
 
 DEBUG=no
