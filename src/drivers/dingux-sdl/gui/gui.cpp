@@ -320,15 +320,15 @@ static int cmd_exit() {
 /* MAIN MENU */
 
 static MenuEntry main_menu[] = { 
-		{ "Load ROM", "Load new rom or movie", load_rom },
-		{ "Reset", "Reset NES", reset_nes },
-		{ "Cheats", "Enable and import cheats", enable_cheats },
+		{ "加载ROM", "加载一个新的ROM或者视频", load_rom },
+		{ "重置", "重置NES", reset_nes },
+		{ "金手指", "启用和导入金手指", enable_cheats },
 		{ "Flip disc", "Switch side or disc (FDS)", flip_disc },
-		{ "Save state", "Save current state", save_state },
-		{ "Load state", "Load emulation state", load_state },
-		{ "Screenshot", "Save current frame shot", save_screenshot },
-		{ "Settings", "Change current settings", cmd_settings_menu },
-		{ "Exit", "Exit emulator", cmd_exit } 
+		{ "即时存档", "保存当前状态", save_state },
+		{ "即时读档", "加载当前状态", load_state },
+		{ "截图", "保存当前帧截图", save_screenshot },
+		{ "设置", "改变当前设置", cmd_settings_menu },
+		{ "退出", "退出模拟器", cmd_exit } 
 };
 static int main_menu_items = sizeof(main_menu) / sizeof(main_menu[0]);
 static MenuEntry main_menu_bck[sizeof(main_menu) / sizeof(main_menu[0])];
@@ -447,7 +447,7 @@ void FCEUGUI_Run() {
 			done = main_menu[index].command();
 		}
 
-		if (!strncmp(main_menu[index].name, "Save state", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
+		if (!strncmp(main_menu[index].name, "即时存档", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
 			if (parsekey(DINGOO_RIGHT, 0)) {
 				if (g_slot < 9) {
 					g_slot++;
@@ -482,7 +482,7 @@ void FCEUGUI_Run() {
 			DrawChar(gui_screen, SP_SELECTOR, 56, spy);
 			DrawChar(gui_screen, SP_SELECTOR, 77, spy);
 
-			if (!strncmp(main_menu[index].name, "Save state", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
+			if (!strncmp(main_menu[index].name, "即时存档", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
 				// Draw state preview
 				DrawChar(gui_screen, SP_PREVIEWBLOCK, 184, 73);
 				draw_preview((unsigned short *)gui_screen->pixels, 185, 100);
@@ -507,7 +507,7 @@ void FCEUGUI_Run() {
 			DrawText(gui_screen, main_menu[index].info, 8, 225);
 
 			// If save/load state render slot preview and number
-			if (!strncmp(main_menu[index].name, "Save state", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
+			if (!strncmp(main_menu[index].name, "即时存档", 10) || !strncmp(main_menu[index].name, "Load state", 10)) {
 				char tmp[32];
 				sprintf(tmp, "Slot %d", g_slot);
 				DrawText(gui_screen, tmp, 212, 80);
