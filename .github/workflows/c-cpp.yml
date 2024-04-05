@@ -2,7 +2,7 @@ name: Build OPK
  
 on:
   push:
-    branches: [ main ]
+    branches: [ opendingux ]
  
 jobs:
   build:
