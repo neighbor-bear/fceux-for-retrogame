@@ -1,64 +1,69 @@
-name: Build OPK
+name: Build FCEUX for Dingux Devices
 
 on:
-  workflow_dispatch:
   push:
-    branches: [opendingux]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        device: [gcw0, retrofw, lepus]
+        include:
+          - device: gcw0
+            odversion: "2014"
+          - device: retrofw
+            odversion: ""
+          - device: lepus
+            odversion: ""
+    
+    name: Build for ${{ matrix.device }}
+    env:
+      DEVICE: ${{ matrix.device }}
+      ODVERSION: ${{ matrix.odversion }}
+    
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build Docker image
+      uses: actions/checkout@v3
+    
+    - name: Install dependencies
       run: |
-        if [ ! -f "Dockerfile" ]; then
-          echo "::error::Dockerfile not found!"
-          exit 1
-        fi
-        
-        docker build -t my-opk-image . \
-          --progress=plain \
-          --no-cache \
-          --build-arg BUILDKIT_INLINE_CACHE=1
-        
-        if ! docker image inspect my-opk-image &>/dev/null; then
-          echo "::error::Docker image build failed!"
-          exit 1
-        fi
-
-    - name: Extract OPK file
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+        sudo apt-get install -y libsdl1.2-dev
+        sudo apt-get install -y squashfs-tools
+        sudo apt-get install -y wget tar xz-utils
+    
+    - name: Setup GCW0 Toolchain
       run: |
-        mkdir -p opk-output
-        docker run --rm -v $(pwd)/opk-output:/final-output my-opk-image
-        
-        if [ ! -s "opk-output/fceux.opk" ]; then
-          echo "::error::OPK file is empty or missing!"
-          CONTAINER_ID=$(docker create my-opk-image)
-          docker cp $CONTAINER_ID:/build/fceux.opk opk-output/fceux.opk || true
-          docker rm -v $CONTAINER_ID
-          
-          if [ ! -s "opk-output/fceux.opk" ]; then
-            echo "::error::Failed to get OPK file from container"
-            docker run --rm my-opk-image find / -name "*.opk" -ls
-            exit 1
-          fi
-        fi
-        
-        mv opk-output/fceux.opk ./${{ github.sha }}.opk
-        echo "OPK file created: $(ls -lh ${{ github.sha }}.opk)"
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
+        TOOLCHAIN_URL="https://github.com/retrofw/gcw0-toolchain/releases/download/2021-08-01/gcw0-toolchain-2021-08-01.tar.xz"
+        wget $TOOLCHAIN_URL
+        sudo tar -xJf gcw0-toolchain-*.tar.xz -C /opt
+        rm gcw0-toolchain-*.tar.xz
+        echo "/opt/gcw0-toolchain/usr/bin" >> $GITHUB_PATH
+    
+    - name: Build Release
+      run: |
+        make DEVICE=$DEVICE ODVERSION=$ODVERSION -j$(nproc)
+    
+    - name: Build Debug (GCW0 only)
+      if: matrix.device == 'gcw0'
+      run: |
+        make clean
+        make DEVICE=$DEVICE ODVERSION=$ODVERSION DEBUG=yes -j$(nproc)
+    
+    - name: Rename Artifacts
+      run: |
+        cd bin
+        for f in *.*; do 
+          mv "$f" "${f%.*}-$DEVICE.${f##*.}"
+        done
+    
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v3
       with:
-        name: opk-package
-        path: ${{ github.sha }}.opk
-        retention-days: 7
+        name: fceux-${{ matrix.device }}-binaries
+        path: bin/*
