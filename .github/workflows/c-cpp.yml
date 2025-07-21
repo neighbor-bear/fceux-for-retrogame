@@ -36,15 +36,15 @@ jobs:
         sudo apt-get install -y libsdl1.2-dev
         sudo apt-get install -y squashfs-tools
         sudo apt-get install -y wget tar xz-utils
-        sudo apt-get install -y git make
+        sudo apt-get install -y git make pkg-config
     
     - name: Setup GCW0 Toolchain
       run: |
         TOOLCHAIN_URL="https://github.com/retrofw/gcw0-toolchain/releases/download/2021-08-01/gcw0-toolchain-2021-08-01.tar.xz"
-        wget $TOOLCHAIN_URL
+        wget $TOOLCHAIN_URL -O gcw0-toolchain.tar.xz
         sudo mkdir -p /opt
-        sudo tar -xJf gcw0-toolchain-*.tar.xz -C /opt
-        rm gcw0-toolchain-*.tar.xz
+        sudo tar -xJf gcw0-toolchain.tar.xz -C /opt
+        rm gcw0-toolchain.tar.xz
         echo "/opt/gcw0-toolchain/usr/bin" >> $GITHUB_PATH
     
     - name: Build Release
@@ -62,8 +62,13 @@ jobs:
         mkdir -p artifacts/$DEVICE
         cp bin/* artifacts/$DEVICE/
         cd artifacts/$DEVICE
-        for f in *.*; do 
-          mv "$f" "${f%.*}-$DEVICE.${f##*.}"
+        for f in *; do
+          # 只处理文件，忽略目录
+          if [ -f "$f" ]; then
+            filename="${f%.*}"
+            extension="${f##*.}"
+            mv "$f" "${filename}-${DEVICE}.${extension}"
+          fi
         done
     
     - name: Upload Artifacts
