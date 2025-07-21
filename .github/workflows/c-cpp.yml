@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         device: [gcw0, retrofw, lepus]
@@ -27,7 +27,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     
     - name: Install dependencies
       run: |
@@ -36,11 +36,13 @@ jobs:
         sudo apt-get install -y libsdl1.2-dev
         sudo apt-get install -y squashfs-tools
         sudo apt-get install -y wget tar xz-utils
+        sudo apt-get install -y git make
     
     - name: Setup GCW0 Toolchain
       run: |
         TOOLCHAIN_URL="https://github.com/retrofw/gcw0-toolchain/releases/download/2021-08-01/gcw0-toolchain-2021-08-01.tar.xz"
         wget $TOOLCHAIN_URL
+        sudo mkdir -p /opt
         sudo tar -xJf gcw0-toolchain-*.tar.xz -C /opt
         rm gcw0-toolchain-*.tar.xz
         echo "/opt/gcw0-toolchain/usr/bin" >> $GITHUB_PATH
@@ -55,15 +57,17 @@ jobs:
         make clean
         make DEVICE=$DEVICE ODVERSION=$ODVERSION DEBUG=yes -j$(nproc)
     
-    - name: Rename Artifacts
+    - name: Prepare artifacts
       run: |
-        cd bin
+        mkdir -p artifacts/$DEVICE
+        cp bin/* artifacts/$DEVICE/
+        cd artifacts/$DEVICE
         for f in *.*; do 
           mv "$f" "${f%.*}-$DEVICE.${f##*.}"
         done
     
     - name: Upload Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: fceux-${{ matrix.device }}-binaries
-        path: bin/*
+        path: artifacts/$DEVICE/*
