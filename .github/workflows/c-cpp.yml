@@ -12,40 +12,65 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        submodules: recursive  # 如果项目有子模块
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
     - name: Build Docker image
       run: |
-        # 确保存在Dockerfile
+        # 验证Dockerfile存在
         if [ ! -f "Dockerfile" ]; then
-          echo "ERROR: Dockerfile not found in repository root!"
-          echo "Creating a temporary Dockerfile..."
-          echo "FROM ubuntu:22.04" > Dockerfile
-          echo "RUN apt-get update && apt-get install -y build-essential" >> Dockerfile
-          echo "WORKDIR /build" >> Dockerfile
-          echo "COPY . ." >> Dockerfile
-          echo 'RUN echo "Building OPK..." && touch my-opk-package.opk' >> Dockerfile
-          echo 'CMD ["sh", "-c", "cp /build/*.opk /output/"]' >> Dockerfile
+          echo "::error::Dockerfile not found in repository root!"
+          exit 1
         fi
         
-        docker build -t my-opk-image .
+        # 添加详细日志输出
+        docker build -t my-opk-image . --progress=plain --no-cache
         
+        # 检查镜像是否成功创建
+        if ! docker image inspect my-opk-image &>/dev/null; then
+          echo "::error::Failed to build Docker image!"
+          exit 1
+        fi
+
+    - name: Debug: Show container structure
+      run: |
+        # 创建临时容器检查文件结构
+        docker run --rm my-opk-image find / -name "*.opk" 2>/dev/null || echo "No OPK files found"
+        docker run --rm my-opk-image ls -la /build  # 检查构建目录
+        docker run --rm my-opk-image ls -la /output  # 检查输出目录
+
     - name: Extract OPK file
       run: |
+        # 创建输出目录
         mkdir -p opk-output
+        
         # 运行容器并挂载输出目录
         docker run --rm -v $(pwd)/opk-output:/output my-opk-image
         
-        # 检查是否生成了OPK文件
+        # 等待文件生成
+        sleep 5
+        
+        # 验证OPK文件生成
         if [ -z "$(ls -A opk-output)" ]; then
-          echo "ERROR: No OPK file generated!"
-          exit 1
+          echo "::error::No OPK file generated in container!"
+          
+          # 尝试从其他位置复制
+          echo "Trying alternative locations..."
+          docker run --rm -v $(pwd)/opk-output:/output my-opk-image sh -c "cp /build/*.opk /output/ || cp /app/*.opk /output/ || cp /*.opk /output/ || true"
+          
+          # 再次检查
+          if [ -z "$(ls -A opk-output)" ]; then
+            echo "::error::Still no OPK file found after trying alternative locations"
+            exit 1
+          fi
         fi
         
         # 重命名文件
         mv opk-output/*.opk ./${{ github.sha }}.opk
+        echo "OPK file created: $(ls -lh ${{ github.sha }}.opk)"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
