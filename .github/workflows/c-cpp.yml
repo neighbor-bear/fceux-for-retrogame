@@ -1,17 +1,31 @@
 name: Build FCEUX for Dingux Devices
 
+# 触发规则：main分支push/PR + 手动触发（可选择设备）
 on:
   push: 
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      device:
+        description: '指定构建设备（留空则全量构建gcw0/retrofw/lepus）'
+        type: choice
+        options:
+          - all
+          - gcw0
+          - retrofw
+          - lepus
+        default: all
+        required: true
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        device: [gcw0, retrofw, lepus]
+        
+        device: ${{ github.event.inputs.device == 'all' ? ['gcw0', 'retrofw', 'lepus'] : [github.event.inputs.device] }}
         include:
           - device: gcw0
             odversion: "2014"
@@ -24,6 +38,7 @@ jobs:
     env:
       DEVICE: ${{ matrix.device }}
       ODVERSION: ${{ matrix.odversion }}
+      BUILD_TIME: ${{ github.run_id }} 
     
     steps:
     - name: Checkout code
@@ -31,48 +46,58 @@ jobs:
     
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential
-        sudo apt-get install -y libsdl1.2-dev
-        sudo apt-get install -y squashfs-tools
-        sudo apt-get install -y wget tar xz-utils
-        sudo apt-get install -y git make pkg-config
+        sudo apt-get update -y
+        sudo apt-get install -y build-essential libsdl1.2-dev squashfs-tools
+        sudo apt-get install -y wget tar xz-utils git make pkg-config
+        
+        sudo apt-get clean
     
     - name: Setup GCW0 Toolchain
       run: |
+        set -e 
         TOOLCHAIN_URL="https://github.com/retrofw/gcw0-toolchain/releases/download/2021-08-01/gcw0-toolchain-2021-08-01.tar.xz"
-        wget $TOOLCHAIN_URL -O gcw0-toolchain.tar.xz
+        wget --no-check-certificate $TOOLCHAIN_URL -O gcw0-toolchain.tar.xz
         sudo mkdir -p /opt
         sudo tar -xJf gcw0-toolchain.tar.xz -C /opt
-        rm gcw0-toolchain.tar.xz
+        rm -f gcw0-toolchain.tar.xz
         echo "/opt/gcw0-toolchain/usr/bin" >> $GITHUB_PATH
     
-    - name: Build Release
+    - name: Build Release Version
       run: |
+        set -e
         make DEVICE=$DEVICE ODVERSION=$ODVERSION -j$(nproc)
     
-    - name: Build Debug (GCW0 only)
+    - name: Build Debug Version (GCW0 only)
       if: matrix.device == 'gcw0'
       run: |
+        set -e
         make clean
         make DEVICE=$DEVICE ODVERSION=$ODVERSION DEBUG=yes -j$(nproc)
     
-    - name: Prepare artifacts
+    - name: Prepare Build Artifacts
       run: |
+        set -e
+        # 创建产物目录，确保存在
         mkdir -p artifacts/$DEVICE
-        cp bin/* artifacts/$DEVICE/
+        # 仅复制bin目录下的文件，排除子目录/临时文件
+        find bin -maxdepth 1 -type f -exec cp -f {} artifacts/$DEVICE/ \;
+        # 重命名产物：加设备名+构建ID，避免覆盖
         cd artifacts/$DEVICE
         for f in *; do
-          # 只处理文件，忽略目录
           if [ -f "$f" ]; then
             filename="${f%.*}"
             extension="${f##*.}"
-            mv "$f" "${filename}-${DEVICE}.${extension}"
+            # 无后缀文件直接加标识
+            if [ "$filename" = "$extension" ]; then
+              mv "$f" "${f}-${DEVICE}-${BUILD_TIME}"
+            else
+              mv "$f" "${filename}-${DEVICE}-${BUILD_TIME}.${extension}"
+            fi
           fi
         done
     
-    - name: Upload Artifacts
+    - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: fceux1-${{ matrix.device }}-binaries
+        name: fceux1-${{ matrix.device }}-binaries-${{ env.BUILD_TIME }}
         path: artifacts/$DEVICE/*
